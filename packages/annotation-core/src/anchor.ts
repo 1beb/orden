@@ -1,6 +1,6 @@
-import type { Anchor } from "./types";
+import type { Anchor, TextQuoteSelector } from "./types";
 import { BLOCK_ID_ATTR } from "./blockId";
-import { offsetsFromRange } from "./textOffsets";
+import { offsetsFromRange, rangeFromOffsets } from "./textOffsets";
 
 const QUOTE_CONTEXT = 32;
 
@@ -32,4 +32,25 @@ export function createAnchor(range: Range, _root: Element): Anchor {
       suffix: text.slice(end, end + QUOTE_CONTEXT),
     },
   };
+}
+
+function findQuoteOffset(haystack: string, quote: TextQuoteSelector): number {
+  const withContext = quote.prefix + quote.exact + quote.suffix;
+  const ctxIdx = haystack.indexOf(withContext);
+  if (ctxIdx !== -1) return ctxIdx + quote.prefix.length;
+  return haystack.indexOf(quote.exact);
+}
+
+export function resolveAnchor(anchor: Anchor, root: Element): Range | null {
+  const block = root.querySelector(
+    `[${BLOCK_ID_ATTR}="${anchor.blockId}"]`,
+  );
+  if (block && anchor.quote) {
+    const text = block.textContent ?? "";
+    const at = findQuoteOffset(text, anchor.quote);
+    if (at !== -1) {
+      return rangeFromOffsets(block, at, at + anchor.quote.exact.length);
+    }
+  }
+  return null;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { assignBlockIds } from "../src/blockId";
 import { rangeFromOffsets } from "../src/textOffsets";
-import { createAnchor } from "../src/anchor";
+import { createAnchor, resolveAnchor } from "../src/anchor";
 
 function rendered(html: string): Element {
   const root = document.createElement("div");
@@ -25,5 +25,18 @@ describe("createAnchor", () => {
     expect(anchor.quote!.prefix.endsWith("the ")).toBe(true);
     expect(anchor.quote!.suffix.startsWith(" brown")).toBe(true);
     expect(anchor.position).toEqual({ start: 4, end: 9 });
+  });
+});
+
+describe("resolveAnchor", () => {
+  it("round-trips a selection back to the same text", () => {
+    const root = rendered("<section><p>the quick brown fox jumps</p></section>");
+    const p = root.querySelector("p")!;
+    const range = rangeFromOffsets(p, 4, 9);
+    const anchor = createAnchor(range, root);
+
+    const resolved = resolveAnchor(anchor, root);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.toString()).toBe("quick");
   });
 });
