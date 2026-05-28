@@ -22,8 +22,9 @@ export function addAnnotation(
   log: AnnotationLog,
   body: string,
   target: "agent" | "human" = "agent",
+  range?: { from: number; to: number },
 ): Annotation | null {
-  const { from, to } = view.state.selection;
+  const { from, to } = range ?? view.state.selection;
   if (from >= to) return null;
 
   const doc = view.state.doc;

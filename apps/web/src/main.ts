@@ -7,6 +7,7 @@ import { schema, markdownParser } from "./schema";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
+import { mountAnnotator } from "./annotator-ui";
 import "./styles.css";
 
 const log = new AnnotationLog();
@@ -29,16 +30,10 @@ const view = new EditorView(document.querySelector<HTMLElement>("#editor")!, {
   },
 });
 
-const annotateBtn = document.querySelector<HTMLButtonElement>("#annotate-btn")!;
 const listEl = document.querySelector<HTMLUListElement>("#annotation-list")!;
 const countEl = document.querySelector<HTMLElement>("#count")!;
 
-annotateBtn.addEventListener("click", () => {
-  const body = window.prompt("Annotation note:");
-  if (body == null || body.trim() === "") return;
-  addAnnotation(view, log, body.trim());
-  view.focus();
-});
+const annotator = mountAnnotator(view, log, () => renderPanel());
 
 function selectRange(from: number, to: number): void {
   const tr = view.state.tr
@@ -102,14 +97,9 @@ view.dom.addEventListener("mouseout", (e) => {
   if (span) setActive(null);
 });
 
-function updateToolbar(): void {
-  const empty = view.state.selection.empty;
-  annotateBtn.disabled = empty;
-}
-
 function onUpdate(): void {
-  updateToolbar();
   renderPanel();
+  annotator.update();
 }
 
 // Dev seed: apply a few sample annotations on load so the page shows highlights
