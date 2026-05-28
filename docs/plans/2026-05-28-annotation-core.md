@@ -1,5 +1,11 @@
 # Annotation Core Implementation Plan
 
+> **SUPERSEDED (2026-05-28)** by `2026-05-28-annotation-editor.md`. Tasks 1–7 are
+> built and kept. Task 8's whole-document repair is replaced by a
+> context-disambiguated, orphan-on-miss matcher (no bare-word scan). The block-id
+> derived anchor (Tasks 3–4) is demoted: ProseMirror marks are the live anchor, so
+> block ids are no longer used for annotation anchoring. See the new plan.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a framework-agnostic TypeScript module that turns a DOM text selection into a durable, re-resolvable annotation anchored to document structure, and batches annotations to a pluggable sink.

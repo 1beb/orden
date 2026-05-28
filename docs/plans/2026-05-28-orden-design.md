@@ -92,8 +92,9 @@ single undifferentiated block soup.
 - Journal: a tree of outline blocks (the daily log), rendered by the outliner.
 - Document: a rendered artifact (md / html / qmd / ipynb) attached to a session,
   e.g. a plan or a review writeup.
-- Annotation: feedback anchored to a block (and optionally a text range) within a
-  Document, with a target (agent or human), thread, and status.
+- Annotation: feedback anchored to a text range within a Document, with a target
+  (agent or human), thread, and status. In the editor the anchor is a ProseMirror
+  mark; the durable record lives in a log keyed by the mark's id (see Anchoring).
 - Card: a Session's projection onto the Kanban board, positioned by state.
 
 Cards, plan documents, and review writeups are projections or attachments of a
@@ -164,32 +165,46 @@ treated as export of the annotated document, not live collaboration.
 Annotation is decoupled from the session plumbing so it can be reused (for
 example, a future browser extension). Three seams:
 
-- Source adapter: what content surface it attaches to, and how it computes anchors
-  from a selection.
-- Annotation model: anchor plus body plus target plus thread plus status,
-  shaped after the W3C Web Annotation model so it is portable.
-- Sink adapter: where batched feedback goes.
+- Annotation model: body plus target plus thread plus status, keyed by id and
+  shaped after the W3C Web Annotation model so it is portable. Content of record.
+- Source/anchor adapter: how a selection becomes a live anchor on a given host.
+  Two hosts, two strategies (see Anchoring): a ProseMirror mark in the editor, a
+  text-quote selector for a non-editor host.
+- Sink adapter: where batched feedback and the durable log go.
 
-Orden is one host of this core (source is the central pane; sink is MCP to the
-session). A browser extension would be another host (source is any page; sink is a
-share endpoint) without changing the core.
+Orden is one host of this core (anchor is a ProseMirror mark; sink is MCP to the
+session, plus the durable log). A browser extension would be another host (anchor
+is a text-quote selector resolved against a foreign page; sink is a share
+endpoint) without changing the model.
 
 ### Anchoring
 
-v1 targets md, html, and qmd, all of which have clear block structure, and anchors
-to that structure.
+v1 targets md, html, and qmd. In the editor, anchoring is delegated to
+ProseMirror rather than hand-rolled, because ProseMirror already tracks positions
+through edits better than text-matching can, and a maintainer's constraint is
+explicit: nodes have no meaningful identity in ProseMirror, so we do not anchor to
+block ids.
 
-- At render time, emit a stable block id per block, derived deterministically from
-  the normalized document tree (block path plus content hash). Orden controls md
-  and qmd rendering, so injecting ids is straightforward; for raw html, ids are
-  assigned by structural path.
-- An anchor is a block id plus an optional text-quote and offsets for sub-block
-  selections.
-- Resolve by id; if a block moved or changed on re-render, repair via the text
-  quote.
+- An annotation is a ProseMirror `annotation` mark over the selected range,
+  carrying only an `id`. The document model maps the mark's position through every
+  edit, split, and block reorder automatically, with native undo/redo. The
+  highlight faithfully follows the text; it orphans only when the marked text is
+  deleted.
+- Durable store. Markdown is the source of truth and has no slot for a mark id, so
+  the mark holds just the id and a log holds the content (body, target, thread,
+  status, edit history) keyed by that id. Markdown stays clean.
+- Cold start. On load there are no marks in the markdown, so each logged
+  annotation is re-anchored by re-finding its stored quote (exact plus
+  prefix/suffix context) within the document and re-attaching the mark. A quote
+  that no longer matches is surfaced as orphaned — never re-pointed at an unrelated
+  occurrence elsewhere.
+- Ordering. The side panel and Kanban list annotations by walking the document for
+  marks, which yields document order by construction, recomputed on each update. No
+  separate position store is kept in sync.
 
-The same anchoring engine can anchor structured transcript messages, since each is
-a block with an id.
+A non-editor host (the future browser extension) has no document model, so there
+the anchor is the portable text-quote selector resolved/repaired against the page
+— the fallback strategy, not the primary path.
 
 ### WYSIWYG editing
 
@@ -285,14 +300,18 @@ and no off-device push.
   in-progress flags the session as possibly stuck.
 - Reconnection: a dropped websocket reattaches to the still-running tmux session;
   no work is lost.
-- Anchor repair: annotations whose block id no longer resolves are repaired via
-  their stored text quote; unrepairable anchors are surfaced rather than silently
-  dropped.
+- Orphaned annotations: in the editor an annotation orphans only when its marked
+  text is deleted; on cold-start load, a logged quote that no longer matches is
+  surfaced as orphaned. Orphans are listed in the panel, never silently re-anchored
+  to unrelated text.
 
 ## Testing strategy
 
-- Annotation core: unit tests for anchor computation, serialization round-trip,
-  and repair against mutated documents. This module is pure and the most testable.
+- Annotation core: unit tests for the annotation model and log round-trip, and for
+  cold-start re-anchoring of a stored quote against mutated documents — including
+  that a deleted/changed quote orphans rather than mis-anchoring. The mark itself
+  is exercised by editor integration tests (position tracking, document-order
+  scan), since live tracking is ProseMirror's job, not ours.
 - Markdown round-trip: property tests that ProseMirror serialization is stable
   across edit cycles for prose, structure, and tables.
 - Transcript adapters: fixture-driven tests that replay recorded session files
