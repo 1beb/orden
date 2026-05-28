@@ -91,6 +91,17 @@ function renderPanel(): void {
   }
 }
 
+// Hovering an annotated span in the document lights up its panel row (and the
+// span itself), mirroring the row -> span linking.
+view.dom.addEventListener("mouseover", (e) => {
+  const span = (e.target as HTMLElement).closest<HTMLElement>(".annotation");
+  if (span?.dataset.annotationId) setActive(span.dataset.annotationId);
+});
+view.dom.addEventListener("mouseout", (e) => {
+  const span = (e.target as HTMLElement).closest<HTMLElement>(".annotation");
+  if (span) setActive(null);
+});
+
 function updateToolbar(): void {
   const empty = view.state.selection.empty;
   annotateBtn.disabled = empty;

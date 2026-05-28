@@ -107,18 +107,26 @@ body {
   margin: 8px 0;
 }
 
-/* annotation highlight */
+/* annotation highlight: underline at rest, soft fill on hover/active */
 .annotation {
-  background: var(--accent-soft);
   border-bottom: 2px solid var(--accent);
-  border-radius: 2px;
-  padding: 0 1px;
   cursor: pointer;
+  transition: background-color 0.12s ease;
 }
 
+.annotation[data-target="human"] {
+  border-bottom-color: var(--human);
+}
+
+.annotation:hover,
 .annotation.is-active {
-  background: var(--accent);
-  color: #1f2328;
+  background: var(--accent-soft);
+  border-radius: 2px;
+}
+
+.annotation[data-target="human"]:hover,
+.annotation[data-target="human"].is-active {
+  background: var(--human-soft);
 }
 
 /* side panel */

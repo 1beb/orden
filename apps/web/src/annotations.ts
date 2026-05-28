@@ -43,7 +43,7 @@ export function addAnnotation(
   });
   log.add(record);
 
-  const mark = schema.marks.annotation.create({ id: record.id });
+  const mark = schema.marks.annotation.create({ id: record.id, target });
   view.dispatch(view.state.tr.addMark(from, to, mark));
   return record;
 }

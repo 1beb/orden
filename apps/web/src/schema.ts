@@ -14,20 +14,25 @@ import {
 export const schema = new Schema({
   nodes: markdownSchema.spec.nodes,
   marks: markdownSchema.spec.marks.addToEnd("annotation", {
-    attrs: { id: {} },
+    attrs: { id: {}, target: { default: "agent" } },
     inclusive: false,
     parseDOM: [
       {
         tag: "span.annotation",
         getAttrs: (dom) => ({
           id: (dom as HTMLElement).getAttribute("data-annotation-id"),
+          target: (dom as HTMLElement).getAttribute("data-target") ?? "agent",
         }),
       },
     ],
     toDOM(mark) {
       return [
         "span",
-        { class: "annotation", "data-annotation-id": mark.attrs.id as string },
+        {
+          class: "annotation",
+          "data-annotation-id": mark.attrs.id as string,
+          "data-target": mark.attrs.target as string,
+        },
         0,
       ];
     },
