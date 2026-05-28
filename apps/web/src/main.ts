@@ -8,9 +8,13 @@ import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
 import { mountAnnotator } from "./annotator-ui";
+import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
+import { openPreview } from "./preview";
 import "./styles.css";
 
+const DOC_TITLE = "Churn model — review";
 const log = new AnnotationLog();
+let feedbackTarget: "agent" | "human" = "agent";
 
 const state = EditorState.create({
   doc: markdownParser.parse(sampleMarkdown),
@@ -30,10 +34,55 @@ const view = new EditorView(document.querySelector<HTMLElement>("#editor")!, {
   },
 });
 
+const app = document.querySelector<HTMLElement>("#app")!;
 const listEl = document.querySelector<HTMLUListElement>("#annotation-list")!;
 const countEl = document.querySelector<HTMLElement>("#count")!;
+const primaryBtn = document.querySelector<HTMLButtonElement>("#primary-action")!;
+const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
+
+app.dataset.target = feedbackTarget;
 
 const annotator = mountAnnotator(view, log, () => renderPanel());
+
+// Bottom action bar: target lives here (chosen at the end), and the primary
+// action morphs between Approve (clean) and Send feedback (annotations present).
+for (const tab of document.querySelectorAll<HTMLButtonElement>(".ab-tab")) {
+  tab.addEventListener("click", () => {
+    feedbackTarget = tab.dataset.target as "agent" | "human";
+    app.dataset.target = feedbackTarget;
+    for (const t of document.querySelectorAll(".ab-tab"))
+      t.classList.toggle("is-on", t === tab);
+  });
+}
+
+function feedbackItems(): FeedbackItem[] {
+  return scanAnnotations(view.state.doc).map((p) => {
+    const quote = log.get(p.id)?.anchor.quote;
+    return {
+      ref: p.text,
+      prefix: quote?.prefix ?? "",
+      suffix: quote?.suffix ?? "",
+      note: log.get(p.id)?.body ?? "",
+    };
+  });
+}
+
+function previewFeedback(): void {
+  const items = feedbackItems();
+  if (items.length === 0) return;
+  const payload = buildFeedbackPayload({ title: DOC_TITLE, target: feedbackTarget, items });
+  openPreview(`Feedback → ${feedbackTarget}`, payload);
+}
+
+primaryBtn.addEventListener("click", () => {
+  if (primaryBtn.dataset.kind === "send") previewFeedback();
+  else {
+    primaryBtn.textContent = "Approved ✓";
+    window.setTimeout(updateActionBar, 1200);
+  }
+});
+
+copyBtn.addEventListener("click", previewFeedback);
 
 function selectRange(from: number, to: number): void {
   const tr = view.state.tr
@@ -68,7 +117,6 @@ function renderPanel(): void {
     const record = log.get(p.id);
     const li = document.createElement("li");
     li.dataset.annotationId = p.id;
-    li.className = `target-${record?.target ?? "agent"}`;
 
     const quote = document.createElement("div");
     quote.className = "quote";
@@ -97,9 +145,22 @@ view.dom.addEventListener("mouseout", (e) => {
   if (span) setActive(null);
 });
 
+function updateActionBar(): void {
+  const n = scanAnnotations(view.state.doc).length;
+  if (n > 0) {
+    primaryBtn.dataset.kind = "send";
+    primaryBtn.textContent = `Send feedback (${n})`;
+  } else {
+    primaryBtn.dataset.kind = "approve";
+    primaryBtn.textContent = "Approve";
+  }
+  copyBtn.disabled = n === 0;
+}
+
 function onUpdate(): void {
   renderPanel();
   annotator.update();
+  updateActionBar();
 }
 
 // Dev seed: apply a few sample annotations on load so the page shows highlights

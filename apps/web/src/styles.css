@@ -214,7 +214,7 @@ body {
   transition: background-color 0.12s ease;
 }
 
-.annotation[data-target="human"] {
+#app[data-target="human"] .annotation {
   border-bottom-color: var(--human);
 }
 
@@ -224,8 +224,8 @@ body {
   border-radius: 2px;
 }
 
-.annotation[data-target="human"]:hover,
-.annotation[data-target="human"].is-active {
+#app[data-target="human"] .annotation:hover,
+#app[data-target="human"] .annotation.is-active {
   background: var(--human-soft);
 }
 
@@ -239,7 +239,10 @@ body {
 }
 
 #panel header {
-  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--line);
   font-weight: 600;
   font-size: 14px;
@@ -248,6 +251,28 @@ body {
 #panel header #count {
   color: var(--muted);
   font-weight: 400;
+}
+
+.panel-copy {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.panel-copy:enabled:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.panel-copy:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 #annotation-list {
@@ -266,7 +291,7 @@ body {
   cursor: pointer;
 }
 
-#annotation-list li.target-human {
+#app[data-target="human"] #annotation-list li {
   border-left-color: var(--human);
 }
 
@@ -275,8 +300,8 @@ body {
   background: var(--accent-soft);
 }
 
-#annotation-list li.target-human:hover,
-#annotation-list li.target-human.is-active {
+#app[data-target="human"] #annotation-list li:hover,
+#app[data-target="human"] #annotation-list li.is-active {
   background: var(--human-soft);
 }
 
@@ -292,4 +317,138 @@ body {
 
 #annotation-list .note {
   font-size: 14px;
+}
+
+/* bottom action bar */
+#actionbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 48px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-bg);
+}
+
+.ab-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ab-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.ab-tab {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ab-tab[data-target="agent"].is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.ab-tab[data-target="human"].is-on {
+  border-color: var(--human);
+  background: var(--human-soft);
+  color: var(--ink);
+}
+
+.ab-primary {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 7px;
+  background: var(--ink);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ab-primary[data-kind="approve"] {
+  background: #15803d;
+}
+
+/* feedback preview modal */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 18, 20, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.preview-modal {
+  width: 560px;
+  max-width: 90vw;
+  max-height: 80vh;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-modal header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.preview-text {
+  flex: 1;
+  margin: 0;
+  border: none;
+  resize: none;
+  padding: 16px 18px;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  background: #fbfbfa;
+  white-space: pre-wrap;
+  outline: none;
+  min-height: 240px;
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.preview-actions button {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+}
+
+.preview-actions .primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.preview-actions .ghost {
+  background: #fff;
+  color: var(--muted);
 }

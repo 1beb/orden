@@ -4,7 +4,6 @@ import { addAnnotation } from "./annotations";
 import type { AnnotationLog } from "./store";
 
 type Mode = "hidden" | "button" | "composer";
-type Target = "agent" | "human";
 
 // A floating affordance over the editor: on a non-empty selection it shows an
 // "Annotate" pill at the selection; clicking it opens an inline composer anchored
@@ -69,29 +68,9 @@ export function mountAnnotator(
   function showComposer() {
     if (!range) return;
     mode = "composer";
-    let target: Target = "agent";
 
     const box = document.createElement("div");
     box.className = "annotator-composer";
-
-    const toggle = document.createElement("div");
-    toggle.className = "annotator-toggle";
-    const agentBtn = document.createElement("button");
-    agentBtn.textContent = "To agent";
-    agentBtn.className = "is-on";
-    const humanBtn = document.createElement("button");
-    humanBtn.textContent = "To human";
-    const setTarget = (t: Target) => {
-      target = t;
-      agentBtn.classList.toggle("is-on", t === "agent");
-      humanBtn.classList.toggle("is-on", t === "human");
-      box.dataset.target = t;
-    };
-    agentBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    humanBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    agentBtn.addEventListener("click", () => setTarget("agent"));
-    humanBtn.addEventListener("click", () => setTarget("human"));
-    toggle.append(agentBtn, humanBtn);
 
     const ta = document.createElement("textarea");
     ta.className = "annotator-note";
@@ -104,35 +83,34 @@ export function mountAnnotator(
     cancel.textContent = "Cancel";
     cancel.className = "ghost";
     const save = document.createElement("button");
-    save.textContent = "Comment";
+    save.textContent = "Save";
     save.className = "primary";
     cancel.addEventListener("click", () => {
       hide();
       view.focus();
     });
-    save.addEventListener("click", () => commit(ta.value, target));
+    save.addEventListener("click", () => commit(ta.value));
     actions.append(cancel, save);
 
     ta.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit(ta.value, target);
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit(ta.value);
       if (e.key === "Escape") {
         hide();
         view.focus();
       }
     });
 
-    box.dataset.target = "agent";
-    box.append(toggle, ta, actions);
+    box.append(ta, actions);
     el.replaceChildren(box);
     el.style.display = "block";
     position();
     ta.focus();
   }
 
-  function commit(body: string, target: Target) {
+  function commit(body: string) {
     if (range && body.trim()) {
       busy = true;
-      addAnnotation(view, log, body.trim(), target, range);
+      addAnnotation(view, log, body.trim(), "agent", range);
       view.dispatch(
         view.state.tr.setSelection(
           TextSelection.create(view.state.doc, range.to, range.to),

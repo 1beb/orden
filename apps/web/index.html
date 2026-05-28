@@ -12,9 +12,22 @@
           <span class="doc-title">Churn model — review</span>
         </header>
         <div id="editor"></div>
+        <footer id="actionbar">
+          <div class="ab-target">
+            <span class="ab-label">Send to</span>
+            <button class="ab-tab is-on" data-target="agent">Agent</button>
+            <button class="ab-tab" data-target="human">Human</button>
+          </div>
+          <button id="primary-action" class="ab-primary" data-kind="approve">
+            Approve
+          </button>
+        </footer>
       </main>
       <aside id="panel">
-        <header>Annotations <span id="count">0</span></header>
+        <header>
+          <span>Annotations <span id="count">0</span></span>
+          <button id="copy-feedback" class="panel-copy">Copy</button>
+        </header>
         <ul id="annotation-list"></ul>
       </aside>
     </div>
