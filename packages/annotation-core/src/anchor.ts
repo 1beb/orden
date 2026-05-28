@@ -1,4 +1,4 @@
-import type { Anchor, TextQuoteSelector } from "./types";
+import type { Anchor } from "./types";
 import { BLOCK_ID_ATTR } from "./blockId";
 import { offsetsFromRange, rangeFromOffsets } from "./textOffsets";
 
@@ -34,37 +34,64 @@ export function createAnchor(range: Range, _root: Element): Anchor {
   };
 }
 
-function findQuoteOffset(haystack: string, quote: TextQuoteSelector): number {
-  const withContext = quote.prefix + quote.exact + quote.suffix;
-  const ctxIdx = haystack.indexOf(withContext);
-  if (ctxIdx !== -1) return ctxIdx + quote.prefix.length;
-  return haystack.indexOf(quote.exact);
+function commonSuffixLength(a: string, b: string): number {
+  let n = 0;
+  while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) {
+    n++;
+  }
+  return n;
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) {
+    n++;
+  }
+  return n;
+}
+
+interface Occurrence {
+  block: Element;
+  at: number;
+  score: number;
 }
 
 export function resolveAnchor(anchor: Anchor, root: Element): Range | null {
-  const block = root.querySelector(
-    `[${BLOCK_ID_ATTR}="${anchor.blockId}"]`,
-  );
+  const quote = anchor.quote;
+  if (!quote || quote.exact.length === 0) return null;
 
-  if (block && anchor.quote) {
+  const occurrences: Occurrence[] = [];
+  const blocks = root.querySelectorAll(`[${BLOCK_ID_ATTR}]`);
+  for (const block of Array.from(blocks)) {
     const text = block.textContent ?? "";
-    const at = findQuoteOffset(text, anchor.quote);
-    if (at !== -1) {
-      return rangeFromOffsets(block, at, at + anchor.quote.exact.length);
+    let from = 0;
+    let at = text.indexOf(quote.exact, from);
+    while (at !== -1) {
+      const before = text.slice(0, at);
+      const after = text.slice(at + quote.exact.length);
+      const prefixScore = commonSuffixLength(before, quote.prefix);
+      const suffixScore = commonPrefixLength(after, quote.suffix);
+      occurrences.push({ block, at, score: prefixScore + suffixScore });
+      from = at + 1;
+      at = text.indexOf(quote.exact, from);
     }
   }
 
-  // Repair: search every stamped block for the quote.
-  if (anchor.quote) {
-    const blocks = root.querySelectorAll(`[${BLOCK_ID_ATTR}]`);
-    for (const candidate of Array.from(blocks)) {
-      const text = candidate.textContent ?? "";
-      const at = findQuoteOffset(text, anchor.quote);
-      if (at !== -1) {
-        return rangeFromOffsets(candidate, at, at + anchor.quote.exact.length);
-      }
-    }
+  if (occurrences.length === 0) return null;
+
+  let chosen: Occurrence;
+  if (occurrences.length === 1) {
+    chosen = occurrences[0];
+  } else {
+    const maxScore = Math.max(...occurrences.map((o) => o.score));
+    const top = occurrences.filter((o) => o.score === maxScore);
+    if (top.length !== 1) return null; // ambiguous -> orphan
+    chosen = top[0];
   }
 
-  return null;
+  return rangeFromOffsets(
+    chosen.block,
+    chosen.at,
+    chosen.at + quote.exact.length,
+  );
 }

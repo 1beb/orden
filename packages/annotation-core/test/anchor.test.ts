@@ -41,13 +41,12 @@ describe("resolveAnchor", () => {
   });
 });
 
-describe("resolveAnchor repair", () => {
-  it("repairs when the block id no longer matches", () => {
+describe("resolveAnchor matching", () => {
+  it("resolves when the phrase survives but a block was inserted above", () => {
     const root = rendered("<section><p>the quick brown fox jumps</p></section>");
     const p = root.querySelector("p")!;
     const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
 
-    // Simulate a re-render where a block was inserted above and ids changed.
     root.innerHTML =
       "<section><p>new intro line</p><p>the quick brown fox jumps</p></section>";
     assignBlockIds(root);
@@ -57,7 +56,49 @@ describe("resolveAnchor repair", () => {
     expect(resolved!.toString()).toBe("quick");
   });
 
-  it("returns null when the text is gone (no false match)", () => {
+  it("resolves a single occurrence even when its neighbors changed", () => {
+    const root = rendered("<section><p>the quick brown fox jumps</p></section>");
+    const p = root.querySelector("p")!;
+    const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
+
+    root.innerHTML = "<section><p>stay quick, please</p></section>";
+    assignBlockIds(root);
+
+    const resolved = resolveAnchor(anchor, root);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.toString()).toBe("quick");
+  });
+
+  it("disambiguates between multiple occurrences by surrounding context", () => {
+    const root = rendered("<section><p>the quick brown fox</p></section>");
+    const p = root.querySelector("p")!;
+    const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root); // "quick", prefix "the ", suffix " brown"
+
+    root.innerHTML =
+      "<section><p>be quick now</p><p>the quick brown fox</p></section>";
+    assignBlockIds(root);
+
+    const resolved = resolveAnchor(anchor, root);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.toString()).toBe("quick");
+    // the winning occurrence is the one whose block still reads "the quick brown fox"
+    const block = resolved!.startContainer.parentElement!.closest("p")!;
+    expect(block.textContent).toBe("the quick brown fox");
+  });
+
+  it("orphans (null) when multiple occurrences tie with no disambiguating context", () => {
+    const root = rendered("<section><p>the quick brown fox</p></section>");
+    const p = root.querySelector("p")!;
+    const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
+
+    root.innerHTML =
+      "<section><p>a quick run</p><p>go quick now</p></section>";
+    assignBlockIds(root);
+
+    expect(resolveAnchor(anchor, root)).toBeNull();
+  });
+
+  it("orphans (null) when the text is gone", () => {
     const root = rendered("<section><p>the quick brown fox jumps</p></section>");
     const p = root.querySelector("p")!;
     const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
