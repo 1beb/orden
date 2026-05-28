@@ -40,3 +40,31 @@ describe("resolveAnchor", () => {
     expect(resolved!.toString()).toBe("quick");
   });
 });
+
+describe("resolveAnchor repair", () => {
+  it("repairs when the block id no longer matches", () => {
+    const root = rendered("<section><p>the quick brown fox jumps</p></section>");
+    const p = root.querySelector("p")!;
+    const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
+
+    // Simulate a re-render where a block was inserted above and ids changed.
+    root.innerHTML =
+      "<section><p>new intro line</p><p>the quick brown fox jumps</p></section>";
+    assignBlockIds(root);
+
+    const resolved = resolveAnchor(anchor, root);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.toString()).toBe("quick");
+  });
+
+  it("returns null when the text is gone (no false match)", () => {
+    const root = rendered("<section><p>the quick brown fox jumps</p></section>");
+    const p = root.querySelector("p")!;
+    const anchor = createAnchor(rangeFromOffsets(p, 4, 9), root);
+
+    root.innerHTML = "<section><p>completely different content</p></section>";
+    assignBlockIds(root);
+
+    expect(resolveAnchor(anchor, root)).toBeNull();
+  });
+});

@@ -45,6 +45,7 @@ export function resolveAnchor(anchor: Anchor, root: Element): Range | null {
   const block = root.querySelector(
     `[${BLOCK_ID_ATTR}="${anchor.blockId}"]`,
   );
+
   if (block && anchor.quote) {
     const text = block.textContent ?? "";
     const at = findQuoteOffset(text, anchor.quote);
@@ -52,5 +53,18 @@ export function resolveAnchor(anchor: Anchor, root: Element): Range | null {
       return rangeFromOffsets(block, at, at + anchor.quote.exact.length);
     }
   }
+
+  // Repair: search every stamped block for the quote.
+  if (anchor.quote) {
+    const blocks = root.querySelectorAll(`[${BLOCK_ID_ATTR}]`);
+    for (const candidate of Array.from(blocks)) {
+      const text = candidate.textContent ?? "";
+      const at = findQuoteOffset(text, anchor.quote);
+      if (at !== -1) {
+        return rangeFromOffsets(candidate, at, at + anchor.quote.exact.length);
+      }
+    }
+  }
+
   return null;
 }
