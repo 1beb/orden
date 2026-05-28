@@ -112,6 +112,38 @@ function onUpdate(): void {
   renderPanel();
 }
 
+// Dev seed: apply a few sample annotations on load so the page shows highlights
+// and a populated panel immediately. Remove once persistence (Phase 2) lands.
+function findPhrase(phrase: string): { from: number; to: number } | null {
+  let result: { from: number; to: number } | null = null;
+  view.state.doc.descendants((node, pos) => {
+    if (result) return false;
+    if (node.isText && node.text && node.text.indexOf(phrase) !== -1) {
+      const from = pos + node.text.indexOf(phrase);
+      result = { from, to: from + phrase.length };
+      return false;
+    }
+    return true;
+  });
+  return result;
+}
+
+function seedSampleAnnotations(): void {
+  const samples: Array<{ phrase: string; body: string; target: "agent" | "human" }> = [
+    { phrase: "quick brown fox", body: "Cut this metaphor — say 'dropped inactive rows'.", target: "agent" },
+    { phrase: "signup cohort, not at random", body: "Why 80/20? Note the rationale here.", target: "agent" },
+    { phrase: "Recall on the smallest plan tier is poor", body: "Share this caveat with the PM before launch.", target: "human" },
+  ];
+  for (const s of samples) {
+    const r = findPhrase(s.phrase);
+    if (!r) continue;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, r.from, r.to)));
+    addAnnotation(view, log, s.body, s.target);
+  }
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)));
+}
+
+seedSampleAnnotations();
 onUpdate();
 
 // Dev handle for inspection / screenshot-driven iteration.
