@@ -23,3 +23,22 @@ export function computeBlockId(el: Element): string {
   const text = (el.textContent ?? "").trim();
   return fnv1a(`${structuralPath(el)}|${text}`);
 }
+
+export const BLOCK_ID_ATTR = "data-orden-block-id";
+
+const BLOCK_TAGS = new Set([
+  "P", "H1", "H2", "H3", "H4", "H5", "H6",
+  "LI", "UL", "OL", "BLOCKQUOTE", "PRE",
+  "TABLE", "TR", "TD", "TH", "FIGURE", "DIV",
+]);
+
+export function assignBlockIds(root: Element): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  let node = walker.nextNode() as Element | null;
+  while (node) {
+    if (BLOCK_TAGS.has(node.tagName) && !node.hasAttribute(BLOCK_ID_ATTR)) {
+      node.setAttribute(BLOCK_ID_ATTR, computeBlockId(node));
+    }
+    node = walker.nextNode() as Element | null;
+  }
+}
