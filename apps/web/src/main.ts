@@ -539,6 +539,7 @@ for (const f of repoFiles) {
   const a = document.createElement("a");
   a.className = "nav-file";
   a.dataset.path = f.path;
+  a.title = f.path;
   const name = document.createElement("span");
   name.className = "nav-file-name";
   name.textContent = f.path.split("/").pop() ?? f.path;
@@ -595,6 +596,8 @@ function renderProjects(): void {
   for (const p of listProjects()) {
     const item = document.createElement("a");
     item.className = "nav-proj-item";
+    item.title =
+      p.source.kind === "local" ? `${p.name} — ${p.source.path}` : p.name;
     const name = document.createElement("div");
     name.className = "nav-proj-label";
     name.textContent = p.name;
