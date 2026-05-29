@@ -100,6 +100,38 @@ single undifferentiated block soup.
 Cards, plan documents, and review writeups are projections or attachments of a
 Session rather than independent objects to keep mental overhead low.
 
+### Vault and projects (added 2026-05-29)
+
+- Vault: a user-selected location that holds orden's *own* data — the daily
+  Journal (markdown per day), the Annotation log, and Kanban/session state. It is
+  chosen on first run (must be selected) and may be local or remote.
+- Project: a work location orden reviews and operates on. "Add a project" accepts
+  a local folder or a remote one — ssh / sshfs / sftp now, S3 and others later —
+  via a pluggable Source adapter. A Project owns Sessions.
+- Both the vault and project sources are pluggable storage/source adapters
+  (local fs, ssh/sftp, s3, …) behind one interface, so location is orthogonal to
+  the rest of the app.
+
+### Sessions: spawn and resume (added 2026-05-29)
+
+- A Kanban card can spawn an AI process (Claude Code / opencode) in its project's
+  working directory; the running process is the Session.
+- Clicking a card opens its conversation in the right pane. If the session is
+  stale/detached, clicking resumes it by referencing the stored conversation id
+  and cd-ing into the recorded working directory — e.g.
+  `cd <cwd> && claude --resume <conversationId>`. orden persists the conversation
+  id and cwd per session so resume is context-aware.
+
+### The host backend (made explicit, 2026-05-29)
+
+Project folders (local/remote), the vault, spawning/resuming sessions, ssh/SFTP,
+tmux, and the MCP bus cannot run in the browser. orden therefore needs a **host
+process**; the web UI is a client that talks to it over websocket/MCP. The host
+owns: the vault store, project Source adapters, and the Session manager (tmux +
+ssh + `claude --resume`/cwd tracking). Runtime choice (local Node service vs a
+Tauri/Electron desktop shell) is the next decision — see the app-shell plan's
+deferred section.
+
 ## Session lifecycle
 
 States move through:
