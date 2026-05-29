@@ -1430,3 +1430,23 @@ body {
 .nav-proj-item:hover {
   background: #e9e9e6;
 }
+
+/* annotations block: collapse toggle + empty-state pushes it to the bottom */
+.ann-head-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.annotations-block.collapsed #annotation-list {
+  display: none;
+}
+.annotations-block.collapsed #annotations-toggle {
+  transform: rotate(-90deg);
+}
+.annotations-block.empty {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+.annotations-block.empty #annotation-list {
+  display: none;
+}

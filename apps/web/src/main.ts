@@ -128,6 +128,10 @@ const docmapList = document.querySelector<HTMLUListElement>("#docmap-list")!;
 document
   .querySelector("#docmap-toggle")
   ?.addEventListener("click", () => docmap.classList.toggle("collapsed"));
+document.querySelector("#annotations-toggle")?.addEventListener("click", (e) => {
+  e.stopPropagation(); // don't also toggle the mobile bottom sheet
+  annotationsBlock.classList.toggle("collapsed");
+});
 
 // Document map: an outline built from the headings, kept in sync with the doc.
 function renderDocMap(): void {
@@ -330,7 +334,9 @@ function renderPanel(): void {
     }
   }
 
-  countEl.textContent = String(placed.length + orphans.length);
+  const total = placed.length + orphans.length;
+  countEl.textContent = String(total);
+  annotationsBlock.classList.toggle("empty", total === 0);
   syncHighlightStates(placed);
 }
 
