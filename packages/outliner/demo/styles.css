@@ -1,0 +1,116 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #1d2330;
+}
+body {
+  margin: 0;
+  background: #f6f7f9;
+}
+.topbar {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: #1d2330;
+  color: #fff;
+}
+.topbar .nav {
+  cursor: default;
+  opacity: 0.9;
+}
+.nav-badge {
+  background: #e4572e;
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.75rem;
+}
+main {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  grid-auto-rows: min-content;
+  gap: 1rem;
+  padding: 1rem;
+}
+.pane {
+  background: #fff;
+  border: 1px solid #e3e6ea;
+  border-radius: 8px;
+  padding: 1rem;
+}
+.pane h2 {
+  margin-top: 0;
+  font-size: 0.95rem;
+}
+.outline {
+  font-family: ui-monospace, monospace;
+  white-space: pre;
+  font-size: 0.85rem;
+  margin: 0;
+}
+.backlinks {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+/* Kanban board */
+.orden-board__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.orden-board__header h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.orden-board__needs-action {
+  background: #e4572e;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+}
+.orden-board__columns {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+}
+.orden-column {
+  min-width: 140px;
+  flex: 1;
+  background: #f0f2f5;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+.orden-column--action {
+  outline: 2px solid #e4572e33;
+}
+.orden-column__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #5a6472;
+  margin-bottom: 0.5rem;
+}
+.orden-column__count {
+  background: #d7dce2;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.orden-column__cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.orden-card {
+  background: #fff;
+  border: 1px solid #e3e6ea;
+  border-radius: 5px;
+  padding: 0.5rem;
+  font-size: 0.82rem;
+}

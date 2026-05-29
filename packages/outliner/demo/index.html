@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orden Outliner + Kanban demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <strong>Orden</strong>
+      <span class="nav">Journal</span>
+      <span class="nav">Kanban <span id="nav-badge" class="nav-badge">0</span></span>
+    </header>
+    <main>
+      <section class="pane">
+        <h2>Journal outliner (markdown round-trip)</h2>
+        <pre id="outline" class="outline"></pre>
+      </section>
+      <section class="pane">
+        <div id="board"></div>
+      </section>
+      <section class="pane">
+        <h2>Backlinks for [[Project ygqc]]</h2>
+        <ul id="backlinks" class="backlinks"></ul>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
