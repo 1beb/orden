@@ -14,6 +14,7 @@ export default defineConfig({
         "../../packages/annotation-core/src/index.ts",
       ),
       "@orden/outliner": resolve(__dirname, "../../packages/outliner/src/index.ts"),
+      "@orden/host-api": resolve(__dirname, "../../packages/host-api/src/index.ts"),
     },
   },
 });

@@ -10,7 +10,8 @@
     "types": ["vite/client"],
     "paths": {
       "@orden/annotation-core": ["../../packages/annotation-core/src/index.ts"],
-      "@orden/outliner": ["../../packages/outliner/src/index.ts"]
+      "@orden/outliner": ["../../packages/outliner/src/index.ts"],
+      "@orden/host-api": ["../../packages/host-api/src/index.ts"]
     }
   },
   "include": ["src"]
