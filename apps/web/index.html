@@ -66,11 +66,20 @@
           </footer>
         </main>
         <aside id="panel">
-          <header>
-            <span>Annotations <span id="count">0</span></span>
-            <button id="copy-feedback" class="panel-copy">Copy</button>
-          </header>
-          <ul id="annotation-list"></ul>
+          <section id="docmap" class="panel-block">
+            <header class="block-head">
+              <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
+              <span>Outline</span>
+            </header>
+            <ul id="docmap-list"></ul>
+          </section>
+          <section class="panel-block annotations-block">
+            <header>
+              <span>Annotations <span id="count">0</span></span>
+              <button id="copy-feedback" class="panel-copy">Copy</button>
+            </header>
+            <ul id="annotation-list"></ul>
+          </section>
         </aside>
       </section>
 

@@ -66,6 +66,26 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+const docmap = document.querySelector<HTMLElement>("#docmap")!;
+const docmapList = document.querySelector<HTMLUListElement>("#docmap-list")!;
+document
+  .querySelector("#docmap-toggle")
+  ?.addEventListener("click", () => docmap.classList.toggle("collapsed"));
+
+// Document map: an outline built from the headings, kept in sync with the doc.
+function renderDocMap(): void {
+  docmapList.replaceChildren();
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading") return true;
+    const li = document.createElement("li");
+    li.className = `dm-l${node.attrs.level}`;
+    li.textContent = node.textContent || "(untitled)";
+    li.addEventListener("click", () => selectRange(pos + 1, pos + 1 + node.content.size));
+    docmapList.append(li);
+    return false;
+  });
+}
+
 const annotator = mountAnnotator(view, log, () => renderPanel());
 
 // Bottom action bar: target lives here (chosen at the end), and the primary
@@ -283,6 +303,7 @@ function updateActionBar(): void {
 }
 
 function onUpdate(): void {
+  renderDocMap();
   renderPanel();
   annotator.update();
   updateActionBar();

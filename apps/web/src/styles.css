@@ -485,6 +485,88 @@ body {
   font-size: 14px;
 }
 
+/* document map (outline) block */
+#docmap {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+}
+
+#panel header.block-head {
+  justify-content: flex-start;
+  gap: 6px;
+  border-bottom: none;
+}
+
+.block-toggle {
+  font-size: 11px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+#docmap.collapsed .block-toggle {
+  transform: rotate(-90deg);
+}
+
+#docmap.collapsed #docmap-list {
+  display: none;
+}
+
+#docmap-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px 8px;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+#docmap-list li {
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#docmap-list li:hover {
+  background: var(--accent-soft);
+}
+
+#docmap-list li.dm-l1 {
+  font-weight: 600;
+  padding-left: 8px;
+}
+#docmap-list li.dm-l2 {
+  padding-left: 20px;
+}
+#docmap-list li.dm-l3 {
+  padding-left: 32px;
+}
+#docmap-list li.dm-l4 {
+  padding-left: 44px;
+}
+#docmap-list li.dm-l5 {
+  padding-left: 56px;
+}
+#docmap-list li.dm-l6 {
+  padding-left: 68px;
+}
+
+.annotations-block {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 #panel header #count {
   color: var(--muted);
   font-weight: 400;
