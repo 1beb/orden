@@ -401,28 +401,32 @@ const viewEls: Record<View, HTMLElement> = {
   journal: document.querySelector<HTMLElement>("#view-journal")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
 };
-const journalInfo = mountJournal(viewEls.journal);
+let journalTitle = "Journal";
+const journal = mountJournal(viewEls.journal, (t) => {
+  journalTitle = t;
+  if (viewStore.get() === "journal") viewTitle.textContent = t;
+});
 const kanbanInfo = mountKanban(viewEls.kanban);
 document.querySelector(".nav-badge")!.textContent = String(kanbanInfo.needsAction);
-
-const viewTitles: Record<View, string> = {
-  review: DOC_TITLE,
-  journal: journalInfo.title,
-  kanban: "Kanban",
-};
 
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
     viewEls[name].classList.toggle("active", name === v);
   }
-  viewTitle.textContent = v === "review" ? currentDocTitle : viewTitles[v];
+  viewTitle.textContent =
+    v === "review" ? currentDocTitle : v === "journal" ? journalTitle : "Kanban";
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
 
-document.querySelector("#nav-journal")?.addEventListener("click", () => viewStore.set("journal"));
+journal.showPage(journal.today());
+
+document.querySelector("#nav-journal")?.addEventListener("click", () => {
+  journal.showPage(journal.today());
+  viewStore.set("journal");
+});
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
 for (const el of document.querySelectorAll<HTMLElement>(".nav-sess")) {
   el.addEventListener("click", () => viewStore.set("review"));
