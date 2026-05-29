@@ -75,8 +75,14 @@ function previewFeedback(): void {
 }
 
 primaryBtn.addEventListener("click", () => {
-  if (primaryBtn.dataset.kind === "send") previewFeedback();
-  else {
+  if (primaryBtn.dataset.kind === "send") {
+    for (const p of scanAnnotations(view.state.doc)) {
+      if ((log.get(p.id)?.status ?? "open") === "open") log.setStatus(p.id, "sent");
+    }
+    previewFeedback();
+    renderPanel();
+    updateActionBar();
+  } else {
     primaryBtn.textContent = "Approved ✓";
     window.setTimeout(updateActionBar, 1200);
   }
@@ -108,30 +114,124 @@ function setActive(id: string | null): void {
     ?.classList.add("is-active");
 }
 
+type Status = "open" | "sent" | "resolved" | "orphaned";
+
+const STATUS_LABEL: Record<Status, string> = {
+  open: "Open",
+  sent: "Sent",
+  resolved: "Resolved",
+  orphaned: "Orphaned",
+};
+
+function buildRow(opts: {
+  id: string;
+  status: Status;
+  quote: string;
+  note: string;
+  range: { from: number; to: number } | null;
+}): HTMLLIElement {
+  const { id, status, quote, note, range } = opts;
+  const li = document.createElement("li");
+  li.dataset.annotationId = id;
+  li.dataset.status = status;
+
+  const head = document.createElement("div");
+  head.className = "row-head";
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  chip.textContent = STATUS_LABEL[status];
+  head.append(chip);
+
+  if (status !== "orphaned") {
+    const toggle = document.createElement("button");
+    toggle.className = "row-action";
+    toggle.textContent = status === "resolved" ? "Reopen" : "Resolve";
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      log.setStatus(id, status === "resolved" ? "open" : "resolved");
+      renderPanel();
+      updateActionBar();
+    });
+    head.append(toggle);
+  }
+
+  const quoteEl = document.createElement("div");
+  quoteEl.className = "quote";
+  quoteEl.textContent = quote;
+
+  const noteEl = document.createElement("div");
+  noteEl.className = "note";
+  noteEl.textContent = note;
+
+  li.append(head, quoteEl, noteEl);
+
+  if (range) {
+    li.addEventListener("click", () => selectRange(range.from, range.to));
+    li.addEventListener("mouseenter", () => setActive(id));
+    li.addEventListener("mouseleave", () => setActive(null));
+  } else {
+    const gone = document.createElement("div");
+    gone.className = "orphan-note";
+    gone.textContent = "text no longer in the document";
+    li.append(gone);
+  }
+  return li;
+}
+
+function syncHighlightStates(placed: { id: string }[]): void {
+  view.dom
+    .querySelectorAll(".annotation")
+    .forEach((el) => el.classList.remove("is-sent", "is-resolved"));
+  for (const p of placed) {
+    const status = log.get(p.id)?.status;
+    if (status === "sent" || status === "resolved") {
+      view.dom
+        .querySelectorAll(`.annotation[data-annotation-id="${p.id}"]`)
+        .forEach((el) => el.classList.add(status === "sent" ? "is-sent" : "is-resolved"));
+    }
+  }
+}
+
 function renderPanel(): void {
   const placed = scanAnnotations(view.state.doc);
-  countEl.textContent = String(placed.length);
+  const presentIds = new Set(placed.map((p) => p.id));
   listEl.replaceChildren();
 
   for (const p of placed) {
     const record = log.get(p.id);
-    const li = document.createElement("li");
-    li.dataset.annotationId = p.id;
-
-    const quote = document.createElement("div");
-    quote.className = "quote";
-    quote.textContent = p.text;
-
-    const note = document.createElement("div");
-    note.className = "note";
-    note.textContent = record?.body ?? "(no note)";
-
-    li.append(quote, note);
-    li.addEventListener("click", () => selectRange(p.from, p.to));
-    li.addEventListener("mouseenter", () => setActive(p.id));
-    li.addEventListener("mouseleave", () => setActive(null));
-    listEl.append(li);
+    listEl.append(
+      buildRow({
+        id: p.id,
+        status: (record?.status as Status) ?? "open",
+        quote: p.text,
+        note: record?.body ?? "(no note)",
+        range: { from: p.from, to: p.to },
+      }),
+    );
   }
+
+  // Records whose mark is no longer in the document are orphaned.
+  const orphans = log.all().filter((r) => !presentIds.has(r.id));
+  if (orphans.length > 0) {
+    const sep = document.createElement("li");
+    sep.className = "panel-sep";
+    sep.textContent = "Orphaned";
+    listEl.append(sep);
+    for (const r of orphans) {
+      listEl.append(
+        buildRow({
+          id: r.id,
+          status: "orphaned",
+          quote: r.anchor.quote?.exact ?? "",
+          note: r.body,
+          range: null,
+        }),
+      );
+    }
+  }
+
+  countEl.textContent = String(placed.length + orphans.length);
+  syncHighlightStates(placed);
 }
 
 // Hovering an annotated span in the document lights up its panel row (and the
@@ -146,15 +246,16 @@ view.dom.addEventListener("mouseout", (e) => {
 });
 
 function updateActionBar(): void {
-  const n = scanAnnotations(view.state.doc).length;
-  if (n > 0) {
+  const placed = scanAnnotations(view.state.doc);
+  const open = placed.filter((p) => (log.get(p.id)?.status ?? "open") === "open").length;
+  if (open > 0) {
     primaryBtn.dataset.kind = "send";
-    primaryBtn.textContent = `Send feedback (${n})`;
+    primaryBtn.textContent = `Send feedback (${open})`;
   } else {
     primaryBtn.dataset.kind = "approve";
     primaryBtn.textContent = "Approve";
   }
-  copyBtn.disabled = n === 0;
+  copyBtn.disabled = placed.length === 0;
 }
 
 function onUpdate(): void {

@@ -15,6 +15,11 @@ export class AnnotationLog {
     return this.records.get(id);
   }
 
+  setStatus(id: string, status: Annotation["status"]): void {
+    const rec = this.records.get(id);
+    if (rec) this.records.set(id, { ...rec, status });
+  }
+
   all(): Annotation[] {
     return [...this.records.values()];
   }
