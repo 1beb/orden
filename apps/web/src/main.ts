@@ -3,7 +3,9 @@ import { EditorView } from "prosemirror-view";
 import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
+import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
 import { schema, markdownParser } from "./schema";
+import { buildInputRules } from "./inputrules";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -20,8 +22,16 @@ const state = EditorState.create({
   doc: markdownParser.parse(sampleMarkdown),
   schema,
   plugins: [
+    buildInputRules(schema),
     history(),
     keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+    keymap({
+      Enter: splitListItem(schema.nodes.list_item),
+      "Mod-[": liftListItem(schema.nodes.list_item),
+      "Mod-]": sinkListItem(schema.nodes.list_item),
+      Tab: sinkListItem(schema.nodes.list_item),
+      "Shift-Tab": liftListItem(schema.nodes.list_item),
+    }),
     keymap(baseKeymap),
   ],
 });
