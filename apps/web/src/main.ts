@@ -10,6 +10,7 @@ import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState } from "./persist";
 import { LocalStorageSink } from "./sink-local";
+import { listFiles } from "./files";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -23,13 +24,14 @@ import { loadSettings, saveSettings, type StartupView } from "./settings";
 import "./styles.css";
 
 const DOC_TITLE = "Churn model — review";
-const DOC_KEY = "review:sample";
 const log = new AnnotationLog();
 const sink = new LocalStorageSink();
 let feedbackTarget: "agent" | "human" = "agent";
+let currentDocKey = "review:sample";
+let currentDocTitle = DOC_TITLE;
 
 function persistReview(): void {
-  saveState(DOC_KEY, markdownSerializer.serialize(view.state.doc), log.all());
+  saveState(currentDocKey, markdownSerializer.serialize(view.state.doc), log.all());
 }
 
 const state = EditorState.create({
@@ -392,33 +394,6 @@ function seedSampleAnnotations(): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)));
 }
 
-// Restore the review doc + annotations from the last session, re-anchoring each
-// annotation by its stored quote; anything that no longer matches stays orphaned
-// (shown in the panel, never mis-anchored). First run has nothing saved → seed.
-const persisted = loadState(DOC_KEY);
-if (persisted) {
-  const parsed = markdownParser.parse(persisted.markdown);
-  persisted.records.forEach((r) => log.add(r));
-  let tr = view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content);
-  for (const r of persisted.records) {
-    const quote = r.anchor?.quote;
-    if (!quote) continue;
-    const range = reanchorQuote(parsed, quote);
-    if (range) {
-      tr = tr.addMark(
-        range.from,
-        range.to,
-        schema.marks.annotation.create({ id: r.id, target: r.target }),
-      );
-    }
-  }
-  view.dispatch(tr);
-} else {
-  seedSampleAnnotations();
-}
-onUpdate();
-applyLayout(mobile.matches);
-
 // --- Center views: review (the locked annotation core) / journal / kanban ---
 const viewTitle = document.querySelector<HTMLElement>("#view-title")!;
 const viewEls: Record<View, HTMLElement> = {
@@ -441,7 +416,7 @@ viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
     viewEls[name].classList.toggle("active", name === v);
   }
-  viewTitle.textContent = viewTitles[v];
+  viewTitle.textContent = v === "review" ? currentDocTitle : viewTitles[v];
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
@@ -449,7 +424,7 @@ viewStore.subscribe((v) => {
 
 document.querySelector("#nav-journal")?.addEventListener("click", () => viewStore.set("journal"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
-for (const el of document.querySelectorAll<HTMLElement>(".nav-file, .nav-sess")) {
+for (const el of document.querySelectorAll<HTMLElement>(".nav-sess")) {
   el.addEventListener("click", () => viewStore.set("review"));
 }
 
@@ -477,7 +452,98 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") settingsPopover.hidden = true;
 });
 
-// Route the initial view from the startup preference ("last" -> review for now).
+// --- Open real repo docs in the review editor (dogfooding) ---
+// Load a document into the review view: restore its saved markdown + annotations
+// (re-anchored by quote) if present, else the file's on-disk content.
+function loadReviewDoc(opts: {
+  key: string;
+  title: string;
+  markdown: string;
+  seedIfEmpty?: boolean;
+}): void {
+  currentDocKey = opts.key;
+  currentDocTitle = opts.title;
+  localStorage.setItem("orden:last-doc", opts.key);
+
+  const saved = loadState(opts.key);
+  const parsed = markdownParser.parse(saved?.markdown ?? opts.markdown);
+  const records = saved?.records ?? [];
+
+  log.clear();
+  records.forEach((r) => log.add(r));
+
+  let tr = view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content);
+  for (const r of records) {
+    const quote = r.anchor?.quote;
+    if (!quote) continue;
+    const range = reanchorQuote(parsed, quote);
+    if (range) {
+      tr = tr.addMark(
+        range.from,
+        range.to,
+        schema.marks.annotation.create({ id: r.id, target: r.target }),
+      );
+    }
+  }
+  view.dispatch(tr);
+  if (!saved && opts.seedIfEmpty) seedSampleAnnotations();
+  if (viewStore.get() === "review") viewTitle.textContent = currentDocTitle;
+}
+
+const recentList = document.querySelector<HTMLElement>("#recent-list")!;
+const repoFiles = listFiles();
+
+function setActiveFile(path: string | null): void {
+  recentList.querySelectorAll<HTMLElement>(".nav-file").forEach((el) => {
+    el.classList.toggle("active", el.dataset.path === path);
+  });
+}
+
+for (const f of repoFiles) {
+  const a = document.createElement("a");
+  a.className = "nav-file";
+  a.dataset.path = f.path;
+  const name = document.createElement("span");
+  name.className = "nav-file-name";
+  name.textContent = f.path.split("/").pop() ?? f.path;
+  const meta = document.createElement("span");
+  meta.className = "nav-file-meta";
+  meta.textContent = f.path.includes("/") ? f.path.replace(/\/[^/]+$/, "") : "/";
+  a.append(name, meta);
+  a.addEventListener("click", () => {
+    loadReviewDoc({ key: `review:${f.path}`, title: f.title, markdown: f.content });
+    setActiveFile(f.path);
+    viewStore.set("review");
+  });
+  recentList.append(a);
+}
+
+// Initial review document: last-opened repo file, else the design doc, else the
+// built-in sample (which seeds demo annotations on first run).
+const lastKey = localStorage.getItem("orden:last-doc");
+const lastFile = repoFiles.find((f) => `review:${f.path}` === lastKey);
+const defaultFile =
+  lastFile ?? repoFiles.find((f) => f.path.includes("orden-design")) ?? repoFiles[0];
+if (defaultFile) {
+  loadReviewDoc({
+    key: `review:${defaultFile.path}`,
+    title: defaultFile.title,
+    markdown: defaultFile.content,
+  });
+  setActiveFile(defaultFile.path);
+} else {
+  loadReviewDoc({
+    key: "review:sample",
+    title: DOC_TITLE,
+    markdown: sampleMarkdown,
+    seedIfEmpty: true,
+  });
+}
+
+onUpdate();
+applyLayout(mobile.matches);
+
+// Route the initial view from the startup preference ("last" -> review).
 if (settings.startup === "journal") viewStore.set("journal");
 else if (settings.startup === "kanban") viewStore.set("kanban");
 

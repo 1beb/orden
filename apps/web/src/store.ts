@@ -23,4 +23,8 @@ export class AnnotationLog {
   all(): Annotation[] {
     return [...this.records.values()];
   }
+
+  clear(): void {
+    this.records.clear();
+  }
 }

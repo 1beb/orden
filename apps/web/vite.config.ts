@@ -2,6 +2,11 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
+  // Allow serving/reading the repo's docs (two levels up) so we can open the
+  // project's own files in the app (dogfooding).
+  server: {
+    fs: { allow: [resolve(__dirname, "../..")] },
+  },
   resolve: {
     alias: {
       "@orden/annotation-core": resolve(
