@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
+  // main.ts boots with top-level await (await getHost()); esnext keeps it in the
+  // production bundle. All current browsers support top-level await.
+  build: { target: "esnext" },
   // Allow serving/reading the repo's docs (two levels up) so we can open the
   // project's own files in the app (dogfooding).
   server: {
