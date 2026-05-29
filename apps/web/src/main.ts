@@ -52,19 +52,64 @@ const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 
 app.dataset.target = feedbackTarget;
 
-// Collapsible sidebars.
-document
-  .querySelector("#toggle-left")
-  ?.addEventListener("click", () => app.classList.toggle("left-closed"));
-document
-  .querySelector("#toggle-right")
-  ?.addEventListener("click", () => app.classList.toggle("right-closed"));
+const leftnav = document.querySelector<HTMLElement>("#leftnav")!;
+const actionbar = document.querySelector<HTMLElement>("#actionbar")!;
+const panel = document.querySelector<HTMLElement>("#panel")!;
+const annotationsBlock = document.querySelector<HTMLElement>(".annotations-block")!;
+const mobile = window.matchMedia("(max-width: 860px)");
+
+// On mobile the annotations panel is a bottom sheet; tapping its header (but not
+// the Copy button) collapses/expands it.
+annotationsBlock.querySelector("header")?.addEventListener("click", (e) => {
+  if (!mobile.matches) return;
+  if ((e.target as HTMLElement).closest("#copy-feedback")) return;
+  panel.classList.toggle("sheet-collapsed");
+});
+
+function toggleLeft(): void {
+  const opening = app.classList.contains("left-closed");
+  app.classList.toggle("left-closed");
+  if (opening && mobile.matches) app.classList.add("right-closed"); // one drawer at a time
+}
+function toggleRight(): void {
+  const opening = app.classList.contains("right-closed");
+  app.classList.toggle("right-closed");
+  if (opening && mobile.matches) app.classList.add("left-closed");
+}
+
+document.querySelector("#toggle-left")?.addEventListener("click", toggleLeft);
+document.querySelector("#toggle-right")?.addEventListener("click", toggleRight);
+document.querySelector("#scrim")?.addEventListener("click", () => {
+  app.classList.add("left-closed", "right-closed");
+});
 document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
     e.preventDefault();
-    app.classList.toggle("left-closed");
+    toggleLeft();
   }
 });
+
+// Keep the bottom sheet docked just above the (always-visible) send bar.
+function syncActionBarHeight(): void {
+  document.documentElement.style.setProperty("--ab-h", `${actionbar.offsetHeight}px`);
+}
+window.addEventListener("resize", syncActionBarHeight);
+
+// Responsive layout: on mobile the outline moves into the nav drawer, the
+// annotations become a collapsed bottom sheet, and both side panes start closed.
+function applyLayout(isMobile: boolean): void {
+  if (isMobile) {
+    app.classList.add("left-closed", "right-closed");
+    panel.classList.add("sheet-collapsed");
+    if (docmap.parentElement !== leftnav) leftnav.append(docmap);
+  } else {
+    app.classList.remove("left-closed", "right-closed");
+    panel.classList.remove("sheet-collapsed");
+    if (docmap.parentElement !== panel) panel.insertBefore(docmap, annotationsBlock);
+  }
+  syncActionBarHeight();
+}
+mobile.addEventListener("change", (e) => applyLayout(e.matches));
 
 const docmap = document.querySelector<HTMLElement>("#docmap")!;
 const docmapList = document.querySelector<HTMLUListElement>("#docmap-list")!;
@@ -342,6 +387,7 @@ function seedSampleAnnotations(): void {
 
 seedSampleAnnotations();
 onUpdate();
+applyLayout(mobile.matches);
 
 // Dev handle for inspection / screenshot-driven iteration.
 (window as unknown as { orden: unknown }).orden = { view, log, addAnnotation };

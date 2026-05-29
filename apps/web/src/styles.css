@@ -28,7 +28,9 @@ body {
 
 #app {
   --left: 220px;
-  --right: 380px;
+  /* terminal pane: ~33% of the page, but never below 600px — so it takes a
+     larger share as the page shrinks. */
+  --right: max(600px, 33vw);
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
   height: 100vh;
@@ -50,6 +52,11 @@ body {
 
 #app.left-closed #leftnav {
   padding: 0;
+}
+
+/* Scrim behind mobile overlays (hidden on desktop). */
+#scrim {
+  display: none;
 }
 
 .pane-toggle {
@@ -871,4 +878,116 @@ body {
 .preview-actions .ghost {
   background: #fff;
   color: var(--muted);
+}
+
+/* ============================================================
+   Responsive — kept at end of file so these win over base rules.
+   ============================================================ */
+
+/* Narrower desktops: the 600px terminal floor would crush the center, so cap it
+   relative to the viewport and let it shrink with the page. */
+@media (max-width: 1180px) {
+  #app {
+    --right: clamp(360px, 42vw, 600px);
+  }
+}
+
+/* Mobile / narrow: the document is the base layer. Nav (+ outline) is a left
+   drawer, the terminal a right slide-over, annotations a bottom sheet, and the
+   send bar is pinned and always visible. */
+@media (max-width: 860px) {
+  #app {
+    grid-template-columns: 1fr;
+    transition: none;
+  }
+
+  #main {
+    grid-template-columns: 1fr;
+  }
+
+  /* left drawer holds nav + the outline */
+  #leftnav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(82vw, 300px);
+    padding: 14px 12px;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 45;
+    border-right: 1px solid var(--line);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+  }
+  #app:not(.left-closed) #leftnav {
+    transform: none;
+  }
+
+  /* terminal slide-over from the right */
+  #sessions {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(92vw, 600px);
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    z-index: 45;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+  #app:not(.right-closed) #sessions {
+    transform: none;
+  }
+
+  /* annotations bottom sheet, sitting just above the pinned send bar */
+  #panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--ab-h, 60px);
+    max-height: 52vh;
+    z-index: 35;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
+  }
+  #panel.sheet-collapsed {
+    max-height: none;
+  }
+  #panel.sheet-collapsed #annotation-list {
+    display: none;
+  }
+  .annotations-block header {
+    cursor: pointer;
+  }
+  .annotations-block header span:first-child::before {
+    content: "▾ ";
+    font-size: 11px;
+    color: var(--muted);
+  }
+  #panel.sheet-collapsed .annotations-block header span:first-child::before {
+    content: "▸ ";
+  }
+
+  /* send bar pinned to the bottom, always visible */
+  #actionbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+  }
+  #editor {
+    padding-bottom: 96px;
+  }
+
+  /* scrim shown whenever a drawer/slide-over is open */
+  #app:not(.left-closed) #scrim,
+  #app:not(.right-closed) #scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 42;
+  }
 }
