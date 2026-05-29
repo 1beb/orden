@@ -34,7 +34,7 @@ export function itemsByProject(projectId: string): Item[] {
   return cache.filter((i) => i.projectId === projectId);
 }
 
-export function addItem(projectId: string, title: string): Item {
+export function addItem(projectId: string, title: string, sessionId?: string): Item {
   counter += 1;
   const item: Item = {
     id: `item_${Date.now().toString(36)}_${counter}`,
@@ -42,6 +42,7 @@ export function addItem(projectId: string, title: string): Item {
     title: title.trim(),
     state: "backlog",
     notes: "",
+    sessionId,
   };
   cache.push(item);
   if (host) void host.vault.set("cards", item.id, item);

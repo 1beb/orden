@@ -13,6 +13,14 @@ import { VaultSink, hydrateOutbox } from "./sink-local";
 import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
 import { hydratePages } from "./pages";
 import { hydrateCards } from "./cards";
+import {
+  hydrateSessions,
+  listSessions,
+  getSession,
+  createSession,
+  addMessage,
+} from "./sessions";
+import { mountSessionsPanel } from "./sessionsPanel";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage } from "./projectPage";
@@ -41,6 +49,7 @@ await Promise.all([
   hydrateProjects(host),
   hydrateDocs(host),
   hydrateCards(host),
+  hydrateSessions(host),
 ]);
 
 const DOC_TITLE = "Churn model — review";
@@ -737,6 +746,20 @@ document.querySelector("#add-project-save")?.addEventListener("click", () => {
 });
 renderProjects();
 
+// Right pane: sessions (claude/opencode conversations). Creating one drops a
+// linked card into the kanban backlog (separate-but-linked).
+const sessionsPanel = mountSessionsPanel({
+  container: document.querySelector<HTMLElement>("#sessions")!,
+  list: listSessions,
+  get: getSession,
+  create: (opts) => {
+    const s = createSession(opts);
+    refreshBoard(); // the new linked backlog card shows on the board
+    return s;
+  },
+  send: (id, text) => addMessage(id, "user", text),
+});
+
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
@@ -779,6 +802,10 @@ onVaultChange((ns) => {
         applyFont(s.fontFamily, s.fontSize);
         break;
       }
+      case "sessions":
+        await hydrateSessions(host);
+        sessionsPanel.refresh();
+        break;
       case "feedback":
         await hydrateOutbox(host);
         break;
