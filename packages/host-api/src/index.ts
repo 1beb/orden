@@ -1,0 +1,92 @@
+export interface HostCapabilities {
+  remoteProjects: boolean;
+  spawnSessions: boolean;
+  persistentVault: boolean;
+}
+
+export interface Identity {
+  me(): Promise<{ id: string; name: string } | null>;
+  presence(scope: string): Promise<{ id: string; name: string }[]>;
+}
+
+export interface VaultStore {
+  get<T>(ns: string, key: string): Promise<T | null>;
+  set<T>(ns: string, key: string, value: T): Promise<void>;
+  list(ns: string): Promise<string[]>;
+  delete(ns: string, key: string): Promise<void>;
+}
+
+export type ProjectSource =
+  | { kind: "ephemeral" }
+  | { kind: "local"; path: string }
+  | { kind: "ssh"; host: string; path: string; user?: string }
+  | { kind: "s3"; bucket: string; prefix?: string };
+
+export interface Project {
+  id: string;
+  name: string;
+  source: ProjectSource;
+}
+
+export interface ProjectRegistry {
+  list(): Promise<Project[]>;
+  add(source: ProjectSource, name?: string): Promise<Project>;
+  remove(id: string): Promise<void>;
+}
+
+export interface FileEntry {
+  path: string;
+  title: string;
+}
+
+export interface FileSource {
+  list(projectId: string, glob?: string): Promise<FileEntry[]>;
+  read(projectId: string, path: string): Promise<string>;
+  write(projectId: string, path: string, content: string): Promise<void>;
+}
+
+export type SessionState =
+  | "backlog"
+  | "todo"
+  | "in-progress"
+  | "blocked"
+  | "ready"
+  | "complete"
+  | "broken";
+
+export interface Session {
+  id: string;
+  projectId: string;
+  title: string;
+  state: SessionState;
+  conversationId?: string;
+  cwd: string;
+  agent: "claude" | "opencode";
+}
+
+export interface SessionManager {
+  list(): Promise<Session[]>;
+  spawn(
+    projectId: string,
+    opts: { title: string; agent: "claude" | "opencode" },
+  ): Promise<Session>;
+  open(sessionId: string): Promise<{ channel: string }>;
+  transition(sessionId: string, to: SessionState): Promise<void>;
+}
+
+export interface LockService {
+  acquire(resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }>;
+  release(resource: string): Promise<void>;
+  heartbeat(resource: string): Promise<void>;
+  holders(resource: string): Promise<string[]>;
+}
+
+export interface Host {
+  identity: Identity;
+  vault: VaultStore;
+  projects: ProjectRegistry;
+  files: FileSource;
+  sessions: SessionManager;
+  locks: LockService;
+  capabilities(): HostCapabilities;
+}
