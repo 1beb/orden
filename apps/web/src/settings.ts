@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
   fontFamily: DEFAULT_FONT_ID,
   fontSize: 16,
   accent: DEFAULT_ACCENT,
-  sessionMode: "chat",
+  sessionMode: "terminal", // default to the real agent TUI
 };
 
 function isStartupView(value: unknown): value is StartupView {

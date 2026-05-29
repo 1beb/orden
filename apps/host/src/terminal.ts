@@ -10,15 +10,28 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host } from "@orden/host-api";
+
+const exec = promisify(execFile);
 
 interface SessionRecord {
   id: string;
   agent: "claude" | "opencode";
   conversationId?: string;
+  touched?: boolean;
   projectId: string;
   [k: string]: unknown;
+}
+
+async function markTouched(host: Host, sessionId: string): Promise<void> {
+  const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
+  if (rec && !rec.touched) {
+    rec.touched = true;
+    await host.vault.set("sessions", sessionId, rec);
+  }
 }
 
 async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): Promise<string> {
@@ -73,8 +86,13 @@ async function handle(
     }
   });
 
+  let touched = false;
   socket.on("message", (data: Buffer, isBinary: boolean) => {
     if (isBinary) {
+      if (!touched) {
+        touched = true;
+        void markTouched(host, sessionId); // a keystroke = the user used this session
+      }
       term.write(data.toString("utf8")); // keystrokes
       return;
     }
@@ -87,9 +105,14 @@ async function handle(
   });
   socket.on("close", () => {
     try {
-      term.kill(); // detaches tmux; the agent session persists
+      term.kill(); // detaches the tmux client
     } catch {
       /* ignore */
+    }
+    // An untouched session was abandoned — kill its tmux so nothing lingers
+    // (the web side deletes the session record in parallel).
+    if (!touched) {
+      void exec("tmux", ["kill-session", "-t", tmuxName]).catch(() => {});
     }
   });
 }

@@ -498,6 +498,24 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sess-archive {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+}
+.sess-item:hover .sess-archive {
+  opacity: 1;
+}
+.sess-archive:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .sess-transcript {
   flex: 1;
   overflow-y: auto;

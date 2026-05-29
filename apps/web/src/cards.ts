@@ -54,3 +54,8 @@ export function setItemState(id: string, state: CardState): void {
   const updated = cache.find((i) => i.id === id);
   if (host && updated) void host.vault.set("cards", id, updated);
 }
+
+export function removeItem(id: string): void {
+  cache = cache.filter((i) => i.id !== id);
+  if (host) void host.vault.delete("cards", id);
+}

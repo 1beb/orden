@@ -19,6 +19,9 @@ import {
   getSession,
   createSession,
   addMessage,
+  archiveSession,
+  deleteSession,
+  isAbandoned,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal } from "./terminalView";
@@ -767,6 +770,17 @@ const sessionsPanel = mountSessionsPanel({
   },
   mode: () => loadSettings().sessionMode,
   mountTerminal: (container, id) => mountTerminal(container, id),
+  archive: (id) => {
+    archiveSession(id);
+    refreshBoard(); // its card moved to Done
+  },
+  cleanup: (id) => {
+    const s = getSession(id);
+    if (s && isAbandoned(s)) {
+      deleteSession(id);
+      refreshBoard();
+    }
+  },
 });
 
 // Session view mode (Chat | Terminal) — switching re-renders the open session.

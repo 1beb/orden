@@ -5,7 +5,7 @@
 // writes write through. The live agent backend (spawn/resume) lands in H3; for
 // now the transcript is whatever's recorded via addMessage.
 import type { Host } from "@orden/host-api";
-import { addItem } from "./cards";
+import { addItem, listItems, setItemState, removeItem } from "./cards";
 import { ensureDefaultProject } from "./projects";
 
 export type Agent = "claude" | "opencode";
@@ -22,6 +22,8 @@ export interface Session {
   agent: Agent;
   projectId: string;
   conversationId?: string; // agent's resumable id (H3)
+  archived?: boolean; // hidden from the active list (moved to Done)
+  touched?: boolean; // user interacted (a chat msg or a TUI keystroke)
   messages: SessionMessage[];
 }
 
@@ -37,11 +39,42 @@ export async function hydrateSessions(h: Host): Promise<void> {
 }
 
 export function listSessions(): Session[] {
-  return [...cache];
+  return cache.filter((s) => !s.archived); // active sessions only
 }
 
 export function getSession(id: string): Session | undefined {
   return cache.find((s) => s.id === id);
+}
+
+function linkedCardId(sessionId: string): string | undefined {
+  return listItems().find((i) => i.sessionId === sessionId)?.id;
+}
+
+/** A brand-new session no one has touched — not worth keeping. */
+export function isAbandoned(s: Session): boolean {
+  return (
+    s.messages.length === 0 &&
+    !s.touched &&
+    (s.title === "Untitled" || s.title === "Untitled session")
+  );
+}
+
+/** Archive a session (hide it from the list) — like moving its card to Done. */
+export function archiveSession(id: string): void {
+  const session = cache.find((s) => s.id === id);
+  if (!session) return;
+  session.archived = true;
+  persist(session);
+  const cardId = linkedCardId(id);
+  if (cardId) setItemState(cardId, "complete");
+}
+
+/** Permanently remove a session and its linked card. */
+export function deleteSession(id: string): void {
+  cache = cache.filter((s) => s.id !== id);
+  if (host) void host.vault.delete("sessions", id);
+  const cardId = linkedCardId(id);
+  if (cardId) removeItem(cardId);
 }
 
 function persist(session: Session): void {

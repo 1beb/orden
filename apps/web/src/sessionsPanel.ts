@@ -13,6 +13,10 @@ export interface SessionsPanelDeps {
   mode: () => "chat" | "terminal";
   /** Mount the agent TUI into container; returns a dispose fn. */
   mountTerminal: (container: HTMLElement, sessionId: string) => () => void;
+  /** Archive a session (move it to Done / out of the active list). */
+  archive: (id: string) => void;
+  /** Drop a session if it was abandoned untouched (no-op otherwise). */
+  cleanup: (id: string) => void;
 }
 
 export interface SessionsPanel {
@@ -80,7 +84,14 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       t.textContent = s.title;
       const badge = el("span", "sess-badge");
       badge.textContent = s.agent;
-      li.append(t, badge);
+      const archive = button("✓", "sess-archive");
+      archive.title = "Archive (move to Done)";
+      archive.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deps.archive(s.id);
+        renderList();
+      });
+      li.append(t, badge, archive);
       li.addEventListener("click", () => {
         currentId = s.id;
         render();
@@ -106,7 +117,9 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     c.append(head);
     back.addEventListener("click", () => {
       teardownTerm();
+      const left = currentId;
       currentId = null;
+      if (left) deps.cleanup(left); // drop it if it was never touched
       render();
     });
 
