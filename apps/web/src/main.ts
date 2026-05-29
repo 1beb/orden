@@ -15,6 +15,7 @@ import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { mountKanban } from "./kanban";
+import { loadSettings, saveSettings, type StartupView } from "./settings";
 import "./styles.css";
 
 const DOC_TITLE = "Churn model — review";
@@ -56,6 +57,7 @@ const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 app.dataset.target = feedbackTarget;
 
 const leftnav = document.querySelector<HTMLElement>("#leftnav")!;
+const navScroll = document.querySelector<HTMLElement>(".nav-scroll")!;
 const panel = document.querySelector<HTMLElement>("#panel")!;
 const annotationsBlock = document.querySelector<HTMLElement>(".annotations-block")!;
 const mobile = window.matchMedia("(max-width: 860px)");
@@ -97,7 +99,7 @@ function applyLayout(isMobile: boolean): void {
   if (isMobile) {
     app.classList.add("left-closed", "right-closed");
     panel.classList.add("sheet-collapsed");
-    if (docmap.parentElement !== leftnav) leftnav.append(docmap);
+    if (docmap.parentElement !== navScroll) navScroll.append(docmap);
   } else {
     app.classList.remove("left-closed", "right-closed");
     panel.classList.remove("sheet-collapsed");
@@ -409,6 +411,34 @@ document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore
 for (const el of document.querySelectorAll<HTMLElement>(".nav-file, .nav-sess")) {
   el.addEventListener("click", () => viewStore.set("review"));
 }
+
+// --- Settings: cog popover + startup preference ---
+const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
+const settingsPopover = document.querySelector<HTMLElement>("#settings-popover")!;
+const settings = loadSettings();
+for (const radio of settingsPopover.querySelectorAll<HTMLInputElement>('input[name="startup"]')) {
+  radio.checked = radio.value === settings.startup;
+  radio.addEventListener("change", () => {
+    if (radio.checked) saveSettings({ startup: radio.value as StartupView });
+  });
+}
+settingsCog.addEventListener("click", (e) => {
+  e.stopPropagation();
+  settingsPopover.hidden = !settingsPopover.hidden;
+});
+document.addEventListener("click", (e) => {
+  if (settingsPopover.hidden) return;
+  const t = e.target as HTMLElement;
+  if (settingsPopover.contains(t) || t.closest("#settings-cog")) return;
+  settingsPopover.hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") settingsPopover.hidden = true;
+});
+
+// Route the initial view from the startup preference ("last" -> review for now).
+if (settings.startup === "journal") viewStore.set("journal");
+else if (settings.startup === "kanban") viewStore.set("kanban");
 
 // Dev handle for inspection / screenshot-driven iteration.
 (window as unknown as { orden: unknown }).orden = { view, log, addAnnotation, viewStore };

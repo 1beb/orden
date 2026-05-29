@@ -8,6 +8,7 @@
   <body>
     <div id="app">
       <nav id="leftnav">
+        <div class="nav-scroll">
         <div class="nav-brand">Orden</div>
         <div class="nav-top">
           <a class="nav-item" id="nav-journal">Journal</a>
@@ -44,6 +45,10 @@
             <a class="nav-sess">stall detector</a>
           </div>
         </div>
+        </div>
+        <footer class="nav-footer">
+          <button id="settings-cog" class="nav-cog" title="Settings">⚙</button>
+        </footer>
       </nav>
 
       <section id="center">
@@ -107,6 +112,14 @@
       </aside>
 
       <div id="scrim"></div>
+
+      <div id="settings-popover" hidden>
+        <div class="settings-title">Settings</div>
+        <div class="settings-label">On startup, show</div>
+        <label class="settings-opt"><input type="radio" name="startup" value="journal" /> Journal</label>
+        <label class="settings-opt"><input type="radio" name="startup" value="kanban" /> Kanban</label>
+        <label class="settings-opt"><input type="radio" name="startup" value="last" /> Last document</label>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
