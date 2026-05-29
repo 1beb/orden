@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateSettings, loadSettings, saveSettings } from "../src/settings";
 
-const DEFAULTS = { startup: "last", fontFamily: "system", fontSize: 16 };
+const DEFAULTS = { startup: "last", fontFamily: "system", fontSize: 16, accent: "#6d28d9" };
 
 describe("settings store (host-backed)", () => {
   beforeEach(async () => {
@@ -33,10 +33,20 @@ describe("settings store (host-backed)", () => {
     expect(s.fontFamily).toBe("inter");
   });
 
+  it("round-trips the accent color", async () => {
+    await saveSettings({ accent: "#ff8800" });
+    expect(loadSettings().accent).toBe("#ff8800");
+  });
+
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {
-    await saveSettings({ fontFamily: "lora", fontSize: 20, startup: "kanban" });
+    await saveSettings({ fontFamily: "lora", fontSize: 20, startup: "kanban", accent: "#0099ff" });
     await hydrateSettings(new BrowserHost());
-    expect(loadSettings()).toEqual({ startup: "kanban", fontFamily: "lora", fontSize: 20 });
+    expect(loadSettings()).toEqual({
+      startup: "kanban",
+      fontFamily: "lora",
+      fontSize: 20,
+      accent: "#0099ff",
+    });
   });
 
   it("falls back to defaults for invalid stored values", async () => {
@@ -45,6 +55,7 @@ describe("settings store (host-backed)", () => {
       startup: "bogus",
       fontFamily: "no-such-font",
       fontSize: "huge",
+      accent: "not-a-color",
     });
     await hydrateSettings(h);
     expect(loadSettings()).toEqual(DEFAULTS);

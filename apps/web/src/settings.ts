@@ -12,16 +12,20 @@ export interface Settings {
   startup: StartupView;
   fontFamily: string; // a FONT_OPTIONS id
   fontSize: number; // px
+  accent: string; // hex color (#rrggbb)
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
+export const DEFAULT_ACCENT = "#6d28d9";
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_SETTINGS: Settings = {
   startup: "last",
   fontFamily: DEFAULT_FONT_ID,
   fontSize: 16,
+  accent: DEFAULT_ACCENT,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -41,6 +45,10 @@ function coerce(stored: unknown): Settings {
       typeof size === "number" && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE
         ? size
         : DEFAULT_SETTINGS.fontSize,
+    accent:
+      typeof s.accent === "string" && HEX_COLOR.test(s.accent)
+        ? s.accent
+        : DEFAULT_SETTINGS.accent,
   };
 }
 

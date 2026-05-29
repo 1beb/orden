@@ -55,7 +55,7 @@
               <section id="docmap" class="panel-block">
                 <header class="block-head">
                   <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
-                  <span>Outline</span>
+                  <span class="block-label">Outline</span>
                   <button id="hide-outline" class="block-hide" title="Hide outline">Hide</button>
                 </header>
                 <ul id="docmap-list"></ul>
@@ -64,7 +64,7 @@
                 <header>
                   <span class="ann-head-left">
                     <button id="annotations-toggle" class="block-toggle" title="Collapse annotations">▾</button>
-                    <span>Annotations <span id="count">0</span></span>
+                    <span class="block-label">Annotations <span id="count">0</span></span>
                     <button id="hide-annotations" class="block-hide" title="Hide annotations">Hide</button>
                   </span>
                   <div class="panel-actions">
@@ -124,6 +124,8 @@
           <option value="18">Large</option>
           <option value="20">Extra large</option>
         </select>
+        <div class="settings-label">Accent color</div>
+        <input type="color" id="accent-color" class="settings-color" />
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

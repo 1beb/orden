@@ -5,7 +5,8 @@
   --line: #e5e7eb;
   --panel-bg: #ffffff;
   --accent: #6d28d9;
-  --accent-soft: #ede9fe;
+  /* lavender tint derived from the accent so a custom accent themes everything */
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, #fff);
   --human: #6366f1;
   --human-soft: #e0e7ff;
 }
@@ -26,6 +27,11 @@ body {
   line-height: 1.6;
   color: var(--ink);
   background: var(--bg);
+}
+
+/* text selection (incl. the editor heading select on outline-click) follows the accent */
+::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 #app {
@@ -112,6 +118,14 @@ body {
   grid-template-columns: minmax(0, 1fr) 320px;
   min-width: 0;
   min-height: 0;
+}
+
+/* both panels hidden: reclaim the right column for the document */
+#main.panels-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+#main.panels-collapsed #panel {
+  display: none;
 }
 
 #main.view.active {
@@ -220,6 +234,16 @@ body {
 .settings-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.settings-color {
+  width: 100%;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
 }
 
 .nav-brand {
@@ -650,6 +674,11 @@ body {
   display: none;
 }
 
+.block-label {
+  cursor: pointer;
+  user-select: none;
+}
+
 .block-hide {
   font: inherit;
   font-size: 11px;
@@ -936,7 +965,7 @@ body {
 }
 
 .panel-send:hover {
-  background: #5b21b6; /* violet-800: a touch deeper on hover */
+  background: color-mix(in srgb, var(--accent) 84%, black); /* a touch deeper */
 }
 
 /* feedback preview modal */
@@ -1084,14 +1113,6 @@ body {
   }
   .annotations-block header {
     cursor: pointer;
-  }
-  .annotations-block header span:first-child::before {
-    content: "▾ ";
-    font-size: 11px;
-    color: var(--muted);
-  }
-  #panel.sheet-collapsed .annotations-block header span:first-child::before {
-    content: "▸ ";
   }
   #editor {
     padding-bottom: 72px;
@@ -1503,7 +1524,7 @@ body {
 .ann-head-left {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px; /* match the outline header (.block-head) unfurl spacing */
 }
 .annotations-block.collapsed #annotation-list {
   display: none;

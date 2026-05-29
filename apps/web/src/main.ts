@@ -141,27 +141,43 @@ mobile.addEventListener("change", (e) => applyLayout(e.matches));
 
 const docmap = document.querySelector<HTMLElement>("#docmap")!;
 const docmapList = document.querySelector<HTMLUListElement>("#docmap-list")!;
-document
-  .querySelector("#docmap-toggle")
-  ?.addEventListener("click", () => docmap.classList.toggle("collapsed"));
-document.querySelector("#annotations-toggle")?.addEventListener("click", (e) => {
-  e.stopPropagation(); // don't also toggle the mobile bottom sheet
-  annotationsBlock.classList.toggle("collapsed");
-});
+// The ▾ button and the label word both furl/unfurl a section.
+function wireFurl(section: HTMLElement, ...selectors: string[]): void {
+  for (const sel of selectors) {
+    section.querySelector(sel)?.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't also toggle the mobile bottom sheet
+      section.classList.toggle("collapsed");
+    });
+  }
+}
+wireFurl(docmap, "#docmap-toggle", ".block-label");
+wireFurl(annotationsBlock, "#annotations-toggle", ".block-label");
 
 // Hide/show whole panel sections (outline, annotations). When hidden, a
-// "Show X" button surfaces above the settings cog. Works in every layout.
+// "Show X" button surfaces above the settings cog. Works in every layout. When
+// both are hidden, the right column collapses so the document reclaims it.
+const mainSection = document.querySelector<HTMLElement>("#main")!;
+function syncPanelColumn(): void {
+  const bothHidden =
+    docmap.classList.contains("section-hidden") &&
+    annotationsBlock.classList.contains("section-hidden");
+  mainSection.classList.toggle("panels-collapsed", bothHidden);
+}
 function wireHideShow(section: HTMLElement, hideBtnId: string, showBtnId: string): void {
   const showBtn = document.querySelector<HTMLButtonElement>(showBtnId)!;
   const setHidden = (hidden: boolean) => {
     section.classList.toggle("section-hidden", hidden);
     showBtn.hidden = !hidden;
+    syncPanelColumn();
   };
   document.querySelector(hideBtnId)?.addEventListener("click", (e) => {
     e.stopPropagation();
     setHidden(true);
   });
-  showBtn.addEventListener("click", () => setHidden(false));
+  showBtn.addEventListener("click", () => {
+    section.classList.remove("collapsed"); // reopen unfurled, not in a collapsed state
+    setHidden(false);
+  });
 }
 wireHideShow(docmap, "#hide-outline", "#show-outline");
 wireHideShow(annotationsBlock, "#hide-annotations", "#show-annotations");
@@ -375,6 +391,7 @@ function renderPanel(): void {
 
   const total = placed.length + orphans.length;
   countEl.textContent = String(total);
+  countEl.hidden = total === 0; // don't show "0"
   annotationsBlock.classList.toggle("empty", total === 0);
   syncHighlightStates(placed);
 }
@@ -521,6 +538,20 @@ for (const radio of settingsPopover.querySelectorAll<HTMLInputElement>('input[na
     if (radio.checked) saveSettings({ startup: radio.value as StartupView });
   });
 }
+
+// Accent color: drive the --accent CSS var (--accent-soft, selection, hovers
+// all derive from it). Apply the saved choice now, then wire the picker.
+function applyAccent(color: string): void {
+  document.documentElement.style.setProperty("--accent", color);
+}
+applyAccent(settings.accent);
+
+const accentInput = document.querySelector<HTMLInputElement>("#accent-color")!;
+accentInput.value = settings.accent;
+accentInput.addEventListener("input", () => {
+  applyAccent(accentInput.value);
+  void saveSettings({ accent: accentInput.value });
+});
 
 // Font family + size: apply the saved choice now, then wire the selectors.
 applyFont(settings.fontFamily, settings.fontSize);
