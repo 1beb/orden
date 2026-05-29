@@ -774,6 +774,10 @@ const sessionsPanel = mountSessionsPanel({
     archiveSession(id);
     refreshBoard(); // its card moved to Done
   },
+  remove: (id) => {
+    deleteSession(id);
+    refreshBoard(); // its card is gone too
+  },
   cleanup: (id) => {
     const s = getSession(id);
     if (s && isAbandoned(s)) {

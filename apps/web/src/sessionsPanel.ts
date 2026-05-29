@@ -15,6 +15,8 @@ export interface SessionsPanelDeps {
   mountTerminal: (container: HTMLElement, sessionId: string) => () => void;
   /** Archive a session (move it to Done / out of the active list). */
   archive: (id: string) => void;
+  /** Permanently delete a session. */
+  remove: (id: string) => void;
   /** Drop a session if it was abandoned untouched (no-op otherwise). */
   cleanup: (id: string) => void;
 }
@@ -83,15 +85,23 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       const t = el("span", "sess-item-title");
       t.textContent = s.title;
       const badge = el("span", "sess-badge");
-      badge.textContent = s.agent;
-      const archive = button("✓", "sess-archive");
+      badge.textContent = s.agent === "opencode" ? "O" : "C";
+      badge.title = s.agent;
+      const archive = button("✓", "sess-rowbtn");
       archive.title = "Archive (move to Done)";
       archive.addEventListener("click", (e) => {
         e.stopPropagation();
         deps.archive(s.id);
         renderList();
       });
-      li.append(t, badge, archive);
+      const del = button("✕", "sess-rowbtn");
+      del.title = "Delete session";
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        deps.remove(s.id);
+        renderList();
+      });
+      li.append(t, badge, archive, del);
       li.addEventListener("click", () => {
         currentId = s.id;
         render();
@@ -112,7 +122,8 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const title = el("span", "sess-title");
     title.textContent = s.title;
     const badge = el("span", "sess-badge");
-    badge.textContent = s.agent;
+    badge.textContent = s.agent === "opencode" ? "O" : "C";
+    badge.title = s.agent;
     head.append(back, title, badge);
     c.append(head);
     back.addEventListener("click", () => {
