@@ -54,16 +54,6 @@
             <button id="toggle-right" class="pane-toggle" title="Toggle session">›_</button>
           </header>
           <div id="editor"></div>
-          <footer id="actionbar">
-            <div class="ab-target">
-              <span class="ab-label">Send to</span>
-              <button class="ab-tab is-on" data-target="agent">Agent</button>
-              <button class="ab-tab" data-target="human">Human</button>
-            </div>
-            <button id="primary-action" class="ab-primary" data-kind="approve">
-              Approve
-            </button>
-          </footer>
         </main>
         <aside id="panel">
           <section id="docmap" class="panel-block">
@@ -76,7 +66,12 @@
           <section class="panel-block annotations-block">
             <header>
               <span>Annotations <span id="count">0</span></span>
-              <button id="copy-feedback" class="panel-copy">Copy</button>
+              <div class="panel-actions">
+                <button id="primary-action" class="panel-send" data-kind="approve">
+                  Approve
+                </button>
+                <button id="copy-feedback" class="panel-copy">Copy</button>
+              </div>
             </header>
             <ul id="annotation-list"></ul>
           </section>

@@ -28,9 +28,10 @@ body {
 
 #app {
   --left: 220px;
-  /* terminal pane: ~33% of the page, but never below 600px — so it takes a
-     larger share as the page shrinks. */
-  --right: max(600px, 33vw);
+  /* terminal pane: ~33% of the page, capped at 600px (reached on wide screens)
+     and floored at 340px so the document + annotations stay usable on narrower
+     desktops. A hard 600px *floor* crushes the center at ~1280px. */
+  --right: clamp(340px, 33vw, 600px);
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
   height: 100vh;
@@ -746,65 +747,26 @@ body {
   color: var(--muted);
 }
 
-/* bottom action bar */
-#actionbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 48px;
-  border-top: 1px solid var(--line);
-  background: var(--panel-bg);
-}
-
-.ab-target {
+/* panel header actions: Send + Copy side by side */
+.panel-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.ab-label {
+.panel-send {
+  font: inherit;
   font-size: 12px;
-  color: var(--muted);
-  margin-right: 2px;
-}
-
-.ab-tab {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 14px;
-  border: 1px solid var(--line);
+  font-weight: 600;
+  padding: 4px 14px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: #fff;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.ab-tab[data-target="agent"].is-on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--ink);
-}
-
-.ab-tab[data-target="human"].is-on {
-  border-color: var(--human);
-  background: var(--human-soft);
-  color: var(--ink);
-}
-
-.ab-primary {
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 8px 20px;
-  border: none;
-  border-radius: 7px;
   background: var(--ink);
   color: #fff;
   cursor: pointer;
 }
 
-.ab-primary[data-kind="approve"] {
+.panel-send[data-kind="approve"] {
   background: #15803d;
 }
 
@@ -884,14 +846,6 @@ body {
    Responsive — kept at end of file so these win over base rules.
    ============================================================ */
 
-/* Narrower desktops: the 600px terminal floor would crush the center, so cap it
-   relative to the viewport and let it shrink with the page. */
-@media (max-width: 1180px) {
-  #app {
-    --right: clamp(360px, 42vw, 600px);
-  }
-}
-
 /* Mobile / narrow: the document is the base layer. Nav (+ outline) is a left
    drawer, the terminal a right slide-over, annotations a bottom sheet, and the
    send bar is pinned and always visible. */
@@ -939,12 +893,13 @@ body {
     transform: none;
   }
 
-  /* annotations bottom sheet, sitting just above the pinned send bar */
+  /* annotations bottom sheet pinned to the bottom; its header (with Send + Copy)
+     is always visible, and tapping it expands/collapses the sheet */
   #panel {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--ab-h, 60px);
+    bottom: 0;
     max-height: 52vh;
     z-index: 35;
     border-left: none;
@@ -968,17 +923,8 @@ body {
   #panel.sheet-collapsed .annotations-block header span:first-child::before {
     content: "▸ ";
   }
-
-  /* send bar pinned to the bottom, always visible */
-  #actionbar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-  }
   #editor {
-    padding-bottom: 96px;
+    padding-bottom: 72px;
   }
 
   /* scrim shown whenever a drawer/slide-over is open */

@@ -53,16 +53,15 @@ const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 app.dataset.target = feedbackTarget;
 
 const leftnav = document.querySelector<HTMLElement>("#leftnav")!;
-const actionbar = document.querySelector<HTMLElement>("#actionbar")!;
 const panel = document.querySelector<HTMLElement>("#panel")!;
 const annotationsBlock = document.querySelector<HTMLElement>(".annotations-block")!;
 const mobile = window.matchMedia("(max-width: 860px)");
 
 // On mobile the annotations panel is a bottom sheet; tapping its header (but not
-// the Copy button) collapses/expands it.
+// the Send/Copy buttons) collapses/expands it.
 annotationsBlock.querySelector("header")?.addEventListener("click", (e) => {
   if (!mobile.matches) return;
-  if ((e.target as HTMLElement).closest("#copy-feedback")) return;
+  if ((e.target as HTMLElement).closest(".panel-actions")) return;
   panel.classList.toggle("sheet-collapsed");
 });
 
@@ -89,12 +88,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Keep the bottom sheet docked just above the (always-visible) send bar.
-function syncActionBarHeight(): void {
-  document.documentElement.style.setProperty("--ab-h", `${actionbar.offsetHeight}px`);
-}
-window.addEventListener("resize", syncActionBarHeight);
-
 // Responsive layout: on mobile the outline moves into the nav drawer, the
 // annotations become a collapsed bottom sheet, and both side panes start closed.
 function applyLayout(isMobile: boolean): void {
@@ -107,7 +100,6 @@ function applyLayout(isMobile: boolean): void {
     panel.classList.remove("sheet-collapsed");
     if (docmap.parentElement !== panel) panel.insertBefore(docmap, annotationsBlock);
   }
-  syncActionBarHeight();
 }
 mobile.addEventListener("change", (e) => applyLayout(e.matches));
 
@@ -133,16 +125,8 @@ function renderDocMap(): void {
 
 const annotator = mountAnnotator(view, log, () => renderPanel());
 
-// Bottom action bar: target lives here (chosen at the end), and the primary
-// action morphs between Approve (clean) and Send feedback (annotations present).
-for (const tab of document.querySelectorAll<HTMLButtonElement>(".ab-tab")) {
-  tab.addEventListener("click", () => {
-    feedbackTarget = tab.dataset.target as "agent" | "human";
-    app.dataset.target = feedbackTarget;
-    for (const t of document.querySelectorAll(".ab-tab"))
-      t.classList.toggle("is-on", t === tab);
-  });
-}
+// Bottom action bar: the primary action morphs between Approve (clean) and Send
+// (annotations present). Agent/human targeting is deferred — defaults to agent.
 
 function feedbackItems(): FeedbackItem[] {
   return scanAnnotations(view.state.doc).map((p) => {
@@ -339,7 +323,7 @@ function updateActionBar(): void {
   const open = placed.filter((p) => (log.get(p.id)?.status ?? "open") === "open").length;
   if (open > 0) {
     primaryBtn.dataset.kind = "send";
-    primaryBtn.textContent = `Send feedback (${open})`;
+    primaryBtn.textContent = "Send";
   } else {
     primaryBtn.dataset.kind = "approve";
     primaryBtn.textContent = "Approve";
