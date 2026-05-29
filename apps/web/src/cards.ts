@@ -1,7 +1,10 @@
 // Kanban items: page-like entities belonging to a project (an issue tracker).
-// Stored separately from wiki pages, so they never show up in the Pages index.
+// Backed by the host vault (ns "cards", one key per item id), stored separately
+// from wiki pages so they never show up in the Pages index. Accessors stay
+// synchronous over a cache hydrated at boot; writes write through.
 // AI sessions per item arrive with the host backend (sessionId placeholder kept).
 import type { CardState } from "@orden/outliner";
+import type { Host } from "@orden/host-api";
 
 export interface Item {
   id: string;
@@ -12,37 +15,26 @@ export interface Item {
   sessionId?: string; // future: associated AI session
 }
 
-const KEY = "orden:cards";
+let host: Host | null = null;
+let cache: Item[] = [];
 let counter = 0;
 
-function load(): Item[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(items: Item[]): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(items));
-  } catch {
-    /* ignore */
-  }
+export async function hydrateCards(h: Host): Promise<void> {
+  host = h;
+  const ids = await h.vault.list("cards");
+  const all = await Promise.all(ids.map((id) => h.vault.get<Item>("cards", id)));
+  cache = all.filter((i): i is Item => i !== null);
 }
 
 export function listItems(): Item[] {
-  return load();
+  return [...cache];
 }
 
 export function itemsByProject(projectId: string): Item[] {
-  return load().filter((i) => i.projectId === projectId);
+  return cache.filter((i) => i.projectId === projectId);
 }
 
 export function addItem(projectId: string, title: string): Item {
-  const items = load();
   counter += 1;
   const item: Item = {
     id: `item_${Date.now().toString(36)}_${counter}`,
@@ -51,11 +43,13 @@ export function addItem(projectId: string, title: string): Item {
     state: "backlog",
     notes: "",
   };
-  items.push(item);
-  save(items);
+  cache.push(item);
+  if (host) void host.vault.set("cards", item.id, item);
   return item;
 }
 
 export function setItemState(id: string, state: CardState): void {
-  save(load().map((i) => (i.id === id ? { ...i, state } : i)));
+  cache = cache.map((i) => (i.id === id ? { ...i, state } : i));
+  const updated = cache.find((i) => i.id === id);
+  if (host && updated) void host.vault.set("cards", id, updated);
 }

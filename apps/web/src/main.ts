@@ -8,10 +8,11 @@ import { sendFeedback } from "@orden/annotation-core";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
-import { saveState, loadState } from "./persist";
-import { LocalStorageSink } from "./sink-local";
-import { listFiles } from "./files";
-import { listProjects, addProject, getProject } from "./projects";
+import { saveState, loadState, hydrateDocs } from "./persist";
+import { VaultSink, hydrateOutbox } from "./sink-local";
+import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
+import { hydratePages } from "./pages";
+import { hydrateCards } from "./cards";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage } from "./projectPage";
@@ -23,12 +24,27 @@ import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
-import { loadSettings, saveSettings, type StartupView } from "./settings";
+import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
+import { getHost } from "./host";
 import "./styles.css";
+
+// H0.3: the app talks to a Host (BrowserHost by default; a NodeHost over
+// WebSocket when VITE_ORDEN_HOST is set). Obtain it and hydrate the vault-backed
+// stores before the rest of the module runs (top-level await — Vite supports it
+// in the entry module).
+const host = await getHost();
+await Promise.all([
+  hydrateSettings(host),
+  hydrateOutbox(host),
+  hydratePages(host),
+  hydrateProjects(host),
+  hydrateDocs(host),
+  hydrateCards(host),
+]);
 
 const DOC_TITLE = "Churn model — review";
 const log = new AnnotationLog();
-const sink = new LocalStorageSink();
+const sink = new VaultSink();
 let feedbackTarget: "agent" | "human" = "agent";
 let currentDocKey = "review:sample";
 let currentDocTitle = DOC_TITLE;
@@ -505,7 +521,7 @@ function loadReviewDoc(opts: {
 }): void {
   currentDocKey = opts.key;
   currentDocTitle = opts.title;
-  localStorage.setItem("orden:last-doc", opts.key);
+  void host.vault.set("ui", "last-doc", opts.key);
 
   const saved = loadState(opts.key);
   const parsed = markdownParser.parse(saved?.markdown ?? opts.markdown);
@@ -533,7 +549,8 @@ function loadReviewDoc(opts: {
 }
 
 const recentList = document.querySelector<HTMLElement>("#recent-list")!;
-const repoFiles = listFiles();
+// Repo docs come through host.files now (path + title); content is read on open.
+const repoFiles = await host.files.list("repo");
 
 function setActiveFile(path: string | null): void {
   recentList.querySelectorAll<HTMLElement>(".nav-file").forEach((el) => {
@@ -553,8 +570,9 @@ for (const f of repoFiles) {
   meta.className = "nav-file-meta";
   meta.textContent = f.path.includes("/") ? f.path.replace(/\/[^/]+$/, "") : "/";
   a.append(name, meta);
-  a.addEventListener("click", () => {
-    loadReviewDoc({ key: `review:${f.path}`, title: f.title, markdown: f.content });
+  a.addEventListener("click", async () => {
+    const markdown = await host.files.read("repo", f.path);
+    loadReviewDoc({ key: `review:${f.path}`, title: f.title, markdown });
     setActiveFile(f.path);
     viewStore.set("review");
   });
@@ -563,7 +581,7 @@ for (const f of repoFiles) {
 
 // Initial review document: last-opened repo file, else the design doc, else the
 // built-in sample (which seeds demo annotations on first run).
-const lastKey = localStorage.getItem("orden:last-doc");
+const lastKey = await host.vault.get<string>("ui", "last-doc");
 const lastFile = repoFiles.find((f) => `review:${f.path}` === lastKey);
 const defaultFile =
   lastFile ?? repoFiles.find((f) => f.path.includes("orden-design")) ?? repoFiles[0];
@@ -571,7 +589,7 @@ if (defaultFile) {
   loadReviewDoc({
     key: `review:${defaultFile.path}`,
     title: defaultFile.title,
-    markdown: defaultFile.content,
+    markdown: await host.files.read("repo", defaultFile.path),
   });
   setActiveFile(defaultFile.path);
 } else {

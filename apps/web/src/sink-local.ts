@@ -1,36 +1,31 @@
 import type { Annotation, SinkAdapter } from "@orden/annotation-core";
-
-const OUTBOX_KEY = "orden:feedback-outbox";
+import type { Host } from "@orden/host-api";
 
 export interface OutboxEntry {
   at: string;
   items: Annotation[];
 }
 
-/**
- * A SinkAdapter that persists feedback batches to localStorage. Drop-in
- * replacement for the in-memory sink; swappable for an MCP sink later with
- * no UI change.
- */
-export class LocalStorageSink implements SinkAdapter {
+// Feedback outbox in the host vault (ns "feedback", key "outbox"). The cache is
+// hydrated at boot so readOutbox stays synchronous; send appends and writes
+// through. Swappable for an MCP sink later with no UI change.
+let host: Host | null = null;
+let cache: OutboxEntry[] = [];
+
+export async function hydrateOutbox(h: Host): Promise<void> {
+  host = h;
+  const stored = await h.vault.get<OutboxEntry[]>("feedback", "outbox");
+  cache = Array.isArray(stored) ? stored : [];
+}
+
+export class VaultSink implements SinkAdapter {
   async send(batch: Annotation[]): Promise<void> {
-    const outbox = readOutbox();
-    outbox.push({ at: new Date().toISOString(), items: batch });
-    localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox));
+    cache.push({ at: new Date().toISOString(), items: batch });
+    if (host) await host.vault.set("feedback", "outbox", cache);
   }
 }
 
-/**
- * Reads the persisted outbox. Returns [] when the key is absent or the stored
- * value is malformed; never throws.
- */
+/** The persisted outbox (from cache). Never throws. */
 export function readOutbox(): OutboxEntry[] {
-  const raw = localStorage.getItem(OUTBOX_KEY);
-  if (raw === null) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as OutboxEntry[]) : [];
-  } catch {
-    return [];
-  }
+  return cache;
 }

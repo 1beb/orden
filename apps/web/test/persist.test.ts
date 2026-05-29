@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAnnotation, type Annotation } from "@orden/annotation-core";
-import { clearState, loadState, saveState } from "../src/persist";
+import { BrowserHost } from "../src/host/browserHost";
+import { clearState, hydrateDocs, loadState, saveState } from "../src/persist";
 
 function makeRecord(body: string): Annotation {
   return createAnnotation({
@@ -9,9 +10,12 @@ function makeRecord(body: string): Annotation {
   });
 }
 
-describe("persist", () => {
-  beforeEach(() => {
+// Per-doc state lives in the vault (ns "docs"). Hydrated into a cache at boot
+// so loadState/saveState stay synchronous; writes write through to the vault.
+describe("persist (host-backed)", () => {
+  beforeEach(async () => {
     localStorage.clear();
+    await hydrateDocs(new BrowserHost());
   });
 
   it("returns null when nothing is stored", () => {
@@ -28,11 +32,6 @@ describe("persist", () => {
     expect(loaded!.records).toEqual(records);
   });
 
-  it("stores under the orden:doc:<docKey> key", () => {
-    saveState("doc-a", "x", []);
-    expect(localStorage.getItem("orden:doc:doc-a")).not.toBeNull();
-  });
-
   it("keeps different docKeys independent", () => {
     saveState("doc-a", "alpha", [makeRecord("a")]);
     saveState("doc-b", "beta", []);
@@ -43,18 +42,20 @@ describe("persist", () => {
     expect(loadState("doc-b")!.records).toHaveLength(0);
   });
 
-  it("returns null for malformed JSON without throwing", () => {
-    localStorage.setItem("orden:doc:doc-a", "{ not valid json");
-    expect(() => loadState("doc-a")).not.toThrow();
-    expect(loadState("doc-a")).toBeNull();
+  it("persists across a re-hydrate (fresh host over the same vault)", async () => {
+    saveState("doc-a", "alpha", [makeRecord("a")]);
+    await new Promise((r) => setTimeout(r, 10)); // let the write-through settle
+    await hydrateDocs(new BrowserHost());
+    expect(loadState("doc-a")!.markdown).toBe("alpha");
   });
 
-  it("clears stored state", () => {
+  it("clears stored state", async () => {
     saveState("doc-a", "x", []);
     expect(loadState("doc-a")).not.toBeNull();
 
     clearState("doc-a");
     expect(loadState("doc-a")).toBeNull();
-    expect(localStorage.getItem("orden:doc:doc-a")).toBeNull();
+    await hydrateDocs(new BrowserHost());
+    expect(loadState("doc-a")).toBeNull();
   });
 });

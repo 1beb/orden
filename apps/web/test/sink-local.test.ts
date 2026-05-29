@@ -4,42 +4,35 @@ import {
   sendFeedback,
   type Annotation,
 } from "@orden/annotation-core";
-import { LocalStorageSink, readOutbox } from "../src/sink-local";
-
-const OUTBOX_KEY = "orden:feedback-outbox";
+import { BrowserHost } from "../src/host/browserHost";
+import { VaultSink, hydrateOutbox, readOutbox } from "../src/sink-local";
 
 function makeAnnotation(body: string): Annotation {
-  return createAnnotation({
-    anchor: { blockId: "b1" },
-    body,
-  });
+  return createAnnotation({ anchor: { blockId: "b1" }, body });
 }
 
-describe("LocalStorageSink / readOutbox", () => {
-  beforeEach(() => {
+describe("VaultSink / readOutbox (host-backed)", () => {
+  beforeEach(async () => {
     localStorage.clear();
+    await hydrateOutbox(new BrowserHost());
   });
 
-  it("readOutbox returns [] when storage is empty", () => {
+  it("readOutbox returns [] when nothing has been sent", () => {
     expect(readOutbox()).toEqual([]);
   });
 
   it("send appends one entry whose items match the batch", async () => {
-    const sink = new LocalStorageSink();
     const batch = [makeAnnotation("one"), makeAnnotation("two")];
-
-    await sink.send(batch);
+    await new VaultSink().send(batch);
 
     const outbox = readOutbox();
     expect(outbox).toHaveLength(1);
     expect(outbox[0].items).toEqual(batch);
-    expect(typeof outbox[0].at).toBe("string");
     expect(Number.isNaN(Date.parse(outbox[0].at))).toBe(false);
   });
 
   it("two sends accumulate two entries", async () => {
-    const sink = new LocalStorageSink();
-
+    const sink = new VaultSink();
     await sink.send([makeAnnotation("first")]);
     await sink.send([makeAnnotation("second")]);
 
@@ -50,23 +43,19 @@ describe("LocalStorageSink / readOutbox", () => {
   });
 
   it("works end-to-end with sendFeedback: items marked sent and batch recorded", async () => {
-    const sink = new LocalStorageSink();
-    const items = [makeAnnotation("hello")];
-
-    const sent = await sendFeedback(sink, items);
-
+    const sent = await sendFeedback(new VaultSink(), [makeAnnotation("hello")]);
     expect(sent.every((a) => a.status === "sent")).toBe(true);
 
     const outbox = readOutbox();
     expect(outbox).toHaveLength(1);
-    expect(outbox[0].items).toHaveLength(1);
     expect(outbox[0].items[0].status).toBe("sent");
     expect(outbox[0].items[0].body).toBe("hello");
   });
 
-  it("readOutbox returns [] on malformed storage without throwing", () => {
-    localStorage.setItem(OUTBOX_KEY, "{not valid json");
-    expect(() => readOutbox()).not.toThrow();
-    expect(readOutbox()).toEqual([]);
+  it("persists across a re-hydrate (fresh host over the same vault)", async () => {
+    await new VaultSink().send([makeAnnotation("kept")]);
+    await hydrateOutbox(new BrowserHost());
+    expect(readOutbox()).toHaveLength(1);
+    expect(readOutbox()[0].items[0].body).toBe("kept");
   });
 });
