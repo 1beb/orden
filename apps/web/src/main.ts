@@ -4,8 +4,12 @@ import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
 import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
-import { schema, markdownParser } from "./schema";
+import { sendFeedback } from "@orden/annotation-core";
+import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
+import { reanchorQuote } from "./pm-reanchor";
+import { saveState, loadState } from "./persist";
+import { LocalStorageSink } from "./sink-local";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -19,8 +23,14 @@ import { loadSettings, saveSettings, type StartupView } from "./settings";
 import "./styles.css";
 
 const DOC_TITLE = "Churn model — review";
+const DOC_KEY = "review:sample";
 const log = new AnnotationLog();
+const sink = new LocalStorageSink();
 let feedbackTarget: "agent" | "human" = "agent";
+
+function persistReview(): void {
+  saveState(DOC_KEY, markdownSerializer.serialize(view.state.doc), log.all());
+}
 
 const state = EditorState.create({
   doc: markdownParser.parse(sampleMarkdown),
@@ -154,12 +164,19 @@ function previewFeedback(): void {
 
 primaryBtn.addEventListener("click", () => {
   if (primaryBtn.dataset.kind === "send") {
-    for (const p of scanAnnotations(view.state.doc)) {
-      if ((log.get(p.id)?.status ?? "open") === "open") log.setStatus(p.id, "sent");
-    }
+    // Send the open annotations through the annotation-core sink seam (the
+    // LocalStorageSink stands in for an MCP sink later), then mark them sent.
+    const openItems = scanAnnotations(view.state.doc)
+      .map((p) => log.get(p.id))
+      .filter((r): r is NonNullable<typeof r> => !!r && r.status === "open")
+      .map((r) => ({ ...r, target: feedbackTarget }));
     previewFeedback();
-    renderPanel();
-    updateActionBar();
+    void sendFeedback(sink, openItems).then((sent) => {
+      sent.forEach((a) => log.add(a));
+      persistReview();
+      renderPanel();
+      updateActionBar();
+    });
   } else {
     primaryBtn.textContent = "Approved ✓";
     window.setTimeout(updateActionBar, 1200);
@@ -341,6 +358,7 @@ function onUpdate(): void {
   renderPanel();
   annotator.update();
   updateActionBar();
+  persistReview();
 }
 
 // Dev seed: apply a few sample annotations on load so the page shows highlights
@@ -374,7 +392,30 @@ function seedSampleAnnotations(): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)));
 }
 
-seedSampleAnnotations();
+// Restore the review doc + annotations from the last session, re-anchoring each
+// annotation by its stored quote; anything that no longer matches stays orphaned
+// (shown in the panel, never mis-anchored). First run has nothing saved → seed.
+const persisted = loadState(DOC_KEY);
+if (persisted) {
+  const parsed = markdownParser.parse(persisted.markdown);
+  persisted.records.forEach((r) => log.add(r));
+  let tr = view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content);
+  for (const r of persisted.records) {
+    const quote = r.anchor?.quote;
+    if (!quote) continue;
+    const range = reanchorQuote(parsed, quote);
+    if (range) {
+      tr = tr.addMark(
+        range.from,
+        range.to,
+        schema.marks.annotation.create({ id: r.id, target: r.target }),
+      );
+    }
+  }
+  view.dispatch(tr);
+} else {
+  seedSampleAnnotations();
+}
 onUpdate();
 applyLayout(mobile.matches);
 
