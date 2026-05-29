@@ -757,7 +757,13 @@ const sessionsPanel = mountSessionsPanel({
     refreshBoard(); // the new linked backlog card shows on the board
     return s;
   },
-  send: (id, text) => addMessage(id, "user", text),
+  send: (id, text) => {
+    // The host runs the agent and appends both the user message and the reply
+    // to the vault, which stream back via the change feed.
+    void host.sessions
+      .prompt(id, text)
+      .catch((e) => addMessage(id, "system", `error: ${e instanceof Error ? e.message : String(e)}`));
+  },
 });
 
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),

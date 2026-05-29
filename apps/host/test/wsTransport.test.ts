@@ -57,6 +57,6 @@ describe("Host over WebSocket", () => {
   test("a host-side error propagates to the client over the socket", async () => {
     await expect(
       client.sessions.spawn("p1", { title: "x", agent: "claude" }),
-    ).rejects.toThrow(/not implemented yet/);
+    ).rejects.toThrow(/create sessions from the UI/);
   });
 });

@@ -40,6 +40,6 @@ describe("Host RPC", () => {
   test("a method that throws on the host rejects on the client with its message", async () => {
     await expect(
       client.sessions.spawn("p1", { title: "x", agent: "claude" }),
-    ).rejects.toThrow(/not implemented yet/);
+    ).rejects.toThrow(/create sessions from the UI/);
   });
 });

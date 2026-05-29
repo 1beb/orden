@@ -128,6 +128,10 @@ class LocalSessions implements SessionManager {
   async transition(_sessionId: string, _to: SessionState): Promise<void> {
     throw new Error("BrowserHost: sessions require a host");
   }
+
+  async prompt(_sessionId: string, _text: string): Promise<void> {
+    throw new Error("BrowserHost: sessions require a host");
+  }
 }
 
 class LocalLocks implements LockService {

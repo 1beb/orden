@@ -24,6 +24,7 @@ import type {
 } from "@orden/host-api";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
+import { NodeSessions } from "./nodeSessions";
 
 export interface NodeHostOptions {
   /** Directory the vault persists into. */
@@ -65,24 +66,6 @@ class StubFiles implements FileSource {
   }
   async write(_projectId: string, _path: string, _content: string): Promise<void> {
     throw new Error("NodeHost: files.write not implemented yet (H2)");
-  }
-}
-
-class StubSessions implements SessionManager {
-  async list(): Promise<Session[]> {
-    return [];
-  }
-  async spawn(
-    _projectId: string,
-    _opts: { title: string; agent: "claude" | "opencode" },
-  ): Promise<Session> {
-    throw new Error("NodeHost: sessions.spawn not implemented yet (H3)");
-  }
-  async open(_sessionId: string): Promise<{ channel: string }> {
-    throw new Error("NodeHost: sessions.open not implemented yet (H3)");
-  }
-  async transition(_sessionId: string, _to: SessionState): Promise<void> {
-    throw new Error("NodeHost: sessions.transition not implemented yet (H3)");
   }
 }
 
@@ -132,7 +115,7 @@ export class NodeHost implements Host {
   readonly vault: VaultStore;
   readonly projects: ProjectRegistry = new StubProjects();
   readonly files: FileSource;
-  readonly sessions: SessionManager = new StubSessions();
+  readonly sessions: SessionManager;
   readonly locks: LockService = new NoopLocks();
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
@@ -142,6 +125,12 @@ export class NodeHost implements Host {
       for (const listener of this.changeListeners) listener(change);
     });
     this.files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
+    // Sessions run agents on the host; writes go through the emitting vault so
+    // transcript + card updates stream live to the UI.
+    this.sessions = new NodeSessions({
+      vault: this.vault,
+      defaultCwd: opts.filesRoot ?? process.cwd(),
+    });
   }
 
   /** Subscribe to vault writes (from any bus). Returns an unsubscribe fn. */
@@ -153,7 +142,7 @@ export class NodeHost implements Host {
   capabilities(): HostCapabilities {
     return {
       remoteProjects: false, // H4
-      spawnSessions: false, // flips true once H3 lands real session spawn
+      spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
     };
   }

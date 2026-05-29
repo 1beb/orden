@@ -29,7 +29,6 @@ function button(text: string, cls: string): HTMLButtonElement {
 
 export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   let currentId: string | null = null;
-  let composingNew = false;
 
   function renderList(): void {
     const c = deps.container;
@@ -43,38 +42,11 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     head.append(title, newBtn);
     c.append(head);
     newBtn.addEventListener("click", () => {
-      composingNew = !composingNew;
-      renderList();
+      // No name prompt — start Untitled; the agent titles it after the first turn.
+      const s = deps.create({ title: "Untitled", agent: "claude" });
+      currentId = s.id;
+      render();
     });
-
-    if (composingNew) {
-      const form = el("div", "sess-newform");
-      const name = document.createElement("input");
-      name.className = "sess-input";
-      name.placeholder = "Session title";
-      const agent = document.createElement("select");
-      agent.className = "settings-select";
-      for (const a of ["claude", "opencode"] as Agent[]) {
-        const o = document.createElement("option");
-        o.value = a;
-        o.textContent = a;
-        agent.append(o);
-      }
-      const create = button("Create", "sess-create");
-      const submit = () => {
-        const s = deps.create({ title: name.value.trim() || "New session", agent: agent.value as Agent });
-        composingNew = false;
-        currentId = s.id;
-        render();
-      };
-      create.addEventListener("click", submit);
-      name.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") submit();
-      });
-      form.append(name, agent, create);
-      c.append(form);
-      name.focus();
-    }
 
     const sessions = deps.list();
     if (sessions.length === 0) {

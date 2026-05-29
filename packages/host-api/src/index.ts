@@ -72,6 +72,12 @@ export interface SessionManager {
   ): Promise<Session>;
   open(sessionId: string): Promise<{ channel: string }>;
   transition(sessionId: string, to: SessionState): Promise<void>;
+  /**
+   * Send a message to the session's agent (resuming the conversation). The
+   * user message and the agent's reply are appended to the session record in
+   * the vault (ns "sessions"), so they stream to clients via the change feed.
+   */
+  prompt(sessionId: string, text: string): Promise<void>;
 }
 
 export interface LockService {
