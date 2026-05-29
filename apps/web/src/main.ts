@@ -12,6 +12,9 @@ import { addAnnotation, scanAnnotations } from "./annotations";
 import { mountAnnotator } from "./annotator-ui";
 import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
+import { createViewStore, type View } from "./viewState";
+import { mountJournal } from "./journal";
+import { mountKanban } from "./kanban";
 import "./styles.css";
 
 const DOC_TITLE = "Churn model — review";
@@ -373,5 +376,39 @@ seedSampleAnnotations();
 onUpdate();
 applyLayout(mobile.matches);
 
+// --- Center views: review (the locked annotation core) / journal / kanban ---
+const viewTitle = document.querySelector<HTMLElement>("#view-title")!;
+const viewEls: Record<View, HTMLElement> = {
+  review: document.querySelector<HTMLElement>("#main")!,
+  journal: document.querySelector<HTMLElement>("#view-journal")!,
+  kanban: document.querySelector<HTMLElement>("#view-kanban")!,
+};
+const journalInfo = mountJournal(viewEls.journal);
+const kanbanInfo = mountKanban(viewEls.kanban);
+document.querySelector(".nav-badge")!.textContent = String(kanbanInfo.needsAction);
+
+const viewTitles: Record<View, string> = {
+  review: DOC_TITLE,
+  journal: journalInfo.title,
+  kanban: "Kanban",
+};
+
+const viewStore = createViewStore("review");
+viewStore.subscribe((v) => {
+  for (const name of Object.keys(viewEls) as View[]) {
+    viewEls[name].classList.toggle("active", name === v);
+  }
+  viewTitle.textContent = viewTitles[v];
+  document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
+  document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
+});
+
+document.querySelector("#nav-journal")?.addEventListener("click", () => viewStore.set("journal"));
+document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
+for (const el of document.querySelectorAll<HTMLElement>(".nav-file, .nav-sess")) {
+  el.addEventListener("click", () => viewStore.set("review"));
+}
+
 // Dev handle for inspection / screenshot-driven iteration.
-(window as unknown as { orden: unknown }).orden = { view, log, addAnnotation };
+(window as unknown as { orden: unknown }).orden = { view, log, addAnnotation, viewStore };

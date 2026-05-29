@@ -10,8 +10,8 @@
       <nav id="leftnav">
         <div class="nav-brand">Orden</div>
         <div class="nav-top">
-          <a class="nav-item active">Journal</a>
-          <a class="nav-item">Kanban <span class="nav-badge">3</span></a>
+          <a class="nav-item" id="nav-journal">Journal</a>
+          <a class="nav-item" id="nav-kanban">Kanban <span class="nav-badge">3</span></a>
         </div>
         <div class="nav-section">
           <div class="nav-section-title">Recent</div>
@@ -46,36 +46,43 @@
         </div>
       </nav>
 
-      <section id="main">
-        <main id="doc-pane">
-          <header id="topbar">
-            <button id="toggle-left" class="pane-toggle" title="Toggle navigation (⌘\\)">☰</button>
-            <span class="doc-title">Churn model — review</span>
-            <button id="toggle-right" class="pane-toggle" title="Toggle session">›_</button>
-          </header>
-          <div id="editor"></div>
-        </main>
-        <aside id="panel">
-          <section id="docmap" class="panel-block">
-            <header class="block-head">
-              <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
-              <span>Outline</span>
-            </header>
-            <ul id="docmap-list"></ul>
+      <section id="center">
+        <header id="topbar">
+          <button id="toggle-left" class="pane-toggle" title="Toggle navigation (⌘\\)">☰</button>
+          <span class="doc-title" id="view-title">Churn model — review</span>
+          <button id="toggle-right" class="pane-toggle" title="Toggle session">›_</button>
+        </header>
+        <div id="view-area">
+          <section id="main" class="view active">
+            <main id="doc-pane">
+              <div id="editor"></div>
+            </main>
+            <aside id="panel">
+              <section id="docmap" class="panel-block">
+                <header class="block-head">
+                  <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
+                  <span>Outline</span>
+                </header>
+                <ul id="docmap-list"></ul>
+              </section>
+              <section class="panel-block annotations-block">
+                <header>
+                  <span>Annotations <span id="count">0</span></span>
+                  <div class="panel-actions">
+                    <button id="primary-action" class="panel-send" data-kind="approve">
+                      Approve
+                    </button>
+                    <button id="copy-feedback" class="panel-copy">Copy</button>
+                  </div>
+                </header>
+                <ul id="annotation-list"></ul>
+              </section>
+            </aside>
           </section>
-          <section class="panel-block annotations-block">
-            <header>
-              <span>Annotations <span id="count">0</span></span>
-              <div class="panel-actions">
-                <button id="primary-action" class="panel-send" data-kind="approve">
-                  Approve
-                </button>
-                <button id="copy-feedback" class="panel-copy">Copy</button>
-              </div>
-            </header>
-            <ul id="annotation-list"></ul>
-          </section>
-        </aside>
+
+          <section id="view-journal" class="view"></section>
+          <section id="view-kanban" class="view"></section>
+        </div>
       </section>
 
       <aside id="sessions">
