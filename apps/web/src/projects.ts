@@ -4,6 +4,7 @@
 // now this just persists the registry so "Add project" is real and listed.
 
 export type ProjectSource =
+  | { kind: "ephemeral" } // not tied to a folder; backed by one internally later
   | { kind: "local"; path: string }
   | { kind: "ssh"; host: string; path: string }
   | { kind: "s3"; bucket: string };
@@ -39,7 +40,11 @@ export function listProjects(): Project[] {
   return load();
 }
 
-export function addProject(name: string, source: ProjectSource): Project {
+export function getProject(id: string): Project | undefined {
+  return load().find((p) => p.id === id);
+}
+
+export function addProject(name: string, source: ProjectSource = { kind: "ephemeral" }): Project {
   const projects = load();
   counter += 1;
   const project: Project = {

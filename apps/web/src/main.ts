@@ -11,8 +11,10 @@ import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState } from "./persist";
 import { LocalStorageSink } from "./sink-local";
 import { listFiles } from "./files";
-import { listProjects, addProject } from "./projects";
+import { listProjects, addProject, getProject } from "./projects";
 import { renderPagesIndex } from "./pagesIndex";
+import { renderKanban } from "./kanban";
+import { renderProjectPage } from "./projectPage";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -21,7 +23,6 @@ import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
-import { mountKanban } from "./kanban";
 import { loadSettings, saveSettings, type StartupView } from "./settings";
 import "./styles.css";
 
@@ -402,15 +403,22 @@ const viewEls: Record<View, HTMLElement> = {
   review: document.querySelector<HTMLElement>("#main")!,
   journal: document.querySelector<HTMLElement>("#view-journal")!,
   pages: document.querySelector<HTMLElement>("#view-pages")!,
+  project: document.querySelector<HTMLElement>("#view-project")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
 };
+const navBadge = document.querySelector<HTMLElement>(".nav-badge")!;
 let journalTitle = "Journal";
+let projectTitle = "Project";
+let currentProjectId: string | null = null;
+
 const journal = mountJournal(viewEls.journal, (t) => {
   journalTitle = t;
   if (viewStore.get() === "journal") viewTitle.textContent = t;
 });
-const kanbanInfo = mountKanban(viewEls.kanban);
-document.querySelector(".nav-badge")!.textContent = String(kanbanInfo.needsAction);
+
+function refreshBoard(): void {
+  navBadge.textContent = String(renderKanban(viewEls.kanban, openProject));
+}
 
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
@@ -421,6 +429,7 @@ viewStore.subscribe((v) => {
     review: currentDocTitle,
     journal: journalTitle,
     pages: "Pages",
+    project: projectTitle,
     kanban: "Kanban",
   };
   viewTitle.textContent = titles[v];
@@ -428,6 +437,7 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  if (v === "kanban") refreshBoard();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
 
@@ -436,7 +446,16 @@ function openPage(name: string): void {
   viewStore.set("journal");
 }
 
+function openProject(projectId: string): void {
+  currentProjectId = projectId;
+  projectTitle = getProject(projectId)?.name ?? "Project";
+  renderProjectPage(viewEls.project, projectId, refreshBoard);
+  viewStore.set("project");
+}
+void currentProjectId;
+
 journal.showPage(journal.today());
+refreshBoard();
 
 document.querySelector("#nav-journal")?.addEventListener("click", () => {
   journal.showPage(journal.today());
@@ -444,9 +463,6 @@ document.querySelector("#nav-journal")?.addEventListener("click", () => {
 });
 document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
-for (const el of document.querySelectorAll<HTMLElement>(".nav-sess")) {
-  el.addEventListener("click", () => viewStore.set("review"));
-}
 
 // --- Settings: cog popover + startup preference ---
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
@@ -577,7 +593,7 @@ const projPathInput = document.querySelector<HTMLInputElement>("#add-project-pat
 function renderProjects(): void {
   projectList.replaceChildren();
   for (const p of listProjects()) {
-    const item = document.createElement("div");
+    const item = document.createElement("a");
     item.className = "nav-proj-item";
     const name = document.createElement("div");
     name.className = "nav-proj-label";
@@ -586,6 +602,7 @@ function renderProjects(): void {
     meta.className = "nav-proj-meta";
     meta.textContent = p.source.kind === "local" ? p.source.path : p.source.kind;
     item.append(name, meta);
+    item.addEventListener("click", () => openProject(p.id));
     projectList.append(item);
   }
 }
