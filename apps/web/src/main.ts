@@ -528,11 +528,11 @@ function openProject(projectId: string): void {
 }
 void currentProjectId;
 
-journal.showPage(journal.today());
+journal.showJournal();
 refreshBoard();
 
 document.querySelector("#nav-journal")?.addEventListener("click", () => {
-  journal.showPage(journal.today());
+  journal.showJournal();
   viewStore.set("journal");
 });
 document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
