@@ -1277,12 +1277,29 @@ body {
 }
 
 .journal-date {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   max-width: 720px;
   margin: 0 auto 16px;
   font-size: 22px;
   font-weight: 700;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+.journal-nav {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.journal-nav:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .journal-editor {

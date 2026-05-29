@@ -35,6 +35,24 @@ export function getProject(id: string): Project | undefined {
   return cache.find((p) => p.id === id);
 }
 
+// The catch-all project for work not tied to a folder (e.g. a session you start
+// without picking a project). Stable id so everything lands consistently.
+export const DEFAULT_PROJECT_ID = "homeroom";
+export const DEFAULT_PROJECT_NAME = "Homeroom";
+
+export function ensureDefaultProject(): Project {
+  const existing = cache.find((p) => p.id === DEFAULT_PROJECT_ID);
+  if (existing) return existing;
+  const project: Project = {
+    id: DEFAULT_PROJECT_ID,
+    name: DEFAULT_PROJECT_NAME,
+    source: { kind: "ephemeral" },
+  };
+  cache.push(project);
+  if (host) void host.vault.set("projects", project.id, project);
+  return project;
+}
+
 export function addProject(name: string, source: ProjectSource = { kind: "ephemeral" }): Project {
   counter += 1;
   const project: Project = {

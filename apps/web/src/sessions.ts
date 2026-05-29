@@ -6,6 +6,7 @@
 // now the transcript is whatever's recorded via addMessage.
 import type { Host } from "@orden/host-api";
 import { addItem } from "./cards";
+import { ensureDefaultProject } from "./projects";
 
 export type Agent = "claude" | "opencode";
 
@@ -49,11 +50,13 @@ function persist(session: Session): void {
 
 export function createSession(opts: { title: string; agent: Agent; projectId?: string }): Session {
   counter += 1;
+  // No project chosen → drop it in the default "Homeroom" project.
+  const projectId = opts.projectId || ensureDefaultProject().id;
   const session: Session = {
     id: `sess_${Date.now().toString(36)}_${counter}`,
     title: opts.title.trim() || "Untitled session",
     agent: opts.agent,
-    projectId: opts.projectId ?? "",
+    projectId,
     messages: [],
   };
   cache.push(session);

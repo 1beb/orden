@@ -12,6 +12,14 @@ import { getPageMarkdown, setPageMarkdown, backlinksTo } from "./pages";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Shift a YYYY-MM-DD by N days using local components (no UTC/tz drift).
+function shiftDate(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
 // ProseMirror's markdown serializer escapes "[" / "]", which would hide
 // [[wiki links]] from the link extractor. Restore them so backlinks work.
 function serializePage(doc: Parameters<typeof markdownSerializer.serialize>[0]): string {
@@ -47,7 +55,24 @@ export function mountJournal(
 
     const heading = document.createElement("h1");
     heading.className = "journal-date";
-    heading.textContent = name;
+    if (DATE_RE.test(name)) {
+      // date page → prev/next day navigation
+      const prev = document.createElement("button");
+      prev.className = "journal-nav";
+      prev.textContent = "‹";
+      prev.title = "Previous day";
+      prev.addEventListener("click", () => render(shiftDate(name, -1)));
+      const label = document.createElement("span");
+      label.textContent = name;
+      const next = document.createElement("button");
+      next.className = "journal-nav";
+      next.textContent = "›";
+      next.title = "Next day";
+      next.addEventListener("click", () => render(shiftDate(name, 1)));
+      heading.append(prev, label, next);
+    } else {
+      heading.textContent = name;
+    }
     const host = document.createElement("div");
     host.className = "journal-editor";
     const backlinksEl = document.createElement("div");

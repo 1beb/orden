@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateCards, listItems } from "../src/cards";
+import { hydrateProjects, getProject } from "../src/projects";
 import {
   addMessage,
   createSession,
@@ -15,8 +16,15 @@ describe("sessions store (host-backed)", () => {
   beforeEach(async () => {
     localStorage.clear();
     const h = new BrowserHost();
+    await hydrateProjects(h);
     await hydrateCards(h);
     await hydrateSessions(h);
+  });
+
+  it("a session with no project lands in the default Homeroom project", () => {
+    const s = createSession({ title: "Loose thought", agent: "claude" });
+    expect(s.projectId).toBe("homeroom");
+    expect(getProject("homeroom")?.name).toBe("Homeroom");
   });
 
   it("lists nothing before any session", () => {
