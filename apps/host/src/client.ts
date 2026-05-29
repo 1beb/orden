@@ -5,4 +5,4 @@
 export { connectHostClient } from "./rpc";
 export type { Transport, RpcRequest, RpcResponse } from "./rpc";
 export { createWsTransport } from "./wsTransport";
-export type { WsConnection } from "./wsTransport";
+export type { WsConnection, ServerEvent } from "./wsTransport";

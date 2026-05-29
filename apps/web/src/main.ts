@@ -25,7 +25,7 @@ import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
-import { getHost } from "./host";
+import { getHost, onVaultChange } from "./host";
 import { applyFont, FONT_OPTIONS } from "./fonts";
 import "./styles.css";
 
@@ -736,6 +736,46 @@ document.querySelector("#add-project-save")?.addEventListener("click", () => {
   renderProjects();
 });
 renderProjects();
+
+// Live updates: when the vault changes (e.g. an agent writes a page over the
+// MCP bus), re-load the affected store and re-render the current view — no
+// reload needed. No-op on BrowserHost (single writer).
+function refreshCurrentView(): void {
+  const v = viewStore.get();
+  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  else if (v === "kanban") refreshBoard();
+  else if (v === "project" && currentProjectId) {
+    renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+  }
+}
+
+onVaultChange((ns) => {
+  void (async () => {
+    switch (ns) {
+      case "pages":
+        await hydratePages(host);
+        break;
+      case "cards":
+        await hydrateCards(host);
+        break;
+      case "projects":
+        await hydrateProjects(host);
+        renderProjects();
+        break;
+      case "docs":
+        await hydrateDocs(host);
+        break;
+      case "feedback":
+        await hydrateOutbox(host);
+        break;
+      case "settings":
+        await hydrateSettings(host);
+        break;
+    }
+    refreshCurrentView();
+    if (ns === "pages" || ns === "cards") refreshBoard(); // kanban badge count
+  })();
+});
 
 // Dev handle for inspection / screenshot-driven iteration.
 (window as unknown as { orden: unknown }).orden = { view, log, addAnnotation, viewStore };

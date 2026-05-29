@@ -13,6 +13,15 @@ export interface HostServer {
   close(): Promise<void>;
 }
 
+// A Host that can notify of vault writes (NodeHost). Optional — the change feed
+// is only pushed when the host supports it.
+interface ChangeSource {
+  onChange(listener: (change: { ns: string; key: string }) => void): () => void;
+}
+function isChangeSource(host: Host): host is Host & ChangeSource {
+  return typeof (host as Partial<ChangeSource>).onChange === "function";
+}
+
 function wireConnections(wss: WebSocketServer, host: Host): void {
   wss.on("connection", (socket) => {
     socket.on("message", async (data) => {
@@ -25,6 +34,16 @@ function wireConnections(wss: WebSocketServer, host: Host): void {
       const res = await dispatch(host, req);
       socket.send(JSON.stringify(res));
     });
+
+    // Push vault-change frames so clients can live-update without polling.
+    if (isChangeSource(host)) {
+      const unsubscribe = host.onChange((change) => {
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "change", ns: change.ns, key: change.key }));
+        }
+      });
+      socket.on("close", unsubscribe);
+    }
   });
 }
 

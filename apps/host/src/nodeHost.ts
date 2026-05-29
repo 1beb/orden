@@ -86,6 +86,35 @@ class StubSessions implements SessionManager {
   }
 }
 
+export interface VaultChange {
+  ns: string;
+  key: string;
+}
+
+// Wraps a VaultStore so every write (set/delete) notifies a listener. NodeHost
+// uses this to drive the change feed — capturing writes from BOTH buses, since
+// the web (ws) and agents (MCP) both go through this one vault.
+class EmittingVault implements VaultStore {
+  constructor(
+    private readonly inner: VaultStore,
+    private readonly onWrite: (change: VaultChange) => void,
+  ) {}
+  get<T>(ns: string, key: string): Promise<T | null> {
+    return this.inner.get<T>(ns, key);
+  }
+  list(ns: string): Promise<string[]> {
+    return this.inner.list(ns);
+  }
+  async set<T>(ns: string, key: string, value: T): Promise<void> {
+    await this.inner.set(ns, key, value);
+    this.onWrite({ ns, key });
+  }
+  async delete(ns: string, key: string): Promise<void> {
+    await this.inner.delete(ns, key);
+    this.onWrite({ ns, key });
+  }
+}
+
 class NoopLocks implements LockService {
   // Single-process host: no contention yet. Real locking arrives with collab.
   async acquire(_resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }> {
@@ -106,9 +135,19 @@ export class NodeHost implements Host {
   readonly sessions: SessionManager = new StubSessions();
   readonly locks: LockService = new NoopLocks();
 
+  private readonly changeListeners = new Set<(change: VaultChange) => void>();
+
   constructor(opts: NodeHostOptions) {
-    this.vault = new DiskVault(opts.vaultRoot);
+    this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
+      for (const listener of this.changeListeners) listener(change);
+    });
     this.files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
+  }
+
+  /** Subscribe to vault writes (from any bus). Returns an unsubscribe fn. */
+  onChange(listener: (change: VaultChange) => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
   }
 
   capabilities(): HostCapabilities {
