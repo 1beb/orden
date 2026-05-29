@@ -34,6 +34,8 @@
         </div>
         </div>
         <footer class="nav-footer">
+          <button id="show-outline" class="nav-show" hidden>Show outline</button>
+          <button id="show-annotations" class="nav-show" hidden>Show annotations</button>
           <button id="settings-cog" class="nav-cog" title="Settings">⚙</button>
         </footer>
       </nav>
@@ -54,6 +56,7 @@
                 <header class="block-head">
                   <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
                   <span>Outline</span>
+                  <button id="hide-outline" class="block-hide" title="Hide outline">Hide</button>
                 </header>
                 <ul id="docmap-list"></ul>
               </section>
@@ -62,6 +65,7 @@
                   <span class="ann-head-left">
                     <button id="annotations-toggle" class="block-toggle" title="Collapse annotations">▾</button>
                     <span>Annotations <span id="count">0</span></span>
+                    <button id="hide-annotations" class="block-hide" title="Hide annotations">Hide</button>
                   </span>
                   <div class="panel-actions">
                     <button id="primary-action" class="panel-send" data-kind="approve">

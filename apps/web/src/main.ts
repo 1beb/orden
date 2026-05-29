@@ -149,6 +149,23 @@ document.querySelector("#annotations-toggle")?.addEventListener("click", (e) => 
   annotationsBlock.classList.toggle("collapsed");
 });
 
+// Hide/show whole panel sections (outline, annotations). When hidden, a
+// "Show X" button surfaces above the settings cog. Works in every layout.
+function wireHideShow(section: HTMLElement, hideBtnId: string, showBtnId: string): void {
+  const showBtn = document.querySelector<HTMLButtonElement>(showBtnId)!;
+  const setHidden = (hidden: boolean) => {
+    section.classList.toggle("section-hidden", hidden);
+    showBtn.hidden = !hidden;
+  };
+  document.querySelector(hideBtnId)?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setHidden(true);
+  });
+  showBtn.addEventListener("click", () => setHidden(false));
+}
+wireHideShow(docmap, "#hide-outline", "#show-outline");
+wireHideShow(annotationsBlock, "#hide-annotations", "#show-annotations");
+
 // Document map: an outline built from the headings, kept in sync with the doc.
 function renderDocMap(): void {
   docmapList.replaceChildren();
@@ -157,7 +174,13 @@ function renderDocMap(): void {
     const li = document.createElement("li");
     li.className = `dm-l${node.attrs.level}`;
     li.textContent = node.textContent || "(untitled)";
-    li.addEventListener("click", () => selectRange(pos + 1, pos + 1 + node.content.size));
+    li.addEventListener("click", () => {
+      selectRange(pos + 1, pos + 1 + node.content.size);
+      // PM's transaction scrollIntoView doesn't move the #editor scroll
+      // container reliably; scroll the heading's DOM node to the top directly.
+      const dom = view.nodeDOM(pos);
+      if (dom instanceof HTMLElement) dom.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
     docmapList.append(li);
     return false;
   });

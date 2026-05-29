@@ -644,6 +644,46 @@ body {
   transition: transform 0.15s ease;
 }
 
+/* fully hide a panel section (outline / annotations); restored via the
+   "Show X" buttons above the settings cog */
+.panel-block.section-hidden {
+  display: none;
+}
+
+.block-hide {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.block-hide:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.nav-show {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.nav-show[hidden] {
+  display: none;
+}
+
 #docmap.collapsed .block-toggle {
   transform: rotate(-90deg);
 }
