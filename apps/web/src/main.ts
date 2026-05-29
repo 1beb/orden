@@ -21,6 +21,7 @@ import {
   addMessage,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
+import { mountTerminal } from "./terminalView";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage } from "./projectPage";
@@ -764,7 +765,19 @@ const sessionsPanel = mountSessionsPanel({
       .prompt(id, text)
       .catch((e) => addMessage(id, "system", `error: ${e instanceof Error ? e.message : String(e)}`));
   },
+  mode: () => loadSettings().sessionMode,
+  mountTerminal: (container, id) => mountTerminal(container, id),
 });
+
+// Session view mode (Chat | Terminal) — switching re-renders the open session.
+const sessionModeSelect = document.querySelector<HTMLSelectElement>("#session-mode");
+if (sessionModeSelect) {
+  sessionModeSelect.value = loadSettings().sessionMode;
+  sessionModeSelect.addEventListener("change", () => {
+    void saveSettings({ sessionMode: sessionModeSelect.value as "chat" | "terminal" });
+    sessionsPanel.refresh();
+  });
+}
 
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
 // re-load the affected store and re-render only the views that depend on it.
@@ -806,6 +819,7 @@ onVaultChange((ns) => {
         const s = loadSettings();
         applyAccent(s.accent);
         applyFont(s.fontFamily, s.fontSize);
+        sessionsPanel.refresh();
         break;
       }
       case "sessions":

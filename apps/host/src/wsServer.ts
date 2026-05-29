@@ -47,9 +47,9 @@ function wireConnections(wss: WebSocketServer, host: Host): void {
   });
 }
 
-/** Attach the ws Host bus to an existing HTTP server (shares the port with MCP). */
-export function attachWs(host: Host, server: HttpServer): WebSocketServer {
-  const wss = new WebSocketServer({ server });
+/** The ws Host bus as a noServer WebSocketServer; serve.ts routes upgrades to it. */
+export function createHostWss(host: Host): WebSocketServer {
+  const wss = new WebSocketServer({ noServer: true });
   wireConnections(wss, host);
   return wss;
 }

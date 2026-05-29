@@ -12,7 +12,8 @@ import { join, dirname, resolve, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, stat } from "node:fs/promises";
 import { NodeHost } from "./nodeHost";
-import { attachWs } from "./wsServer";
+import { createHostWss } from "./wsServer";
+import { createTerminalWss } from "./terminal";
 import { handleMcpRequest } from "./mcpHttp";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
@@ -72,7 +73,14 @@ const httpServer = createServer((req, res) => {
   void serveStatic(req, res);
 });
 
-attachWs(host, httpServer);
+// Route WebSocket upgrades: /term → the agent terminal pty, everything else →
+// the Host RPC + change feed.
+const rpcWss = createHostWss(host);
+const termWss = createTerminalWss(host, filesRoot);
+httpServer.on("upgrade", (req, socket, head) => {
+  const wss = (req.url ?? "").startsWith("/term") ? termWss : rpcWss;
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+});
 
 httpServer.listen(port, "127.0.0.1", () => {
   // eslint-disable-next-line no-console

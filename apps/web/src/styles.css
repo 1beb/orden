@@ -538,6 +538,16 @@ body {
   padding: 10px 12px;
   border-top: 1px solid var(--line);
 }
+.sess-terminal {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 8px;
+  background: #fbfbfa;
+}
+.sess-terminal .xterm {
+  height: 100%;
+}
 
 .term-body {
   margin: 0;

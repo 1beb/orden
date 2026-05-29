@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateSettings, loadSettings, saveSettings } from "../src/settings";
 
-const DEFAULTS = { startup: "last", fontFamily: "system", fontSize: 16, accent: "#6d28d9" };
+const DEFAULTS = {
+  startup: "last",
+  fontFamily: "system",
+  fontSize: 16,
+  accent: "#6d28d9",
+  sessionMode: "chat",
+};
 
 describe("settings store (host-backed)", () => {
   beforeEach(async () => {
@@ -46,6 +52,7 @@ describe("settings store (host-backed)", () => {
       fontFamily: "lora",
       fontSize: 20,
       accent: "#0099ff",
+      sessionMode: "chat",
     });
   });
 

@@ -9,6 +9,10 @@ export interface SessionsPanelDeps {
   get: (id: string) => Session | undefined;
   create: (opts: { title: string; agent: Agent }) => Session;
   send: (id: string, text: string) => void;
+  /** "chat" = transcript + commentary; "terminal" = embedded agent TUI. */
+  mode: () => "chat" | "terminal";
+  /** Mount the agent TUI into container; returns a dispose fn. */
+  mountTerminal: (container: HTMLElement, sessionId: string) => () => void;
 }
 
 export interface SessionsPanel {
@@ -29,6 +33,20 @@ function button(text: string, cls: string): HTMLButtonElement {
 
 export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   let currentId: string | null = null;
+  let disposeTerm: (() => void) | null = null;
+  let termSessionId: string | null = null;
+
+  function teardownTerm(): void {
+    if (disposeTerm) {
+      try {
+        disposeTerm();
+      } catch {
+        /* ignore */
+      }
+      disposeTerm = null;
+      termSessionId = null;
+    }
+  }
 
   function renderList(): void {
     const c = deps.container;
@@ -73,6 +91,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   }
 
   function renderDetail(s: Session): void {
+    teardownTerm();
     const c = deps.container;
     c.replaceChildren();
 
@@ -86,9 +105,19 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     head.append(back, title, badge);
     c.append(head);
     back.addEventListener("click", () => {
+      teardownTerm();
       currentId = null;
       render();
     });
+
+    // Terminal mode: embed the real agent TUI instead of the chat transcript.
+    if (deps.mode() === "terminal") {
+      const termHost = el("div", "sess-terminal");
+      c.append(termHost);
+      disposeTerm = deps.mountTerminal(termHost, s.id);
+      termSessionId = s.id;
+      return;
+    }
 
     const transcript = el("div", "sess-transcript");
     if (s.messages.length === 0) {
@@ -131,8 +160,14 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
 
   function render(): void {
     const s = currentId ? deps.get(currentId) : undefined;
-    if (s) renderDetail(s);
-    else renderList();
+    if (s) {
+      // keep a live terminal mounted across refreshes (don't tear down the pty)
+      if (deps.mode() === "terminal" && disposeTerm && termSessionId === s.id) return;
+      renderDetail(s);
+    } else {
+      teardownTerm();
+      renderList();
+    }
   }
 
   render();
