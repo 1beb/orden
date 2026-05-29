@@ -11,6 +11,8 @@ import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState } from "./persist";
 import { LocalStorageSink } from "./sink-local";
 import { listFiles } from "./files";
+import { listProjects, addProject } from "./projects";
+import { renderPagesIndex } from "./pagesIndex";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -399,6 +401,7 @@ const viewTitle = document.querySelector<HTMLElement>("#view-title")!;
 const viewEls: Record<View, HTMLElement> = {
   review: document.querySelector<HTMLElement>("#main")!,
   journal: document.querySelector<HTMLElement>("#view-journal")!,
+  pages: document.querySelector<HTMLElement>("#view-pages")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
 };
 let journalTitle = "Journal";
@@ -414,12 +417,24 @@ viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
     viewEls[name].classList.toggle("active", name === v);
   }
-  viewTitle.textContent =
-    v === "review" ? currentDocTitle : v === "journal" ? journalTitle : "Kanban";
+  const titles: Record<View, string> = {
+    review: currentDocTitle,
+    journal: journalTitle,
+    pages: "Pages",
+    kanban: "Kanban",
+  };
+  viewTitle.textContent = titles[v];
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
+  document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
+
+function openPage(name: string): void {
+  journal.showPage(name);
+  viewStore.set("journal");
+}
 
 journal.showPage(journal.today());
 
@@ -427,6 +442,7 @@ document.querySelector("#nav-journal")?.addEventListener("click", () => {
   journal.showPage(journal.today());
   viewStore.set("journal");
 });
+document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
 for (const el of document.querySelectorAll<HTMLElement>(".nav-sess")) {
   el.addEventListener("click", () => viewStore.set("review"));
@@ -550,6 +566,52 @@ applyLayout(mobile.matches);
 // Route the initial view from the startup preference ("last" -> review).
 if (settings.startup === "journal") viewStore.set("journal");
 else if (settings.startup === "kanban") viewStore.set("kanban");
+
+// --- Projects registry (local/remote file access arrives with the host backend) ---
+const projectList = document.querySelector<HTMLElement>("#project-list")!;
+const addProjectBtn = document.querySelector<HTMLElement>("#add-project")!;
+const addProjectForm = document.querySelector<HTMLElement>("#add-project-form")!;
+const projNameInput = document.querySelector<HTMLInputElement>("#add-project-name")!;
+const projPathInput = document.querySelector<HTMLInputElement>("#add-project-path")!;
+
+function renderProjects(): void {
+  projectList.replaceChildren();
+  for (const p of listProjects()) {
+    const item = document.createElement("div");
+    item.className = "nav-proj-item";
+    const name = document.createElement("div");
+    name.className = "nav-proj-label";
+    name.textContent = p.name;
+    const meta = document.createElement("div");
+    meta.className = "nav-proj-meta";
+    meta.textContent = p.source.kind === "local" ? p.source.path : p.source.kind;
+    item.append(name, meta);
+    projectList.append(item);
+  }
+}
+
+function showAddProject(show: boolean): void {
+  addProjectForm.hidden = !show;
+  addProjectBtn.hidden = show;
+  if (show) projNameInput.focus();
+}
+
+addProjectBtn.addEventListener("click", () => showAddProject(true));
+document.querySelector("#add-project-cancel")?.addEventListener("click", () => {
+  projNameInput.value = "";
+  projPathInput.value = "";
+  showAddProject(false);
+});
+document.querySelector("#add-project-save")?.addEventListener("click", () => {
+  const name = projNameInput.value.trim();
+  if (!name) return;
+  addProject(name, { kind: "local", path: projPathInput.value.trim() || "(path unset)" });
+  projNameInput.value = "";
+  projPathInput.value = "";
+  showAddProject(false);
+  renderProjects();
+});
+renderProjects();
 
 // Dev handle for inspection / screenshot-driven iteration.
 (window as unknown as { orden: unknown }).orden = { view, log, addAnnotation, viewStore };

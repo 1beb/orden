@@ -12,6 +12,7 @@
         <div class="nav-brand">Orden</div>
         <div class="nav-top">
           <a class="nav-item" id="nav-journal">Journal</a>
+          <a class="nav-item" id="nav-pages">Pages</a>
           <a class="nav-item" id="nav-kanban">Kanban <span class="nav-badge">3</span></a>
         </div>
         <div class="nav-section">
@@ -20,15 +21,16 @@
         </div>
         <div class="nav-section">
           <div class="nav-section-title">Projects</div>
-          <div class="nav-proj">
-            <div class="nav-proj-name">ygqc</div>
-            <a class="nav-sess active">churn model review</a>
-            <a class="nav-sess">feature pipeline</a>
+          <div id="project-list"></div>
+          <div id="add-project-form" hidden>
+            <input id="add-project-name" class="nav-input" placeholder="Project name" />
+            <input id="add-project-path" class="nav-input" placeholder="Local folder path" />
+            <div class="nav-form-actions">
+              <button id="add-project-cancel" class="nav-form-btn">Cancel</button>
+              <button id="add-project-save" class="nav-form-btn primary">Add</button>
+            </div>
           </div>
-          <div class="nav-proj">
-            <div class="nav-proj-name">panel-ops</div>
-            <a class="nav-sess">stall detector</a>
-          </div>
+          <button id="add-project" class="nav-add">+ Add project</button>
         </div>
         </div>
         <footer class="nav-footer">
@@ -71,6 +73,7 @@
           </section>
 
           <section id="view-journal" class="view"></section>
+          <section id="view-pages" class="view"></section>
           <section id="view-kanban" class="view"></section>
         </div>
       </section>

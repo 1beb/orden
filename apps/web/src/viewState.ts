@@ -1,4 +1,4 @@
-export type View = "review" | "journal" | "kanban";
+export type View = "review" | "journal" | "kanban" | "pages";
 
 export interface ViewStore {
   get(): View;
