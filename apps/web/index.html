@@ -7,28 +7,71 @@
   </head>
   <body>
     <div id="app">
-      <main id="doc-pane">
-        <header id="topbar">
-          <span class="doc-title">Churn model — review</span>
-        </header>
-        <div id="editor"></div>
-        <footer id="actionbar">
-          <div class="ab-target">
-            <span class="ab-label">Send to</span>
-            <button class="ab-tab is-on" data-target="agent">Agent</button>
-            <button class="ab-tab" data-target="human">Human</button>
+      <nav id="leftnav">
+        <div class="nav-brand">Orden</div>
+        <div class="nav-top">
+          <a class="nav-item active">Journal</a>
+          <a class="nav-item">Kanban <span class="nav-badge">3</span></a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Projects</div>
+          <div class="nav-proj">
+            <div class="nav-proj-name">ygqc</div>
+            <a class="nav-sess active">churn model review</a>
+            <a class="nav-sess">feature pipeline</a>
           </div>
-          <button id="primary-action" class="ab-primary" data-kind="approve">
-            Approve
-          </button>
-        </footer>
-      </main>
-      <aside id="panel">
-        <header>
-          <span>Annotations <span id="count">0</span></span>
-          <button id="copy-feedback" class="panel-copy">Copy</button>
+          <div class="nav-proj">
+            <div class="nav-proj-name">panel-ops</div>
+            <a class="nav-sess">stall detector</a>
+          </div>
+        </div>
+      </nav>
+
+      <section id="main">
+        <main id="doc-pane">
+          <header id="topbar">
+            <span class="doc-title">Churn model — review</span>
+          </header>
+          <div id="editor"></div>
+          <footer id="actionbar">
+            <div class="ab-target">
+              <span class="ab-label">Send to</span>
+              <button class="ab-tab is-on" data-target="agent">Agent</button>
+              <button class="ab-tab" data-target="human">Human</button>
+            </div>
+            <button id="primary-action" class="ab-primary" data-kind="approve">
+              Approve
+            </button>
+          </footer>
+        </main>
+        <aside id="panel">
+          <header>
+            <span>Annotations <span id="count">0</span></span>
+            <button id="copy-feedback" class="panel-copy">Copy</button>
+          </header>
+          <ul id="annotation-list"></ul>
+        </aside>
+      </section>
+
+      <aside id="sessions">
+        <header class="sess-head">
+          <span class="sess-dot"></span>
+          <span class="sess-name">churn model review</span>
+          <span class="sess-state">ready</span>
         </header>
-        <ul id="annotation-list"></ul>
+        <div class="term">
+          <pre class="term-body">
+<span class="t-dim">$ claude</span>
+<span class="t-accent">●</span> Trained gradient-boosted churn model on 48,210 rows.
+  Calibrated on the held-out signup cohort.
+
+<span class="t-dim">› writing review to</span> review.md
+<span class="t-accent">●</span> open_in_main_view("review.md")
+  parked for review — state: <span class="t-ready">ready</span>
+
+<span class="t-dim">› awaiting your feedback…</span>
+<span class="t-cursor">▋</span></pre>
+        </div>
       </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>
