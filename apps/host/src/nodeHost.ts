@@ -23,10 +23,13 @@ import type {
   SessionState,
 } from "@orden/host-api";
 import { DiskVault } from "./diskVault";
+import { FsFiles } from "./fsFiles";
 
 export interface NodeHostOptions {
   /** Directory the vault persists into. */
   vaultRoot: string;
+  /** Directory whose markdown files are exposed via `files`. Omit to stub. */
+  filesRoot?: string;
 }
 
 class NodeIdentity implements Identity {
@@ -99,12 +102,13 @@ export class NodeHost implements Host {
   readonly identity: Identity = new NodeIdentity();
   readonly vault: VaultStore;
   readonly projects: ProjectRegistry = new StubProjects();
-  readonly files: FileSource = new StubFiles();
+  readonly files: FileSource;
   readonly sessions: SessionManager = new StubSessions();
   readonly locks: LockService = new NoopLocks();
 
   constructor(opts: NodeHostOptions) {
     this.vault = new DiskVault(opts.vaultRoot);
+    this.files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
   }
 
   capabilities(): HostCapabilities {
