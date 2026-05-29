@@ -42,7 +42,13 @@ export function createWsTransport(
 
     ws.onmessage = (ev) => {
       const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-      const msg = JSON.parse(raw) as RpcResponse | ServerEvent;
+      if (!raw) return; // ignore empty frames
+      let msg: RpcResponse | ServerEvent;
+      try {
+        msg = JSON.parse(raw) as RpcResponse | ServerEvent;
+      } catch {
+        return; // ignore malformed frames rather than throwing into a handler
+      }
       if ((msg as ServerEvent).type === "change") {
         for (const handler of eventHandlers) handler(msg as ServerEvent);
         return;

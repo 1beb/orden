@@ -21,6 +21,9 @@ function serializePage(doc: Parameters<typeof markdownSerializer.serialize>[0]):
 export interface JournalController {
   showPage(name: string): void;
   today(): string;
+  /** Re-render the current page from the store (e.g. after a remote change). */
+  refresh(): void;
+  currentPage(): string | null;
 }
 
 // The Journal/Pages view: a Logseq-style outliner for a named page. Today's
@@ -32,12 +35,14 @@ export function mountJournal(
   onTitle: (title: string) => void,
 ): JournalController {
   let view: EditorView | null = null;
+  let currentName: string | null = null;
 
   function titleFor(name: string): string {
     return DATE_RE.test(name) ? `Journal — ${name}` : `Page — ${name}`;
   }
 
   function render(name: string): void {
+    currentName = name;
     container.replaceChildren();
 
     const heading = document.createElement("h1");
@@ -106,5 +111,18 @@ export function mountJournal(
     }
   }
 
-  return { showPage: render, today: () => journalKey(new Date()) };
+  function refresh(): void {
+    // Re-render the current page from the (re-hydrated) store, but never clobber
+    // the user mid-edit — skip while the editor has focus.
+    if (currentName === null) return;
+    if (view && view.hasFocus()) return;
+    render(currentName);
+  }
+
+  return {
+    showPage: render,
+    today: () => journalKey(new Date()),
+    refresh,
+    currentPage: () => currentName,
+  };
 }

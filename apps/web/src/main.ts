@@ -737,43 +737,52 @@ document.querySelector("#add-project-save")?.addEventListener("click", () => {
 });
 renderProjects();
 
-// Live updates: when the vault changes (e.g. an agent writes a page over the
-// MCP bus), re-load the affected store and re-render the current view — no
-// reload needed. No-op on BrowserHost (single writer).
-function refreshCurrentView(): void {
-  const v = viewStore.get();
-  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
-  else if (v === "kanban") refreshBoard();
-  else if (v === "project" && currentProjectId) {
-    renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
-  }
-}
-
+// Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
+// re-load the affected store and re-render only the views that depend on it.
+// Editor re-renders are focus-guarded so we never clobber what you're typing.
+// No-op on BrowserHost (single writer).
 onVaultChange((ns) => {
   void (async () => {
+    const v = viewStore.get();
     switch (ns) {
       case "pages":
         await hydratePages(host);
+        if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+        else if (v === "journal") journal.refresh();
         break;
       case "cards":
         await hydrateCards(host);
+        refreshBoard(); // kanban board + badge count
+        if (v === "project" && currentProjectId) {
+          renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+        }
         break;
       case "projects":
         await hydrateProjects(host);
         renderProjects();
+        if (v === "project" && currentProjectId) {
+          renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+        }
         break;
-      case "docs":
+      case "docs": {
         await hydrateDocs(host);
+        const saved = loadState(currentDocKey);
+        if (v === "review" && saved && !view.hasFocus()) {
+          loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
+        }
         break;
+      }
+      case "settings": {
+        await hydrateSettings(host);
+        const s = loadSettings();
+        applyAccent(s.accent);
+        applyFont(s.fontFamily, s.fontSize);
+        break;
+      }
       case "feedback":
         await hydrateOutbox(host);
         break;
-      case "settings":
-        await hydrateSettings(host);
-        break;
     }
-    refreshCurrentView();
-    if (ns === "pages" || ns === "cards") refreshBoard(); // kanban badge count
   })();
 });
 
