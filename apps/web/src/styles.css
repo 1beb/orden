@@ -362,8 +362,8 @@ body {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: #0f1216;
-  border-left: 1px solid #000;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--line);
 }
 
 .sess-head {
@@ -371,8 +371,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid #1f242b;
-  color: #e6e6e6;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
@@ -412,7 +412,7 @@ body {
 .sess-icon {
   border: none;
   background: none;
-  color: #9aa4b2;
+  color: var(--muted);
   font-size: 16px;
   line-height: 1;
   width: 26px;
@@ -421,8 +421,8 @@ body {
   cursor: pointer;
 }
 .sess-icon:hover {
-  background: #1a1f26;
-  color: #fff;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .sess-badge {
   font-size: 10px;
@@ -436,7 +436,7 @@ body {
 }
 .sess-empty {
   padding: 16px;
-  color: #7c8696;
+  color: var(--muted);
   font-size: 13px;
 }
 .sess-newform {
@@ -444,7 +444,7 @@ body {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid #1f242b;
+  border-bottom: 1px solid var(--line);
 }
 .sess-input,
 .sess-input-box {
@@ -452,9 +452,9 @@ body {
   font-size: 13px;
   padding: 7px 9px;
   border-radius: 6px;
-  border: 1px solid #2a313a;
-  background: #161a20;
-  color: #e6e6e6;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
 }
 .sess-input-box {
   flex: 1;
@@ -486,10 +486,10 @@ body {
   padding: 9px 10px;
   border-radius: 6px;
   cursor: pointer;
-  color: #e6e6e6;
+  color: var(--ink);
 }
 .sess-item:hover {
-  background: #1a1f26;
+  background: var(--accent-soft);
 }
 .sess-item-title {
   flex: 1;
@@ -522,13 +522,13 @@ body {
 }
 .sess-msg-agent {
   align-self: flex-start;
-  background: #1c222b;
-  color: #e6e6e6;
+  background: #f3f4f6;
+  color: var(--ink);
 }
 .sess-msg-system {
   align-self: center;
   background: none;
-  color: #7c8696;
+  color: var(--muted);
   font-style: italic;
   font-size: 12px;
 }
@@ -536,7 +536,7 @@ body {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid #1f242b;
+  border-top: 1px solid var(--line);
 }
 
 .term-body {
