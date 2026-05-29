@@ -139,8 +139,22 @@ NodeHost implements `projects.add({kind:"local",path})` and `files.list/read/wri
 
 ## Phase H3 — Sessions: spawn + resume
 
+### Spike findings (2026-05-29, verified against installed CLIs)
+
+The conversation-id question that gated this phase is resolved: **the id is capturable at spawn for both agents.** The two agents have different session models, so `sessions` must be a `SessionConnector` interface with two impls (this validates the connector-model decision, it doesn't disturb it). New design obligation surfaced: NodeHost owns an `opencode serve` lifecycle (Claude is process-per-session over stdio; opencode is a persistent local HTTP server).
+
+Claude Code — orden mints the id:
+- `claude --session-id <uuid>` lets orden choose the id up front (verified: echoed in `--output-format json` result and written to `~/.claude/projects/<cwd-slug>/<uuid>.jsonl`). No parsing.
+- Resume: `claude --resume <uuid>` (or `-c` most-recent); `--fork-session` to branch.
+- Headless drive: `-p --output-format stream-json` over stdio; init event also carries `session_id`.
+- Also exposed as env `CLAUDE_CODE_SESSION_ID` (plus `CLAUDECODE=1`, `AI_AGENT=claude-code_<ver>_agent`) — lets an orden-injected MCP server self-identify ("I am session X") for sessions orden didn't mint/spawn. Ephemeral: `--no-session-persistence`.
+
+opencode — orden captures the id at creation (no set-id-on-create flag; ids like `ses_…`, SQLite-backed at `~/.local/share/opencode/`):
+- Clean path = headless server `opencode serve --port N` (verified REST API): `POST /session` → `{id}`; `POST /session/{id}/message`, `.../prompt_async`, `.../fork`, `.../abort`, `.../children`, `GET /session`. `opencode attach <url>`.
+- CLI fallback: `opencode run --format json` (parse id from events) or `-c`/`-s <id>` to continue.
+
 ### Task H3.1: Session manager (spawn)
-NodeHost `sessions.spawn` launches the agent (`claude`/`opencode`) inside the project's working dir via tmux + `node-pty`; records `{id, conversationId, cwd, projectId, state, agent}` in the vault. Discover/capture the agent's conversation id (Claude Code writes a session id; capture it from its session store/JSONL path).
+NodeHost `sessions.spawn` launches the agent via a `SessionConnector` and records `{id, conversationId, cwd, projectId, state, agent}` in the vault. Claude connector: pty (tmux + `node-pty`) in the project's working dir, orden mints `conversationId` and passes `--session-id`. opencode connector: ensure a project-scoped `opencode serve`, `POST /session`, store the returned id as `conversationId`. (See spike findings above for the verified surface.)
 
 ### Task H3.2: Kanban → sessions
 Kanban cards come from `host.sessions.list()` (real, replacing mocks). A "spawn" affordance creates a session (→ a card). Lifecycle columns reflect `state`; `transition` moves them.
