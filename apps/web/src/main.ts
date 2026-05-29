@@ -42,6 +42,20 @@ const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 
 app.dataset.target = feedbackTarget;
 
+// Collapsible sidebars.
+document
+  .querySelector("#toggle-left")
+  ?.addEventListener("click", () => app.classList.toggle("left-closed"));
+document
+  .querySelector("#toggle-right")
+  ?.addEventListener("click", () => app.classList.toggle("right-closed"));
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+    e.preventDefault();
+    app.classList.toggle("left-closed");
+  }
+});
+
 const annotator = mountAnnotator(view, log, () => renderPanel());
 
 // Bottom action bar: target lives here (chosen at the end), and the primary

@@ -27,9 +27,48 @@ body {
 }
 
 #app {
+  --left: 220px;
+  --right: 380px;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 380px;
+  grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
   height: 100vh;
+  transition: grid-template-columns 0.2s ease;
+}
+
+#app.left-closed {
+  --left: 0px;
+}
+
+#app.right-closed {
+  --right: 0px;
+}
+
+#app.left-closed #leftnav,
+#app.right-closed #sessions {
+  border: none;
+}
+
+#app.left-closed #leftnav {
+  padding: 0;
+}
+
+.pane-toggle {
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pane-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
 }
 
 #main {
@@ -44,7 +83,7 @@ body {
   background: #f4f4f2;
   border-right: 1px solid var(--line);
   padding: 14px 12px;
-  overflow-y: auto;
+  overflow: hidden auto;
   font-size: 14px;
 }
 
@@ -95,6 +134,38 @@ body {
   padding: 0 8px 6px;
 }
 
+.nav-file {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nav-file:hover {
+  background: #e9e9e6;
+}
+
+.nav-file.active {
+  background: var(--accent-soft);
+}
+
+.nav-file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-file-meta {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nav-proj-name {
   padding: 5px 8px;
   font-weight: 600;
@@ -131,6 +202,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   background: #0f1216;
   border-left: 1px solid #000;
 }
@@ -205,12 +277,14 @@ body {
 #topbar {
   display: flex;
   align-items: center;
-  padding: 12px 48px;
+  gap: 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-bg);
 }
 
 #topbar .doc-title {
+  flex: 1;
   font-size: 13px;
   font-weight: 600;
   color: var(--muted);
