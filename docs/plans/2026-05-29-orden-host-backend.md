@@ -19,11 +19,30 @@ Define once; everything else implements or consumes it.
 ```ts
 // packages/host-api/src/index.ts
 export interface Host {
+  identity: Identity;       // current user + presence (single-user until collab)
   vault: VaultStore;
   projects: ProjectRegistry;
   files: FileSource;
   sessions: SessionManager;
+  locks: LockService;       // pessimistic doc locks ("being edited by X")
   capabilities(): HostCapabilities; // which features this host supports
+}
+
+// Collaboration posture (see 2026-05-29-collaboration-options.md): start with
+// identity + presence + pessimistic locking + synced shared stores; defer CRDT
+// (Yjs) until simultaneous typing in one prose doc is a proven need. Hence
+// `identity` and `locks` are part of the spine from day one (single-user no-ops
+// until wired).
+export interface Identity {
+  me(): Promise<{ id: string; name: string } | null>;
+  presence(scope: string): Promise<{ id: string; name: string }[]>; // who's here
+}
+
+export interface LockService {
+  acquire(resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }>;
+  release(resource: string): Promise<void>;
+  heartbeat(resource: string): Promise<void>; // keep-alive; stale locks expire
+  holders(resource: string): Promise<string[]>;
 }
 
 export interface HostCapabilities {

@@ -102,12 +102,27 @@ Session rather than independent objects to keep mental overhead low.
 
 ### Vault and projects (added 2026-05-29)
 
-- Vault: a user-selected location that holds orden's *own* data — the daily
-  Journal (markdown per day), the Annotation log, and Kanban/session state. It is
-  chosen on first run (must be selected) and may be local or remote.
-- Project: a work location orden reviews and operates on. "Add a project" accepts
-  a local folder or a remote one — ssh / sshfs / sftp now, S3 and others later —
-  via a pluggable Source adapter. A Project owns Sessions.
+- Vault: a user-selected location that holds orden's *own* generated structure —
+  the daily Journal, all Pages (including each project's project page), the
+  Annotation log, and Kanban/session state. Chosen on first run (must be
+  selected); local or remote. This self-generated structure is the point: it is
+  the anti-Confluence — orden builds the org chart of your thinking for you rather
+  than making you file things into a tree by hand.
+- By default *everything orden generates lives in the vault*, including project
+  pages — not inside the project folder. A later setting will let those who want
+  files-in-the-project store a project's orden data in an `.orden/` folder inside
+  that project instead. Default stays vault.
+- A later setting will distinguish a user vault from a global/shared vault; for
+  now there is one vault. (Sharing/collaboration builds on this — see
+  Collaboration below.)
+- Project: a work location orden reviews and operates on. Projects can be
+  ephemeral (not tied to a folder); internally every project still has a working
+  directory so agents — which are folder-bound — have a `cwd` to run in (a real
+  folder for a local project, an orden-managed scratch dir for an ephemeral one).
+  orden must stay context-aware about *where* to run each agent.
+- "Add a project" accepts a local folder or a remote one — ssh / sshfs / sftp
+  now, S3 and others later — via a pluggable Source adapter. A Project owns
+  Sessions.
 - Both the vault and project sources are pluggable storage/source adapters
   (local fs, ssh/sftp, s3, …) behind one interface, so location is orthogonal to
   the rest of the app.
@@ -120,7 +135,13 @@ Session rather than independent objects to keep mental overhead low.
   stale/detached, clicking resumes it by referencing the stored conversation id
   and cd-ing into the recorded working directory — e.g.
   `cd <cwd> && claude --resume <conversationId>`. orden persists the conversation
-  id and cwd per session so resume is context-aware.
+  id and cwd per session so resume is context-aware. (Capturing the conversation
+  id likely comes from the agent's own session store; this needs investigation,
+  especially for opencode.)
+- Right pane: a raw terminal (xterm over the pty) is the first cut, but the
+  target is a streamlined structured transcript that matches the rest of the app
+  (in the spirit of the VS Code Claude extension / opencode web), built from the
+  agent's on-disk session state.
 
 ### The host backend (made explicit, 2026-05-29)
 
@@ -131,6 +152,32 @@ owns: the vault store, project Source adapters, and the Session manager (tmux +
 ssh + `claude --resume`/cwd tracking). Runtime choice (local Node service vs a
 Tauri/Electron desktop shell) is the next decision — see the app-shell plan's
 deferred section.
+
+The `Host` is the single interface the UI depends on, regardless of shape
+(browser / local Node service / desktop). Its capabilities:
+`{ identity, vault, projects, files, sessions, locks }`. The UI never imports
+fs/ssh/Node — only `Host` — so the transport (in-process vs WebSocket to a
+NodeHost) is hidden behind the implementation. Two distinct buses: UI↔host
+(control RPC: vault/files/locks/spawn) and agent↔orden (MCP: `open_in_main_view`,
+state transitions, blocked/feedback). They are kept separate.
+
+### Collaboration (added 2026-05-29)
+
+orden is meant to be multi-user — people collaborate on documents and on
+sessions. The chosen posture (see `2026-05-29-collaboration-options.md`):
+
+- Cheapest-viable first: an identity + presence layer, then pessimistic
+  document locking ("being edited by X" with a heartbeat/TTL and stale-lock
+  takeover), synced shared stores for Kanban + the annotation log, and sessions
+  as co-watch + a single-driver co-drive with handoff. This keeps markdown as the
+  source of truth and leaves ProseMirror untouched.
+- Real-time CRDT co-editing (Yjs + y-prosemirror) is deferred until simultaneous
+  typing in one prose document is a proven need; it layers on top and reuses the
+  identity/presence work, so the cheap path is not throwaway.
+- Hence `Host` carries `identity` and `locks` from the start (single-user until
+  needed). The agent participates as a collaborator for prose documents (editing
+  through orden, respecting locks) while code stays on the filesystem with async
+  diff-and-review.
 
 ## Session lifecycle
 
