@@ -26,6 +26,7 @@ import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
 import { getHost } from "./host";
+import { applyFont, FONT_OPTIONS } from "./fonts";
 import "./styles.css";
 
 // H0.3: the app talks to a Host (BrowserHost by default; a NodeHost over
@@ -88,7 +89,6 @@ const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 app.dataset.target = feedbackTarget;
 
 const leftnav = document.querySelector<HTMLElement>("#leftnav")!;
-const navScroll = document.querySelector<HTMLElement>(".nav-scroll")!;
 const panel = document.querySelector<HTMLElement>("#panel")!;
 const annotationsBlock = document.querySelector<HTMLElement>(".annotations-block")!;
 const mobile = window.matchMedia("(max-width: 860px)");
@@ -127,14 +127,14 @@ document.addEventListener("keydown", (e) => {
 // Responsive layout: on mobile the outline moves into the nav drawer, the
 // annotations become a collapsed bottom sheet, and both side panes start closed.
 function applyLayout(isMobile: boolean): void {
+  // The outline stays in #panel with the annotations (a sibling unfurlable
+  // section) in every layout; on mobile #panel is the scrollable bottom sheet.
   if (isMobile) {
     app.classList.add("left-closed", "right-closed");
     panel.classList.add("sheet-collapsed");
-    if (docmap.parentElement !== navScroll) navScroll.append(docmap);
   } else {
     app.classList.remove("left-closed", "right-closed");
     panel.classList.remove("sheet-collapsed");
-    if (docmap.parentElement !== panel) panel.insertBefore(docmap, annotationsBlock);
   }
 }
 mobile.addEventListener("change", (e) => applyLayout(e.matches));
@@ -439,7 +439,9 @@ const journal = mountJournal(viewEls.journal, (t) => {
 });
 
 function refreshBoard(): void {
-  navBadge.textContent = String(renderKanban(viewEls.kanban, openProject));
+  const count = renderKanban(viewEls.kanban, openProject);
+  navBadge.textContent = String(count);
+  navBadge.hidden = count === 0;
 }
 
 const viewStore = createViewStore("review");
@@ -496,6 +498,30 @@ for (const radio of settingsPopover.querySelectorAll<HTMLInputElement>('input[na
     if (radio.checked) saveSettings({ startup: radio.value as StartupView });
   });
 }
+
+// Font family + size: apply the saved choice now, then wire the selectors.
+applyFont(settings.fontFamily, settings.fontSize);
+
+const fontSelect = document.querySelector<HTMLSelectElement>("#font-family")!;
+for (const opt of FONT_OPTIONS) {
+  const o = document.createElement("option");
+  o.value = opt.id;
+  o.textContent = opt.label;
+  fontSelect.append(o);
+}
+fontSelect.value = settings.fontFamily;
+fontSelect.addEventListener("change", () => {
+  applyFont(fontSelect.value, loadSettings().fontSize);
+  void saveSettings({ fontFamily: fontSelect.value });
+});
+
+const sizeSelect = document.querySelector<HTMLSelectElement>("#font-size")!;
+sizeSelect.value = String(settings.fontSize);
+sizeSelect.addEventListener("change", () => {
+  const size = Number(sizeSelect.value);
+  applyFont(loadSettings().fontFamily, size);
+  void saveSettings({ fontSize: size });
+});
 settingsCog.addEventListener("click", (e) => {
   e.stopPropagation();
   settingsPopover.hidden = !settingsPopover.hidden;

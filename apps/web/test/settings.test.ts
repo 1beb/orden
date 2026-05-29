@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateSettings, loadSettings, saveSettings } from "../src/settings";
 
-// Settings now live in the host vault. The accessors stay synchronous (backed
-// by a cache hydrated at boot); writes write through to the vault. Verified
-// against a real BrowserHost vault, not a mock.
+const DEFAULTS = { startup: "last", fontFamily: "system", fontSize: 16 };
 
 describe("settings store (host-backed)", () => {
   beforeEach(async () => {
@@ -12,32 +10,50 @@ describe("settings store (host-backed)", () => {
     await hydrateSettings(new BrowserHost());
   });
 
-  it("returns default before anything is saved", () => {
-    expect(loadSettings()).toEqual({ startup: "last" });
+  it("returns full defaults before anything is saved", () => {
+    expect(loadSettings()).toEqual(DEFAULTS);
   });
 
-  it("round-trips save -> load synchronously via the cache", async () => {
+  it("round-trips startup synchronously via the cache", async () => {
     await saveSettings({ startup: "kanban" });
-    expect(loadSettings()).toEqual({ startup: "kanban" });
+    expect(loadSettings().startup).toBe("kanban");
+  });
+
+  it("round-trips font family and size", async () => {
+    await saveSettings({ fontFamily: "atkinson", fontSize: 18 });
+    expect(loadSettings().fontFamily).toBe("atkinson");
+    expect(loadSettings().fontSize).toBe(18);
+  });
+
+  it("a partial save merges, leaving other fields intact", async () => {
+    await saveSettings({ startup: "journal" });
+    await saveSettings({ fontFamily: "inter" });
+    const s = loadSettings();
+    expect(s.startup).toBe("journal");
+    expect(s.fontFamily).toBe("inter");
   });
 
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {
-    await saveSettings({ startup: "journal" });
+    await saveSettings({ fontFamily: "lora", fontSize: 20, startup: "kanban" });
     await hydrateSettings(new BrowserHost());
-    expect(loadSettings()).toEqual({ startup: "journal" });
+    expect(loadSettings()).toEqual({ startup: "kanban", fontFamily: "lora", fontSize: 20 });
   });
 
-  it("falls back to default when the stored startup value is invalid", async () => {
+  it("falls back to defaults for invalid stored values", async () => {
     const h = new BrowserHost();
-    await h.vault.set("settings", "app", { startup: "bogus" });
+    await h.vault.set("settings", "app", {
+      startup: "bogus",
+      fontFamily: "no-such-font",
+      fontSize: "huge",
+    });
     await hydrateSettings(h);
-    expect(loadSettings()).toEqual({ startup: "last" });
+    expect(loadSettings()).toEqual(DEFAULTS);
   });
 
-  it("falls back to default when the stored value is not an object", async () => {
+  it("rejects out-of-range font sizes", async () => {
     const h = new BrowserHost();
-    await h.vault.set("settings", "app", "kanban");
+    await h.vault.set("settings", "app", { fontSize: 999 });
     await hydrateSettings(h);
-    expect(loadSettings()).toEqual({ startup: "last" });
+    expect(loadSettings().fontSize).toBe(16);
   });
 });

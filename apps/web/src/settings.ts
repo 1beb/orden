@@ -1,32 +1,47 @@
 // App settings, stored in the host vault (ns "settings", key "app"). Accessors
-// stay synchronous, backed by a cache hydrated at boot; saveSettings writes
-// through to the vault. This is the H0.3 hydration pattern: one async load at
-// startup, sync reads thereafter, async write-through.
+// stay synchronous, backed by a cache hydrated at boot; saveSettings merges a
+// patch and writes through to the vault. This is the H0.3 hydration pattern:
+// one async load at startup, sync reads thereafter, async write-through.
 
 import type { Host } from "@orden/host-api";
+import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 
 export type StartupView = "journal" | "kanban" | "last";
 
 export interface Settings {
   startup: StartupView;
+  fontFamily: string; // a FONT_OPTIONS id
+  fontSize: number; // px
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
-const DEFAULT_SETTINGS: Settings = { startup: "last" };
+const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
+export const MIN_FONT_SIZE = 12;
+export const MAX_FONT_SIZE = 24;
+const DEFAULT_SETTINGS: Settings = {
+  startup: "last",
+  fontFamily: DEFAULT_FONT_ID,
+  fontSize: 16,
+};
 
 function isStartupView(value: unknown): value is StartupView {
   return typeof value === "string" && (STARTUP_VIEWS as readonly string[]).includes(value);
 }
 
 function coerce(stored: unknown): Settings {
-  if (
-    typeof stored === "object" &&
-    stored !== null &&
-    isStartupView((stored as { startup?: unknown }).startup)
-  ) {
-    return { startup: (stored as Settings).startup };
-  }
-  return { ...DEFAULT_SETTINGS };
+  const s = (typeof stored === "object" && stored !== null ? stored : {}) as Record<string, unknown>;
+  const size = s.fontSize;
+  return {
+    startup: isStartupView(s.startup) ? s.startup : DEFAULT_SETTINGS.startup,
+    fontFamily:
+      typeof s.fontFamily === "string" && FONT_IDS.includes(s.fontFamily)
+        ? s.fontFamily
+        : DEFAULT_SETTINGS.fontFamily,
+    fontSize:
+      typeof size === "number" && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE
+        ? size
+        : DEFAULT_SETTINGS.fontSize,
+  };
 }
 
 let host: Host | null = null;
@@ -42,7 +57,7 @@ export function loadSettings(): Settings {
   return { ...cache };
 }
 
-export function saveSettings(s: Settings): Promise<void> {
-  cache = { startup: s.startup };
+export function saveSettings(patch: Partial<Settings>): Promise<void> {
+  cache = { ...cache, ...patch };
   return host ? host.vault.set("settings", "app", cache) : Promise.resolve();
 }
