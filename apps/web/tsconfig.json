@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "types": ["vite/client"],
     "paths": {
-      "@orden/annotation-core": ["../../packages/annotation-core/src/index.ts"]
+      "@orden/annotation-core": ["../../packages/annotation-core/src/index.ts"],
+      "@orden/outliner": ["../../packages/outliner/src/index.ts"]
     }
   },
   "include": ["src"]
