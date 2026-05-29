@@ -160,13 +160,46 @@ Allow the vault itself to live remotely (ssh/sftp). S3 source/vault adapter behi
 
 ---
 
+## Packaging recommendation (one backend, many deployments)
+
+Build ONE real backend — `NodeHost` — behind the `Host` interface. Shapes differ
+only in *where it runs* and *which adapters it uses*, never in feature/client code:
+
+- Self-host / local: browser ↔ local NodeHost over WebSocket; vault = local fs.
+- Desktop: the same NodeHost bundled as a sidecar in a Tauri shell (Electron is
+  the all-JS fallback); native folder pickers.
+- SaaS: browser ↔ a remote NodeHost (per tenant) behind real auth, with a cloud
+  `VaultStore` adapter (e.g. Postgres + object storage) for shared storage. Same
+  client, same NodeHost, deployed server-side.
+- `BrowserHost` (localStorage) is a try-it/offline demo only — NOT the SaaS path.
+
+SaaS is mostly free because three spine seams absorb it: `VaultStore` (local fs →
+cloud), `identity` (single-user no-op → auth/multi-tenant), and `projects`/`files`
+(already ssh/sftp/S3-capable). So the document/journal/kanban/collaboration half of
+SaaS is storage-adapter + auth work, no rearchitecture.
+
+The one genuinely expensive SaaS decision is WHERE AI sessions run. Recommended:
+a connector model — the user runs a lightweight orden host/agent on their own
+machine (or server) and the SaaS orchestrates it; SaaS owns collaboration,
+storage, and UI, while sessions execute on the user's hardware. This avoids
+running untrusted code on our servers and reuses the remote-capable ssh surface.
+Managed server-side compute (sandboxed, per-tenant) is a later enterprise add-on.
+
+Build-order implication: build NodeHost local-first (H0–H3) keeping `VaultStore`
+and `identity` strictly behind their interfaces; SaaS is then a new deployment +
+cloud vault adapter + auth + connector, with no client/feature changes.
+
 ## Phase H5 — Desktop + hosted
 
 ### Task H5.1: DesktopHost (Tauri)
 Wrap the web client + NodeHost in a Tauri shell; native folder picker for vault/project selection; NodeHost runs as a sidecar or in-process. All-JS Electron is the fallback if Rust toolchain is a barrier.
 
-### Task H5.2: Hosted web
-Deploy the web client against a remote NodeHost (per-user). Auth + multi-tenant + credential security are a **separate plan** (commercial concern) — out of scope here.
+### Task H5.2: Hosted web (SaaS)
+Deploy the web client against a remote NodeHost per tenant: cloud `VaultStore`
+adapter (shared storage), real auth via the `identity` seam, and the connector
+model for sessions (user-side compute). Auth/multi-tenant/credential security and
+the connector protocol are their own **separate plan** (commercial) — but the
+interfaces above are designed so this slots in without touching the client.
 
 ---
 
