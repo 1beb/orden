@@ -631,7 +631,9 @@ body {
   list-style: none;
   margin: 0;
   padding: 4px 8px 8px;
-  max-height: 34vh;
+  /* Keep the outline a compact index: cap it well short of the panel so a long
+     outline can't grow all the way down to the annotations. */
+  max-height: min(30vh, 220px);
   overflow-y: auto;
 }
 
@@ -1445,7 +1447,9 @@ body {
 }
 .annotations-block.empty {
   flex: 0 0 auto;
-  margin-top: auto;
+  /* Center in the free space below the outline so the gap is balanced above
+     and below, rather than pinning the block to the panel's bottom edge. */
+  margin: auto 0;
 }
 .annotations-block.empty #annotation-list {
   display: none;
