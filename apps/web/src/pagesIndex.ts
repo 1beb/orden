@@ -1,4 +1,4 @@
-import { pagesIndex, backlinksTo } from "./pages";
+import { pagesIndex, backlinksTo, deletePage } from "./pages";
 
 // Format an ISO timestamp as a short, locale-friendly date; "—" when unknown.
 function fmtDate(iso?: string): string {
@@ -56,7 +56,26 @@ export function renderPagesIndex(
     countCell.className = "pages-count";
     countCell.textContent = String(backlinksTo(p.name).length);
 
-    tr.append(nameCell, createdCell, countCell);
+    const actionCell = document.createElement("td");
+    actionCell.className = "pages-actions";
+    const del = document.createElement("button");
+    del.className = "pages-del";
+    del.type = "button";
+    del.textContent = "✕";
+    del.title = "Delete page";
+    del.setAttribute("aria-label", "Delete page");
+    del.style.cssText =
+      "border:0;background:none;cursor:pointer;color:var(--muted,#999);font-size:0.9em;padding:0 0.25em;line-height:1;opacity:0.6;";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (window.confirm(`Delete page "${p.name}"? This cannot be undone.`)) {
+        deletePage(p.name);
+        renderPagesIndex(container, onOpen);
+      }
+    });
+    actionCell.append(del);
+
+    tr.append(nameCell, createdCell, countCell, actionCell);
     tbody.append(tr);
   }
   table.append(tbody);

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import {
   backlinksTo,
+  deletePage,
   getPageMarkdown,
   hydratePages,
   pageNames,
@@ -42,5 +43,36 @@ describe("pages store (host-backed)", () => {
     await settle();
     await hydratePages(new BrowserHost());
     expect(getPageMarkdown("home")).toBe("- kept");
+  });
+
+  it("getPageMarkdown resolves case-insensitively to the canonical page", () => {
+    setPageMarkdown("AgentNote", "- canonical");
+    expect(getPageMarkdown("agentnote")).toBe("- canonical");
+    expect(getPageMarkdown("AGENTNOTE")).toBe("- canonical");
+  });
+
+  it("setPageMarkdown via differing case updates the same page (no duplicate)", () => {
+    setPageMarkdown("AgentNote", "- v1");
+    setPageMarkdown("agentnote", "- v2");
+    expect(getPageMarkdown("AgentNote")).toBe("- v2");
+    expect(pageNames()).toEqual(["AgentNote"]);
+  });
+
+  it("deletePage removes the page from cache and listings", () => {
+    setPageMarkdown("doomed", "- bye");
+    expect(pageNames()).toContain("doomed");
+    deletePage("doomed");
+    expect(getPageMarkdown("doomed")).toBe("");
+    expect(pageNames()).not.toContain("doomed");
+  });
+
+  it("deletePage resolves case-insensitively and persists across re-hydrate", async () => {
+    setPageMarkdown("KeepMe", "- x");
+    await settle();
+    deletePage("keepme");
+    await settle();
+    await hydratePages(new BrowserHost());
+    expect(getPageMarkdown("KeepMe")).toBe("");
+    expect(pageNames()).not.toContain("KeepMe");
   });
 });

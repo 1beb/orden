@@ -2,7 +2,7 @@ import { LIFECYCLE_ORDER, isNeedsAction, type CardState } from "@orden/outliner"
 import { listItems, setItemState, setItemProject, type Item } from "./cards";
 import { listProjects } from "./projects";
 import { agentLauncher } from "./agentMarks";
-import type { Agent } from "./sessions";
+import { setSessionProject, type Agent } from "./sessions";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
@@ -96,6 +96,9 @@ export function renderKanban(
       proj.addEventListener("change", (e) => {
         e.stopPropagation();
         setItemProject(item.id, proj.value);
+        // Keep a linked session on the same project so it doesn't strand under
+        // Homeroom's "Active sessions" while its card moved away.
+        if (item.sessionId) setSessionProject(item.sessionId, proj.value);
         renderKanban(container, onOpenProject, onStartSession);
       });
       card.append(title, proj);

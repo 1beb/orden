@@ -73,6 +73,18 @@ function persist(session: Session): void {
   if (host) void host.vault.set("sessions", session.id, session);
 }
 
+/**
+ * Reassign a session to a different project. Mirrors cards.setItemProject so a
+ * session and its linked card can be moved together (the UI handlers do the dual
+ * update — cards.ts must not import this module, to avoid a cycle).
+ */
+export function setSessionProject(id: string, projectId: string): void {
+  const session = cache.find((s) => s.id === id);
+  if (!session) return;
+  session.projectId = projectId;
+  persist(session);
+}
+
 export function createSession(opts: {
   title: string;
   agent: Agent;

@@ -47,24 +47,50 @@ export async function hydratePages(h: Host): Promise<void> {
   metaCache = Object.fromEntries(metaEntries.filter(([, m]) => m !== null)) as Record<string, PageMeta>;
 }
 
+// Page names are case-insensitive for lookup but stored with their canonical
+// (first-written) casing, so [[agentnote]] resolves to an existing "AgentNote"
+// rather than spawning a duplicate lowercase page. Returns the existing cache
+// key matching `name` case-insensitively, else `name` unchanged.
+function canonicalKey(name: string): string {
+  if (name in cache) return name;
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(cache)) {
+    if (key.toLowerCase() === lower) return key;
+  }
+  return name;
+}
+
 export function getPageMarkdown(name: string): string {
-  return cache[name] ?? "";
+  return cache[canonicalKey(name)] ?? "";
 }
 
 export function setPageMarkdown(name: string, markdown: string): void {
-  const isNew = !(name in cache);
-  cache[name] = markdown;
-  if (host) void host.vault.set("pages", name, markdown);
+  const key = canonicalKey(name);
+  const isNew = !(key in cache);
+  cache[key] = markdown;
+  if (host) void host.vault.set("pages", key, markdown);
 
   const now = new Date().toISOString();
-  const prev = metaCache[name];
+  const prev = metaCache[key];
   const meta: PageMeta = {
-    created: prev?.created ?? dateFallback(name) ?? now,
+    created: prev?.created ?? dateFallback(key) ?? now,
     updated: now,
   };
-  metaCache[name] = meta;
+  metaCache[key] = meta;
   if (host && (isNew || !prev || prev.updated !== meta.updated)) {
-    void host.vault.set("pagemeta", name, meta);
+    void host.vault.set("pagemeta", key, meta);
+  }
+}
+
+// Remove a page (and its sidecar metadata) from the cache and write the
+// deletion through to the vault. Resolves casing like the accessors.
+export function deletePage(name: string): void {
+  const key = canonicalKey(name);
+  delete cache[key];
+  delete metaCache[key];
+  if (host) {
+    void host.vault.delete("pages", key);
+    void host.vault.delete("pagemeta", key);
   }
 }
 

@@ -1,9 +1,10 @@
 import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
 import type { EditorView } from "prosemirror-view";
+import type { FileEntry } from "@orden/host-api";
 import { itemsByProject, addItem, setItemState, setItemProject, type Item } from "./cards";
 import { getProject, listProjects, type Project } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
-import { listSessions, type Agent, type Session } from "./sessions";
+import { listSessions, setSessionProject, type Agent, type Session } from "./sessions";
 import { makeOutlineEditor } from "./outlineEditor";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
@@ -49,6 +50,12 @@ export function renderProjectPage(
   onOpenSession?: (id: string) => void,
   // Start a NEW project-scoped session (not tied to any card).
   onNewSession?: (agent: Agent) => void,
+  // Open a repo file in the review/document view (file-backed projects only).
+  onOpenFile?: (path: string) => void,
+  // The repo's files (path + title). The host's FileSource is single-rooted at
+  // the repo for now; per-project roots come later, at which point this should
+  // be scoped per project rather than the whole repo.
+  repoFiles: FileEntry[] = [],
 ): void {
   const project = getProject(projectId);
   // Tear down the previous render's notes editor before replacing the DOM.
@@ -88,9 +95,43 @@ export function renderProjectPage(
   container.append(
     sessionsWidget(projectId, onOpenSession, onNewSession),
     itemsWidget(projectId, onChange, onStartSession),
+    // File explorer — only for file-backed (local) projects. Ephemeral/ssh/s3
+    // projects have no browsable local files, so the widget is omitted.
+    ...(project.source.kind === "local" ? [filesWidget(repoFiles, onOpenFile)] : []),
     notesWidget(project),
     activityWidget(),
   );
+}
+
+// --- Files (file-backed projects only) ------------------------------------
+
+function filesWidget(repoFiles: FileEntry[], onOpenFile?: (path: string) => void): HTMLElement {
+  const { section, body } = widget("Files");
+  if (repoFiles.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "project-widget-empty";
+    empty.textContent = "No files in this project.";
+    body.append(empty);
+    return section;
+  }
+  const list = document.createElement("div");
+  list.className = "project-file-list";
+  for (const f of repoFiles) {
+    const row = document.createElement("button");
+    row.className = "project-file-row";
+    row.type = "button";
+    const name = document.createElement("span");
+    name.className = "project-file-name";
+    name.textContent = f.path.split("/").pop() ?? f.path;
+    const meta = document.createElement("span");
+    meta.className = "project-file-meta";
+    meta.textContent = f.path.includes("/") ? f.path.replace(/\/[^/]+$/, "") : "/";
+    row.append(name, meta);
+    if (onOpenFile) row.addEventListener("click", () => onOpenFile(f.path));
+    list.append(row);
+  }
+  body.append(list);
+  return section;
 }
 
 // --- Widget shell ---------------------------------------------------------
@@ -230,6 +271,9 @@ function itemsWidget(
         }
         projSel.addEventListener("change", () => {
           setItemProject(item.id, projSel.value);
+          // Move the linked session too, so it follows the card off this page
+          // instead of stranding under its old project's "Active sessions".
+          if (item.sessionId) setSessionProject(item.sessionId, projSel.value);
           onChange();
           render();
         });

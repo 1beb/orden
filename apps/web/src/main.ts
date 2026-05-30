@@ -28,6 +28,12 @@ import { mountTerminal } from "./terminalView";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectNotesHasFocus } from "./projectPage";
+import {
+  hydrateRecentFiles,
+  recordRecentFile,
+  listRecentFiles,
+  SHOW_CAP,
+} from "./recentFiles";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -55,6 +61,7 @@ async function hydrateAll(): Promise<void> {
     hydrateDocs(host),
     hydrateCards(host),
     hydrateSessions(host),
+    hydrateRecentFiles(host),
   ]);
 }
 await hydrateAll();
@@ -674,6 +681,8 @@ function renderProject(projectId: string): void {
     startSessionForItem,
     openSessionInPanel,
     startProjectSession,
+    (path) => void openRepoFile(path),
+    repoFiles,
   );
 }
 
@@ -811,6 +820,8 @@ function loadReviewDoc(opts: {
 
 const recentList = document.querySelector<HTMLElement>("#recent-list")!;
 // Repo docs come through host.files now (path + title); content is read on open.
+// Kept in a module variable so the project file explorer (projectPage) can list
+// them without re-fetching. The FILES nav itself shows only recently-OPENED files.
 const repoFiles = await host.files.list("repo");
 
 function setActiveFile(path: string | null): void {
@@ -819,26 +830,46 @@ function setActiveFile(path: string | null): void {
   });
 }
 
-for (const f of repoFiles) {
-  const a = document.createElement("a");
-  a.className = "nav-file";
-  a.dataset.path = f.path;
-  a.title = f.path;
-  const name = document.createElement("span");
-  name.className = "nav-file-name";
-  name.textContent = f.path.split("/").pop() ?? f.path;
-  const meta = document.createElement("span");
-  meta.className = "nav-file-meta";
-  meta.textContent = f.path.includes("/") ? f.path.replace(/\/[^/]+$/, "") : "/";
-  a.append(name, meta);
-  a.addEventListener("click", async () => {
-    const markdown = await host.files.read("repo", f.path);
-    loadReviewDoc({ key: `review:${f.path}`, title: f.title, markdown });
-    setActiveFile(f.path);
-    viewStore.set("review");
-  });
-  recentList.append(a);
+// Open a repo doc in the review view. The single funnel for every entry point
+// (FILES nav, project file explorer, boot default-open) so each records a recent.
+async function openRepoFile(path: string): Promise<void> {
+  const title = repoFiles.find((f) => f.path === path)?.title ?? (path.split("/").pop() ?? path);
+  const markdown = await host.files.read("repo", path);
+  loadReviewDoc({ key: `review:${path}`, title, markdown });
+  setActiveFile(path);
+  viewStore.set("review");
+  recordRecentFile(path);
+  renderRecentFiles();
 }
+
+// FILES nav: the top few most-recently-opened repo files (not the whole repo).
+function renderRecentFiles(): void {
+  recentList.replaceChildren();
+  const recents = listRecentFiles(SHOW_CAP);
+  if (recents.length === 0) {
+    const hint = document.createElement("p");
+    hint.className = "nav-file-empty";
+    hint.textContent = "No recent files";
+    recentList.append(hint);
+    return;
+  }
+  for (const path of recents) {
+    const a = document.createElement("a");
+    a.className = "nav-file";
+    a.dataset.path = path;
+    a.title = path;
+    const name = document.createElement("span");
+    name.className = "nav-file-name";
+    name.textContent = path.split("/").pop() ?? path;
+    const meta = document.createElement("span");
+    meta.className = "nav-file-meta";
+    meta.textContent = path.includes("/") ? path.replace(/\/[^/]+$/, "") : "/";
+    a.append(name, meta);
+    a.addEventListener("click", () => void openRepoFile(path));
+    recentList.append(a);
+  }
+}
+renderRecentFiles();
 
 // Initial review document: last-opened repo file, else the design doc, else the
 // built-in sample (which seeds demo annotations on first run).
@@ -847,12 +878,7 @@ const lastFile = repoFiles.find((f) => `review:${f.path}` === lastKey);
 const defaultFile =
   lastFile ?? repoFiles.find((f) => f.path.includes("orden-design")) ?? repoFiles[0];
 if (defaultFile) {
-  loadReviewDoc({
-    key: `review:${defaultFile.path}`,
-    title: defaultFile.title,
-    markdown: await host.files.read("repo", defaultFile.path),
-  });
-  setActiveFile(defaultFile.path);
+  await openRepoFile(defaultFile.path);
 } else {
   loadReviewDoc({
     key: "review:sample",
