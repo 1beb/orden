@@ -991,6 +991,7 @@ const sessionsPanel = mountSessionsPanel({
       refreshBoard();
     }
   },
+  close: () => app.classList.add("right-closed"),
 });
 
 // Show archived (Done) sessions in the list.

@@ -19,6 +19,8 @@ export interface SessionsPanelDeps {
   remove: (id: string) => void;
   /** Drop a session if it was abandoned untouched (no-op otherwise). */
   cleanup: (id: string) => void;
+  /** Collapse the panel (mobile: dismiss the full-width slide-over). */
+  close: () => void;
   /** The session that was open last run, to reopen on boot (null = the list). */
   initialOpenId?: string | null;
   /** Persist which session is open so a reload reopens it. */
@@ -49,6 +51,7 @@ const ICON = {
   back: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
   x: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+  collapse: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>',
 } as const;
 function iconButton(svg: string, cls: string): HTMLButtonElement {
   const b = document.createElement("button");
@@ -130,7 +133,13 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const head = el("header", "sess-head");
     const title = el("span", "sess-title");
     title.textContent = "Sessions";
-    head.append(title, newButtons());
+    // Mobile-only: the pane is a full-width slide-over that hides the topbar's
+    // pane toggle, so the list view needs its own way back to the document.
+    const collapse = iconButton(ICON.collapse, "sess-icon sess-collapse");
+    collapse.title = "Close sessions";
+    collapse.setAttribute("aria-label", "Close sessions");
+    collapse.addEventListener("click", () => deps.close());
+    head.append(collapse, title, newButtons());
     c.append(head);
 
     const sessions = deps.list();

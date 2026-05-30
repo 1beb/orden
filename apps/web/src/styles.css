@@ -487,6 +487,12 @@ body {
   background: var(--accent-soft);
   color: var(--accent);
 }
+/* The list-view collapse button only matters on mobile, where the pane is a
+   full-width slide-over hiding the topbar's pane toggle. On desktop that toggle
+   is always reachable, so hide this one. */
+.sess-collapse {
+  display: none;
+}
 .sess-new {
   display: inline-flex;
   gap: 6px;
@@ -1379,6 +1385,11 @@ body {
   }
   #app:not(.right-closed) #sessions {
     transform: none;
+  }
+  /* Surface the collapse control: it's the only way back to the document once
+     the full-width sessions pane is open. */
+  .sess-collapse {
+    display: inline-flex;
   }
 
   /* annotations bottom sheet pinned to the bottom; its header (with Send + Copy)
