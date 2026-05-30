@@ -9,6 +9,8 @@ export interface SessionsPanelDeps {
   get: (id: string) => Session | undefined;
   create: (opts: { title: string; agent: Agent }) => Session;
   send: (id: string, text: string) => void;
+  /** Display name of the project a session belongs to (shown on the card). */
+  projectName: (projectId: string) => string;
   /** "chat" = transcript + commentary; "terminal" = embedded agent TUI. */
   mode: () => "chat" | "terminal";
   /** Mount the agent TUI into container; returns a dispose fn. */
@@ -54,6 +56,57 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     }
   }
 
+  // Start a fresh Untitled session with the chosen agent (it titles itself after
+  // the first turn). Drops the session we're leaving if it was never touched.
+  function startNewSession(agent: Agent): void {
+    teardownTerm();
+    const leaving = currentId;
+    const s = deps.create({ title: "Untitled", agent });
+    currentId = s.id;
+    if (leaving) deps.cleanup(leaving);
+    render();
+  }
+
+  // The "+" opens a tiny menu to pick the agent (Claude / opencode) before
+  // spawning — so opencode is selectable, not just Claude.
+  function newButton(): HTMLElement {
+    const wrap = el("span", "sess-new");
+    const b = button("+", "sess-icon");
+    b.title = "New session";
+    const menu = el("div", "sess-menu");
+    menu.hidden = true;
+
+    const closeMenu = (): void => {
+      menu.hidden = true;
+      document.removeEventListener("click", onDocClick, true);
+    };
+    function onDocClick(ev: MouseEvent): void {
+      if (!wrap.contains(ev.target as Node)) closeMenu();
+    }
+    const choice = (label: string, agent: Agent): HTMLButtonElement => {
+      const c = button(label, "sess-menu-item");
+      c.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        closeMenu();
+        startNewSession(agent);
+      });
+      return c;
+    };
+    menu.append(choice("Claude", "claude"), choice("opencode", "opencode"));
+
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (menu.hidden) {
+        menu.hidden = false;
+        document.addEventListener("click", onDocClick, true);
+      } else {
+        closeMenu();
+      }
+    });
+    wrap.append(b, menu);
+    return wrap;
+  }
+
   function renderList(): void {
     const c = deps.container;
     c.replaceChildren();
@@ -61,16 +114,8 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const head = el("header", "sess-head");
     const title = el("span", "sess-title");
     title.textContent = "Sessions";
-    const newBtn = button("+", "sess-icon");
-    newBtn.title = "New session";
-    head.append(title, newBtn);
+    head.append(title, newButton());
     c.append(head);
-    newBtn.addEventListener("click", () => {
-      // No name prompt — start Untitled; the agent titles it after the first turn.
-      const s = deps.create({ title: "Untitled", agent: "claude" });
-      currentId = s.id;
-      render();
-    });
 
     const sessions = deps.list();
     if (sessions.length === 0) {
@@ -81,9 +126,16 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     }
     const ul = el("ul", "sess-list");
     for (const s of sessions) {
-      const li = el("li", "sess-item");
-      const t = el("span", "sess-item-title");
+      const li = el("li", "sess-card");
+      if (s.archived) li.classList.add("archived");
+
+      const main = el("div", "sess-card-main");
+      const t = el("div", "sess-card-title");
       t.textContent = s.title;
+      const proj = el("div", "sess-card-proj");
+      proj.textContent = deps.projectName(s.projectId);
+      main.append(t, proj);
+
       const badge = el("span", "sess-badge");
       badge.textContent = s.agent === "opencode" ? "O" : "C";
       badge.title = s.agent;
@@ -101,7 +153,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
         deps.remove(s.id);
         renderList();
       });
-      li.append(t, badge, archive, del);
+      li.append(main, badge, archive, del);
       li.addEventListener("click", () => {
         currentId = s.id;
         render();
@@ -124,7 +176,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const badge = el("span", "sess-badge");
     badge.textContent = s.agent === "opencode" ? "O" : "C";
     badge.title = s.agent;
-    head.append(back, title, badge);
+    head.append(back, title, badge, newButton());
     c.append(head);
     back.addEventListener("click", () => {
       teardownTerm();

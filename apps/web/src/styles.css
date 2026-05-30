@@ -424,6 +424,38 @@ body {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.sess-new {
+  position: relative;
+  display: inline-flex;
+}
+.sess-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px;
+  background: var(--panel-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.sess-menu-item {
+  border: none;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sess-menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .sess-badge {
   flex: none;
   width: 18px;
@@ -482,21 +514,42 @@ body {
   margin: 0;
   padding: 8px;
 }
-.sess-item {
+.sess-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 9px 10px;
-  border-radius: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
   cursor: pointer;
   color: var(--ink);
 }
-.sess-item:hover {
+.sess-card + .sess-card {
+  margin-top: 8px;
+}
+.sess-card:hover {
+  border-color: var(--accent);
   background: var(--accent-soft);
 }
-.sess-item-title {
+.sess-card.archived {
+  opacity: 0.55;
+}
+.sess-card-main {
   flex: 1;
+  min-width: 0;
+}
+.sess-card-title {
   font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sess-card-proj {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -512,7 +565,7 @@ body {
   cursor: pointer;
   opacity: 0;
 }
-.sess-item:hover .sess-rowbtn {
+.sess-card:hover .sess-rowbtn {
   opacity: 1;
 }
 .sess-rowbtn:hover {
@@ -615,6 +668,53 @@ body {
   font-size: 13px;
   font-weight: 600;
   color: var(--muted);
+}
+
+/* Omnisearch: a multi-purpose search field; wired to onSearch() in main.ts,
+   target/scope still to be decided. */
+.omnisearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  max-width: 34vw;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.omnisearch:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.omnisearch-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.omnisearch-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.omnisearch-input::placeholder {
+  color: var(--muted);
+}
+/* Hide the native clear/search decorations for a clean pill. */
+.omnisearch-input::-webkit-search-decoration,
+.omnisearch-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+@media (max-width: 860px) {
+  .omnisearch {
+    width: 150px;
+  }
 }
 
 /* floating annotator: pill + inline composer, anchored at the selection */
@@ -1045,6 +1145,11 @@ body {
 #annotation-list li[data-status="orphaned"] .chip {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .row-action {
@@ -1544,6 +1649,11 @@ body {
 .pages-link:hover {
   text-decoration: underline;
 }
+.pages-date {
+  color: var(--muted);
+  white-space: nowrap;
+  width: 130px;
+}
 .pages-count {
   color: var(--muted);
   width: 90px;
@@ -1551,6 +1661,9 @@ body {
 
 /* projects list + add form */
 .nav-proj-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   padding: 5px 8px;
   border-radius: 6px;
 }

@@ -7,7 +7,7 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { join, dirname, resolve, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, stat } from "node:fs/promises";
@@ -65,26 +65,62 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   }
 }
 
-const httpServer = createServer((req, res) => {
-  if (req.url && req.url.startsWith("/mcp")) {
-    void handleMcpRequest(host, req, res);
-    return;
-  }
-  void serveStatic(req, res);
-});
-
-// Route WebSocket upgrades: /term → the agent terminal pty, everything else →
-// the Host RPC + change feed.
+// The agent terminal pty (/term) and the Host RPC + change feed are both shared
+// across every bound address.
 const rpcWss = createHostWss(host);
 const termWss = createTerminalWss(host, filesRoot);
-httpServer.on("upgrade", (req, socket, head) => {
-  const wss = (req.url ?? "").startsWith("/term") ? termWss : rpcWss;
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-});
 
-httpServer.listen(port, "127.0.0.1", () => {
-  // eslint-disable-next-line no-console
-  console.log(
-    `orden on http://127.0.0.1:${port}  (app + ws + /mcp, one process)\n  vault: ${vaultRoot}\n  files: ${filesRoot}\n  webDist: ${webDist}`,
-  );
-});
+function makeServer() {
+  const server = createServer((req, res) => {
+    if (req.url && req.url.startsWith("/mcp")) {
+      void handleMcpRequest(host, req, res);
+      return;
+    }
+    void serveStatic(req, res);
+  });
+  server.on("upgrade", (req, socket, head) => {
+    const wss = (req.url ?? "").startsWith("/term") ? termWss : rpcWss;
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  });
+  return server;
+}
+
+// The tailnet IP (Tailscale hands out 100.64.0.0/10, the CGNAT range). Binding
+// it — instead of 0.0.0.0 — keeps the host OFF any LAN/public NIC: reachable
+// only from other tailnet devices.
+function tailscaleIp(): string | undefined {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family !== "IPv4") continue;
+      const [o1, o2] = a.address.split(".").map(Number);
+      if (o1 === 100 && o2 >= 64 && o2 <= 127) return a.address;
+    }
+  }
+  return undefined;
+}
+
+// Bind loopback (so the local MCP agent bus on 127.0.0.1 keeps working) plus the
+// tailnet IP (so other tailnet devices can reach it). ORDEN_BIND overrides with a
+// comma-separated address list. We never default to 0.0.0.0 — no LAN/public
+// exposure unless you ask for it explicitly.
+function resolveBinds(): string[] {
+  const override = process.env.ORDEN_BIND?.trim();
+  if (override) return override.split(",").map((s) => s.trim()).filter(Boolean);
+  const ts = tailscaleIp();
+  if (!ts) {
+    // eslint-disable-next-line no-console
+    console.warn("orden: no tailnet IP found — binding loopback only (set ORDEN_BIND to override)");
+    return ["127.0.0.1"];
+  }
+  return ["127.0.0.1", ts];
+}
+
+const binds = resolveBinds();
+for (const addr of binds) {
+  makeServer().listen(port, addr, () => {
+    // eslint-disable-next-line no-console
+    console.log(
+      `orden on http://${addr}:${port}  (app + ws + /mcp, one process)\n  vault: ${vaultRoot}\n  files: ${filesRoot}\n  webDist: ${webDist}`,
+    );
+  });
+}
