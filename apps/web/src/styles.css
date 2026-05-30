@@ -430,6 +430,9 @@ body {
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
+  /* Chrome, not prose — a label plus controls. Suppress the text caret/selection
+     so the header never looks editable. */
+  user-select: none;
 }
 
 .sess-dot {
