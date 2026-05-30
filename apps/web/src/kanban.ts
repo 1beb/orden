@@ -1,6 +1,8 @@
 import { LIFECYCLE_ORDER, isNeedsAction, type CardState } from "@orden/outliner";
-import { listItems, setItemState, setItemProject } from "./cards";
+import { listItems, setItemState, setItemProject, type Item } from "./cards";
 import { listProjects } from "./projects";
+import { agentLauncher } from "./agentMarks";
+import type { Agent } from "./sessions";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
@@ -18,6 +20,7 @@ const STATE_LABELS: Record<CardState, string> = {
 export function renderKanban(
   container: HTMLElement,
   onOpenProject: (projectId: string) => void,
+  onStartSession?: (item: Item, agent: Agent) => void,
 ): number {
   const items = listItems();
   const needs = items.filter((i) => isNeedsAction(i.state)).length;
@@ -56,7 +59,7 @@ export function renderKanban(
       const id = e.dataTransfer?.getData("text/plain");
       if (id) {
         setItemState(id, state);
-        renderKanban(container, onOpenProject);
+        renderKanban(container, onOpenProject, onStartSession);
       }
     });
 
@@ -93,9 +96,14 @@ export function renderKanban(
       proj.addEventListener("change", (e) => {
         e.stopPropagation();
         setItemProject(item.id, proj.value);
-        renderKanban(container, onOpenProject);
+        renderKanban(container, onOpenProject, onStartSession);
       });
       card.append(title, proj);
+      // No AI conversation yet → offer to start one (Claude / opencode) right
+      // from the card; the new session links to this card (no duplicate).
+      if (!item.sessionId && onStartSession) {
+        card.append(agentLauncher((agent) => onStartSession(item, agent)));
+      }
       card.addEventListener("click", () => onOpenProject(item.projectId));
       card.addEventListener("dragstart", (e) => {
         e.dataTransfer?.setData("text/plain", item.id);

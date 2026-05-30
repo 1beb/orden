@@ -1,6 +1,8 @@
 import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
-import { itemsByProject, addItem, setItemState } from "./cards";
-import { getProject } from "./projects";
+import { itemsByProject, addItem, setItemState, setItemProject, type Item } from "./cards";
+import { getProject, listProjects } from "./projects";
+import { agentLauncher } from "./agentMarks";
+import type { Agent } from "./sessions";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
@@ -18,6 +20,7 @@ export function renderProjectPage(
   container: HTMLElement,
   projectId: string,
   onChange: () => void,
+  onStartSession?: (item: Item, agent: Agent) => void,
 ): void {
   const project = getProject(projectId);
   container.replaceChildren();
@@ -112,7 +115,27 @@ export function renderProjectPage(
           onChange();
           render();
         });
-        row.append(title, select);
+        // Move the card to another project (it then leaves this page's list).
+        const projSel = document.createElement("select");
+        projSel.className = "issue-project";
+        projSel.title = "Project";
+        for (const p of listProjects()) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          opt.selected = p.id === item.projectId;
+          projSel.append(opt);
+        }
+        projSel.addEventListener("change", () => {
+          setItemProject(item.id, projSel.value);
+          onChange();
+          render();
+        });
+        row.append(title, select, projSel);
+        // No AI conversation yet → start one (Claude / opencode) from the row.
+        if (!item.sessionId && onStartSession) {
+          row.append(agentLauncher((agent) => onStartSession(item, agent)));
+        }
         details.append(row);
       }
       list.append(details);

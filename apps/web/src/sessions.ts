@@ -5,7 +5,7 @@
 // writes write through. The live agent backend (spawn/resume) runs the embedded
 // agent TUI per session.
 import type { Host } from "@orden/host-api";
-import { addItem, listItems, setItemState, removeItem } from "./cards";
+import { addItem, listItems, setItemState, removeItem, setItemSession } from "./cards";
 import { ensureDefaultProject } from "./projects";
 
 export type Agent = "claude" | "opencode";
@@ -73,7 +73,14 @@ function persist(session: Session): void {
   if (host) void host.vault.set("sessions", session.id, session);
 }
 
-export function createSession(opts: { title: string; agent: Agent; projectId?: string }): Session {
+export function createSession(opts: {
+  title: string;
+  agent: Agent;
+  projectId?: string;
+  // Link to an EXISTING card instead of creating a new one — used when starting
+  // a session from a card that has no AI conversation yet.
+  linkToCardId?: string;
+}): Session {
   counter += 1;
   // No project chosen → drop it in the default "Homeroom" project.
   const projectId = opts.projectId || ensureDefaultProject().id;
@@ -85,7 +92,9 @@ export function createSession(opts: { title: string; agent: Agent; projectId?: s
   };
   cache.push(session);
   persist(session);
-  // separate-but-linked: a planning card on the kanban points back to this session
-  addItem(session.projectId, session.title, session.id);
+  // separate-but-linked: a card on the kanban points back to this session.
+  // Started from an existing card → link that one; otherwise drop a new card.
+  if (opts.linkToCardId) setItemSession(opts.linkToCardId, session.id);
+  else addItem(session.projectId, session.title, session.id);
   return session;
 }

@@ -12,7 +12,7 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
 import { hydratePages } from "./pages";
-import { hydrateCards, listItems } from "./cards";
+import { hydrateCards, listItems, type Item } from "./cards";
 import {
   hydrateSessions,
   listSessions,
@@ -21,6 +21,7 @@ import {
   archiveSession,
   deleteSession,
   isAbandoned,
+  type Agent,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal } from "./terminalView";
@@ -595,9 +596,24 @@ const journal = mountJournal(
 );
 
 function refreshBoard(): void {
-  const count = renderKanban(viewEls.kanban, openProject);
+  const count = renderKanban(viewEls.kanban, openProject, startSessionForItem);
   navBadge.textContent = String(count);
   navBadge.hidden = count === 0;
+}
+
+// Start an agent session for an existing card that has no AI conversation yet:
+// create it linked to that card (no duplicate card), scoped to the card's
+// project, then reveal + open it in the sessions panel.
+function startSessionForItem(item: Item, agent: Agent): void {
+  const s = createSession({
+    title: item.title,
+    agent,
+    projectId: item.projectId,
+    linkToCardId: item.id,
+  });
+  refreshBoard();
+  app.classList.remove("right-closed"); // ensure the sessions pane is visible
+  sessionsPanel.open(s.id);
 }
 
 const viewStore = createViewStore("review");
@@ -629,7 +645,7 @@ function openPage(name: string): void {
 function openProject(projectId: string): void {
   currentProjectId = projectId;
   projectTitle = getProject(projectId)?.name ?? "Project";
-  renderProjectPage(viewEls.project, projectId, refreshBoard);
+  renderProjectPage(viewEls.project, projectId, refreshBoard, startSessionForItem);
   viewStore.set("project");
 }
 void currentProjectId;
@@ -827,10 +843,21 @@ function renderProjects(): void {
     const name = document.createElement("div");
     name.className = "nav-proj-label";
     name.textContent = p.name;
-    const meta = document.createElement("div");
-    meta.className = "nav-proj-meta";
-    meta.textContent = p.source.kind === "local" ? p.source.path : p.source.kind;
-    item.append(name, meta);
+    // Subtitle: path for local projects, nothing for ephemeral ones (Homeroom) —
+    // "ephemeral" is an implementation detail, not worth surfacing.
+    const metaText =
+      p.source.kind === "local"
+        ? p.source.path
+        : p.source.kind === "ephemeral"
+          ? ""
+          : p.source.kind;
+    item.append(name);
+    if (metaText) {
+      const meta = document.createElement("div");
+      meta.className = "nav-proj-meta";
+      meta.textContent = metaText;
+      item.append(meta);
+    }
     item.addEventListener("click", () => openProject(p.id));
     projectList.append(item);
   }
@@ -968,14 +995,14 @@ onVaultChange((ns, key) => {
         refreshBoard(); // kanban board + badge count
         notifyBlockedTransitions(); // toast when a session starts waiting on you
         if (v === "project" && currentProjectId) {
-          renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+          renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
         }
         break;
       case "projects":
         await hydrateProjects(host);
         renderProjects();
         if (v === "project" && currentProjectId) {
-          renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+          renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
         }
         break;
       case "docs": {
@@ -1021,7 +1048,7 @@ onReconnect(() => {
     if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
     else if (v === "journal") journal.refresh();
     else if (v === "project" && currentProjectId) {
-      renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
+      renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
     }
   })();
 });

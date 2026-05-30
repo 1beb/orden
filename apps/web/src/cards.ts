@@ -88,6 +88,13 @@ export function setItemProject(id: string, projectId: string): void {
   if (host && updated) void host.vault.set("cards", id, updated);
 }
 
+/** Link a card to an AI session (e.g. one started from the card). */
+export function setItemSession(id: string, sessionId: string): void {
+  cache = cache.map((i) => (i.id === id ? { ...i, sessionId } : i));
+  const updated = cache.find((i) => i.id === id);
+  if (host && updated) void host.vault.set("cards", id, updated);
+}
+
 export function removeItem(id: string): void {
   cache = cache.filter((i) => i.id !== id);
   if (host) void host.vault.delete("cards", id);
