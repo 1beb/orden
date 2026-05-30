@@ -15,6 +15,11 @@ import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host } from "@orden/host-api";
 import { readTranscriptTitle } from "./transcriptTitle";
+import {
+  discoverOpencodeSession,
+  existingOpencodeSessions,
+  readOpencodeTitle,
+} from "./opencodeSession";
 
 const exec = promisify(execFile);
 
@@ -38,19 +43,9 @@ async function markTouched(host: Host, sessionId: string): Promise<void> {
   }
 }
 
-// Title a still-untitled session from Claude's OWN session title (the ai-title
-// line it writes into its transcript — see transcriptTitle.ts). Also retitles
-// the linked kanban card. Returns true once a title has been applied (so the
-// poller can stop). claude-only: opencode has no such transcript.
-async function applyTranscriptTitle(
-  host: Host,
-  sessionId: string,
-  cwd: string,
-  conversationId: string | undefined,
-): Promise<boolean> {
-  if (!conversationId) return false;
-  const title = readTranscriptTitle(cwd, conversationId);
-  if (!title) return false;
+// Write a discovered title onto the session record (while still "Untitled") and
+// the linked kanban card. Returns true once a title sticks (so the poller stops).
+async function persistTitle(host: Host, sessionId: string, title: string): Promise<boolean> {
   const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
   if (!rec) return true; // session gone — nothing more to do
   if (!UNTITLED.has((rec.title ?? "").trim())) return true; // user/agent already named it
@@ -67,8 +62,54 @@ async function applyTranscriptTitle(
   return true;
 }
 
+// Title a still-untitled session from the AGENT's OWN session title, retitling the
+// linked kanban card too. Returns true once a title has been applied (poller stops).
+//
+//   claude   — the ai-title line in its transcript (see transcriptTitle.ts).
+//   opencode — the title in its session store, read via the CLI (opencodeSession.ts).
+//              opencode can't be launched with a caller-chosen id, so on the FIRST
+//              poll for an opencode session without a conversationId we DISCOVER the
+//              id opencode minted (newest session in cwd not in `preLaunch`) and
+//              persist it — that same id is what buildCommand resumes with `-s`.
+async function applyTranscriptTitle(
+  host: Host,
+  sessionId: string,
+  cwd: string,
+  agent: "claude" | "opencode",
+  conversationId: string | undefined,
+  preLaunch: ReadonlySet<string>,
+): Promise<boolean> {
+  if (agent === "opencode") {
+    let convId = conversationId;
+    if (!convId) {
+      const discovered = await discoverOpencodeSession(cwd, preLaunch);
+      if (!discovered) return false; // opencode hasn't created its session yet
+      const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
+      if (!rec) return true;
+      rec.conversationId = discovered;
+      await host.vault.set("sessions", sessionId, rec);
+      convId = discovered;
+    }
+    const title = await readOpencodeTitle(cwd, convId);
+    if (!title) return false; // still placeholder/untitled — keep polling
+    return persistTitle(host, sessionId, title);
+  }
+  if (!conversationId) return false;
+  const title = readTranscriptTitle(cwd, conversationId);
+  if (!title) return false;
+  return persistTitle(host, sessionId, title);
+}
+
 async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): Promise<string> {
-  if (rec.agent === "opencode") return "opencode"; // interactive opencode TUI
+  if (rec.agent === "opencode") {
+    // opencode's TUI has no --session-id to MINT a chosen id (only -s/--session to
+    // RESUME an existing one), so we can't pre-persist an id the way Claude allows.
+    // Reattach: resume the id we discovered after the first launch (the poller
+    // persists conversationId — see applyTranscriptTitle). First open: launch bare;
+    // the discovered id is captured shortly after.
+    if (rec.conversationId) return `opencode --session ${rec.conversationId}`;
+    return "opencode"; // interactive opencode TUI (id discovered post-launch)
+  }
   // claude: resume the conversation if we have its id, else mint one and persist
   // it so chat-mode and future TUI opens continue the same session.
   if (rec.conversationId) return `claude --resume ${rec.conversationId}`;
@@ -98,6 +139,14 @@ async function handle(
     socket.close();
     return;
   }
+
+  // For a first-open opencode session (no id yet) snapshot the session ids that
+  // already exist in this cwd BEFORE launching, so post-launch discovery only picks
+  // up the session opencode is about to create — not a pre-existing one.
+  const preLaunch =
+    rec.agent === "opencode" && !rec.conversationId
+      ? await existingOpencodeSessions(defaultCwd)
+      : new Set<string>();
 
   const cmd = await buildCommand(host, rec, sessionId);
   const tmuxName = `orden-${sessionId}`;
@@ -141,22 +190,32 @@ async function handle(
     }
   });
 
-  // Poll for Claude's self-authored session title and apply it while the session
-  // is still "Untitled". Claude writes the ai-title a few seconds into the
-  // interactive session, and rewrites it as the conversation grows; we stop once
-  // a title sticks. unref'd so it never holds the process open. claude-only.
-  let titleTimer: ReturnType<typeof setInterval> | null = null;
-  if (rec.agent === "claude") {
-    titleTimer = setInterval(() => {
-      void applyTranscriptTitle(host, sessionId, defaultCwd, rec.conversationId).then((done) => {
-        if (done && titleTimer) {
-          clearInterval(titleTimer);
-          titleTimer = null;
-        }
-      });
-    }, 5000);
-    titleTimer.unref?.();
-  }
+  // Poll for the agent's self-authored session title and apply it while the session
+  // is still "Untitled". Both agents write a title a few seconds into the session
+  // and rewrite it as the conversation grows; we stop once a title sticks. For
+  // opencode this poll also DISCOVERS+persists the session id (conversationId) the
+  // first time round so reattach can resume it. unref'd so it never holds the
+  // process open. The persisted conversationId is read back from the record each
+  // tick (the closure-captured rec.conversationId may be stale once discovered).
+  let titleTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+    void (async () => {
+      const fresh = await host.vault.get<SessionRecord>("sessions", sessionId);
+      const convId = fresh?.conversationId ?? rec.conversationId;
+      const done = await applyTranscriptTitle(
+        host,
+        sessionId,
+        defaultCwd,
+        rec.agent,
+        convId,
+        preLaunch,
+      );
+      if (done && titleTimer) {
+        clearInterval(titleTimer);
+        titleTimer = null;
+      }
+    })();
+  }, 5000);
+  titleTimer.unref?.();
 
   let touched = false;
   socket.on("message", (data: Buffer, isBinary: boolean) => {

@@ -1828,6 +1828,97 @@ body {
   color: var(--muted);
 }
 
+/* mission-control widgets: a single full-width column of stacked sections, each
+   with a clear heading. Constrained to the same reading column as the title. */
+.project-widget {
+  max-width: 760px;
+  margin: 0 auto 28px;
+}
+.project-widget-head {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.project-widget-empty {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 4px 0;
+}
+/* the items widget owns its own .issue-list / .project-add spacing already; just
+   neutralize their auto-centering so they fill the widget body. */
+.project-widget .project-add,
+.project-widget .issue-list {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* active-sessions widget */
+.project-sess-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.project-sess-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+.project-sess-row:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.project-sess-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex: none;
+}
+.project-sess-mark svg {
+  display: block;
+}
+.project-sess-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-sess-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.project-sess-new-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* notes widget: the embedded outliner. Reuse .journal-editor styling but drop
+   its auto-centering / huge min-height so it sits naturally in the column. */
+.project-notes {
+  max-width: none;
+  margin: 0;
+}
+.project-notes .ProseMirror {
+  min-height: 80px;
+}
+
 /* Start-a-session launcher (Claude / opencode brand marks) shown on a card /
    project row that has no AI conversation yet. */
 .agent-launch {

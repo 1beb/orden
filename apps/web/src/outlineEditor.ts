@@ -1,0 +1,54 @@
+// A reusable single-page outliner editor (ProseMirror + the @orden/outliner
+// markdown schema, list keymaps, input rules and [[wiki link]] plugin), backed
+// by the pages store. Extracted from journal.ts so the Journal and the project
+// page's notes widget share one editor instead of duplicating the wiring.
+import { EditorState } from "prosemirror-state";
+import { EditorView } from "prosemirror-view";
+import { keymap } from "prosemirror-keymap";
+import { baseKeymap } from "prosemirror-commands";
+import { history, undo, redo } from "prosemirror-history";
+import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
+import { schema, markdownParser, markdownSerializer } from "./schema";
+import { buildInputRules } from "./inputrules";
+import { wikiLinkPlugin } from "./wikilink";
+import { getPageMarkdown, setPageMarkdown } from "./pages";
+
+// ProseMirror's markdown serializer escapes "[" / "]"; restore [[wiki links]].
+export function serializePage(doc: Parameters<typeof markdownSerializer.serialize>[0]): string {
+  return markdownSerializer.serialize(doc).replace(/\\\[\\\[(.+?)\\\]\\\]/g, "[[$1]]");
+}
+
+// Mount an editable outline for page `name` into `host`. Persists through to the
+// pages store on every doc change. `onWikiLink(target)` fires on a [[link]] click.
+export function makeOutlineEditor(
+  host: HTMLElement,
+  name: string,
+  onWikiLink: (target: string) => void,
+): EditorView {
+  const state = EditorState.create({
+    doc: markdownParser.parse(getPageMarkdown(name) || "- "),
+    schema,
+    plugins: [
+      buildInputRules(schema),
+      history(),
+      keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+      keymap({
+        Enter: splitListItem(schema.nodes.list_item),
+        "Mod-[": liftListItem(schema.nodes.list_item),
+        "Mod-]": sinkListItem(schema.nodes.list_item),
+        Tab: sinkListItem(schema.nodes.list_item),
+        "Shift-Tab": liftListItem(schema.nodes.list_item),
+      }),
+      keymap(baseKeymap),
+      wikiLinkPlugin(onWikiLink),
+    ],
+  });
+  const view = new EditorView(host, {
+    state,
+    dispatchTransaction(tr) {
+      view.updateState(view.state.apply(tr));
+      if (tr.docChanged) setPageMarkdown(name, serializePage(view.state.doc));
+    },
+  });
+  return view;
+}

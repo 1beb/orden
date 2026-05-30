@@ -42,17 +42,34 @@ export async function handleHookRequest(
 ): Promise<void> {
   const ok = (): void => void res.writeHead(200, { "content-type": "application/json" }).end("{}");
   try {
-    const state = new URL(req.url ?? "", "http://localhost").searchParams.get("state") ?? "";
+    const url = new URL(req.url ?? "", "http://localhost");
+    const body = await readBody(req);
+    let payload: { session_id?: string; notification_type?: string } = {};
+    try {
+      payload = JSON.parse(body || "{}");
+    } catch {
+      /* malformed payload — no-op */
+    }
+    const sessionId = payload.session_id;
+
+    // Notification hook: Claude pauses mid-turn waiting on the user (Stop does NOT
+    // fire here). Treat the "waiting" notification types as blocked; ignore the
+    // rest (e.g. auth_success). The hook posts unfiltered (matcher support for
+    // Notification is unreliable), so the decision lives here.
+    if (url.pathname.endsWith("/notification")) {
+      if (sessionId && WAITING_NOTIFICATIONS.has(payload.notification_type ?? "")) {
+        await applyState(host, sessionId, "blocked");
+      }
+      ok();
+      return;
+    }
+
+    // session-state: explicit state in the query (UserPromptSubmit -> in-progress,
+    // Stop -> blocked).
+    const state = url.searchParams.get("state") ?? "";
     if (!ALLOWED.has(state)) {
       res.writeHead(400, { "content-type": "application/json" }).end('{"error":"bad state"}');
       return;
-    }
-    const body = await readBody(req);
-    let sessionId: string | undefined;
-    try {
-      sessionId = (JSON.parse(body || "{}") as { session_id?: string }).session_id;
-    } catch {
-      /* malformed payload — no-op */
     }
     if (sessionId) await applyState(host, sessionId, state);
     ok();
@@ -60,6 +77,13 @@ export async function handleHookRequest(
     ok(); // never surface an error to Claude — a failing hook must not block it
   }
 }
+
+// Notification types that mean "Claude is waiting on the human" -> Blocked.
+const WAITING_NOTIFICATIONS = new Set([
+  "permission_prompt",
+  "idle_prompt",
+  "elicitation_dialog",
+]);
 
 async function applyState(host: Host, claudeSessionId: string, state: string): Promise<void> {
   const sessionIds = await host.vault.list("sessions");

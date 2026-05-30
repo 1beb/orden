@@ -1,14 +1,7 @@
-import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-import { keymap } from "prosemirror-keymap";
-import { baseKeymap } from "prosemirror-commands";
-import { history, undo, redo } from "prosemirror-history";
-import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
 import { journalKey } from "@orden/outliner";
-import { schema, markdownParser, markdownSerializer } from "./schema";
-import { buildInputRules } from "./inputrules";
-import { wikiLinkPlugin } from "./wikilink";
-import { getPageMarkdown, setPageMarkdown, backlinksTo, pageNames } from "./pages";
+import { makeOutlineEditor } from "./outlineEditor";
+import { backlinksTo, pageNames } from "./pages";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -17,11 +10,6 @@ function shiftDate(iso: string, days: number): string {
   const dt = new Date(y, m - 1, d + days);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
-}
-
-// ProseMirror's markdown serializer escapes "[" / "]"; restore [[wiki links]].
-function serializePage(doc: Parameters<typeof markdownSerializer.serialize>[0]): string {
-  return markdownSerializer.serialize(doc).replace(/\\\[\\\[(.+?)\\\]\\\]/g, "[[$1]]");
 }
 
 export interface JournalController {
@@ -58,33 +46,9 @@ export function mountJournal(
   }
 
   function makeEditor(host: HTMLElement, name: string): EditorView {
-    const state = EditorState.create({
-      doc: markdownParser.parse(getPageMarkdown(name) || "- "),
-      schema,
-      plugins: [
-        buildInputRules(schema),
-        history(),
-        keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
-        keymap({
-          Enter: splitListItem(schema.nodes.list_item),
-          "Mod-[": liftListItem(schema.nodes.list_item),
-          "Mod-]": sinkListItem(schema.nodes.list_item),
-          Tab: sinkListItem(schema.nodes.list_item),
-          "Shift-Tab": liftListItem(schema.nodes.list_item),
-        }),
-        keymap(baseKeymap),
-        wikiLinkPlugin((target) => {
-          if (onWikiLink?.(target)) return; // handled externally (e.g. [[Project: X]])
-          showPage(target);
-        }),
-      ],
-    });
-    const view = new EditorView(host, {
-      state,
-      dispatchTransaction(tr) {
-        view.updateState(view.state.apply(tr));
-        if (tr.docChanged) setPageMarkdown(name, serializePage(view.state.doc));
-      },
+    const view = makeOutlineEditor(host, name, (target) => {
+      if (onWikiLink?.(target)) return; // handled externally (e.g. [[Project: X]])
+      showPage(target);
     });
     editors.push(view);
     return view;

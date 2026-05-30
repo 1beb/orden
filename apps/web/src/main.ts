@@ -27,7 +27,7 @@ import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal } from "./terminalView";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
-import { renderProjectPage } from "./projectPage";
+import { renderProjectPage, projectNotesHasFocus } from "./projectPage";
 import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
@@ -616,6 +616,30 @@ function startSessionForItem(item: Item, agent: Agent): void {
   sessionsPanel.open(s.id);
 }
 
+// Open an existing session (from the project page's sessions widget) in the
+// sessions panel, revealing the right pane.
+function openSessionInPanel(id: string): void {
+  app.classList.remove("right-closed");
+  sessionsPanel.open(id);
+}
+
+// Start a NEW session scoped to the project currently shown (not tied to a
+// card). Drops a fresh linked card via createSession, then opens it.
+function startProjectSession(agent: Agent): void {
+  const projectId = currentProjectId ?? undefined;
+  const s = createSession({ title: "Untitled session", agent, projectId });
+  refreshBoard();
+  app.classList.remove("right-closed");
+  sessionsPanel.open(s.id);
+}
+
+// projectPage emits this when a [[wiki link]] is clicked inside the notes
+// outline; route it to the journal's page view like any other page open.
+document.addEventListener("orden:open-page", (e) => {
+  const name = (e as CustomEvent<{ name: string }>).detail?.name;
+  if (name) openPage(name);
+});
+
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
@@ -642,10 +666,29 @@ function openPage(name: string): void {
   viewStore.set("journal");
 }
 
+function renderProject(projectId: string): void {
+  renderProjectPage(
+    viewEls.project,
+    projectId,
+    refreshBoard,
+    startSessionForItem,
+    openSessionInPanel,
+    startProjectSession,
+  );
+}
+
+// Re-render the project page on a remote change, but never while the user is
+// typing in the embedded notes outline (it would destroy the editor mid-stroke).
+function refreshProject(): void {
+  if (viewStore.get() !== "project" || !currentProjectId) return;
+  if (projectNotesHasFocus()) return;
+  renderProject(currentProjectId);
+}
+
 function openProject(projectId: string): void {
   currentProjectId = projectId;
   projectTitle = getProject(projectId)?.name ?? "Project";
-  renderProjectPage(viewEls.project, projectId, refreshBoard, startSessionForItem);
+  renderProject(projectId);
   viewStore.set("project");
 }
 void currentProjectId;
@@ -989,21 +1032,18 @@ onVaultChange((ns, key) => {
         await hydratePages(host);
         if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
         else if (v === "journal") journal.refresh();
+        else if (v === "project") refreshProject(); // notes page may have changed
         break;
       case "cards":
         await hydrateCards(host);
         refreshBoard(); // kanban board + badge count
         notifyBlockedTransitions(); // toast when a session starts waiting on you
-        if (v === "project" && currentProjectId) {
-          renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
-        }
+        refreshProject();
         break;
       case "projects":
         await hydrateProjects(host);
         renderProjects();
-        if (v === "project" && currentProjectId) {
-          renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
-        }
+        refreshProject();
         break;
       case "docs": {
         await hydrateDocs(host);
@@ -1024,6 +1064,7 @@ onVaultChange((ns, key) => {
       case "sessions":
         await hydrateSessions(host);
         sessionsPanel.refresh();
+        refreshProject(); // the project page's active-sessions widget
         break;
       case "feedback":
         await hydrateOutbox(host);
@@ -1047,9 +1088,7 @@ onReconnect(() => {
     const v = viewStore.get();
     if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
     else if (v === "journal") journal.refresh();
-    else if (v === "project" && currentProjectId) {
-      renderProjectPage(viewEls.project, currentProjectId, refreshBoard, startSessionForItem);
-    }
+    else if (v === "project") refreshProject();
   })();
 });
 
