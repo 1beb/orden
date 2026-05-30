@@ -46,13 +46,10 @@ export interface FileSource {
 }
 
 export type SessionState =
-  | "backlog"
-  | "todo"
+  | "planning"
   | "in-progress"
   | "blocked"
-  | "ready"
-  | "complete"
-  | "broken";
+  | "complete";
 
 export interface Session {
   id: string;

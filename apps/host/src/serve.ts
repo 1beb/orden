@@ -15,6 +15,7 @@ import { NodeHost } from "./nodeHost";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss } from "./terminal";
 import { handleMcpRequest } from "./mcpHttp";
+import { handleHookRequest } from "./hooks";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
 const repoRoot = resolve(here, "../../..");
@@ -74,6 +75,10 @@ function makeServer() {
   const server = createServer((req, res) => {
     if (req.url && req.url.startsWith("/mcp")) {
       void handleMcpRequest(host, req, res);
+      return;
+    }
+    if (req.url && req.url.startsWith("/hooks/")) {
+      void handleHookRequest(host, req, res);
       return;
     }
     void serveStatic(req, res);

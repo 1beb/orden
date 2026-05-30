@@ -8,25 +8,22 @@ import {
 import type { Card } from "../src/types";
 
 const cards: Card[] = [
-  { id: "1", title: "alpha", state: "todo" },
+  { id: "1", title: "alpha", state: "planning" },
   { id: "2", title: "beta", state: "in-progress" },
   { id: "3", title: "gamma", state: "blocked" },
-  { id: "4", title: "delta", state: "ready" },
-  { id: "5", title: "epsilon", state: "ready" },
-  { id: "6", title: "zeta", state: "broken" },
-  { id: "7", title: "eta", state: "complete" },
+  { id: "4", title: "delta", state: "blocked" },
+  { id: "5", title: "epsilon", state: "complete" },
+  { id: "6", title: "zeta", state: "complete" },
+  { id: "7", title: "eta", state: "planning" },
 ];
 
 describe("LIFECYCLE_ORDER", () => {
-  it("matches the design doc order, with broken last", () => {
+  it("is the four lifecycle states in order", () => {
     expect(LIFECYCLE_ORDER).toEqual([
-      "backlog",
-      "todo",
+      "planning",
       "in-progress",
       "blocked",
-      "ready",
       "complete",
-      "broken",
     ]);
   });
 });
@@ -39,40 +36,38 @@ describe("buildBoard", () => {
 
   it("groups cards into the right columns", () => {
     const board = buildBoard(cards);
-    const ready = board.find((c) => c.state === "ready")!;
-    expect(ready.cards.map((c) => c.id)).toEqual(["4", "5"]);
-    const backlog = board.find((c) => c.state === "backlog")!;
-    expect(backlog.cards).toEqual([]);
+    const blocked = board.find((c) => c.state === "blocked")!;
+    expect(blocked.cards.map((c) => c.id)).toEqual(["3", "4"]);
+    const inProgress = board.find((c) => c.state === "in-progress")!;
+    expect(inProgress.cards.map((c) => c.id)).toEqual(["2"]);
   });
 
   it("preserves input order within a column", () => {
     const board = buildBoard([
-      { id: "b", title: "b", state: "todo" },
-      { id: "a", title: "a", state: "todo" },
+      { id: "b", title: "b", state: "planning" },
+      { id: "a", title: "a", state: "planning" },
     ]);
-    const todo = board.find((c) => c.state === "todo")!;
-    expect(todo.cards.map((c) => c.id)).toEqual(["b", "a"]);
+    const planning = board.find((c) => c.state === "planning")!;
+    expect(planning.cards.map((c) => c.id)).toEqual(["b", "a"]);
   });
 });
 
 describe("needs-action badge", () => {
-  it("isNeedsAction is true only for blocked, ready, broken", () => {
+  it("isNeedsAction is true only for blocked", () => {
     expect(isNeedsAction("blocked")).toBe(true);
-    expect(isNeedsAction("ready")).toBe(true);
-    expect(isNeedsAction("broken")).toBe(true);
-    expect(isNeedsAction("todo")).toBe(false);
+    expect(isNeedsAction("planning")).toBe(false);
     expect(isNeedsAction("complete")).toBe(false);
     expect(isNeedsAction("in-progress")).toBe(false);
   });
 
   it("counts cards in needs-action states", () => {
-    // blocked(1) + ready(2) + broken(1) = 4
-    expect(needsActionCount(cards)).toBe(4);
+    // blocked(2)
+    expect(needsActionCount(cards)).toBe(2);
   });
 
   it("is zero with no actionable cards", () => {
     expect(
-      needsActionCount([{ id: "x", title: "x", state: "todo" }]),
+      needsActionCount([{ id: "x", title: "x", state: "planning" }]),
     ).toBe(0);
   });
 });

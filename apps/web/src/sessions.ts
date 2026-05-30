@@ -1,20 +1,14 @@
 // AI sessions: a conversation with claude or opencode, stored in the host vault
 // (ns "sessions"). Separate-but-linked to the kanban — creating a session also
-// drops a linked card into backlog (cards.ts), so the board is populated with
+// drops a linked card into planning (cards.ts), so the board is populated with
 // active sessions. Accessors are synchronous over a cache hydrated at boot;
-// writes write through. The live agent backend (spawn/resume) lands in H3; for
-// now the transcript is whatever's recorded via addMessage.
+// writes write through. The live agent backend (spawn/resume) runs the embedded
+// agent TUI per session.
 import type { Host } from "@orden/host-api";
 import { addItem, listItems, setItemState, removeItem } from "./cards";
 import { ensureDefaultProject } from "./projects";
 
 export type Agent = "claude" | "opencode";
-
-export interface SessionMessage {
-  role: "user" | "agent" | "system";
-  text: string;
-  at: string;
-}
 
 export interface Session {
   id: string;
@@ -23,8 +17,7 @@ export interface Session {
   projectId: string;
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
-  touched?: boolean; // user interacted (a chat msg or a TUI keystroke)
-  messages: SessionMessage[];
+  touched?: boolean; // user interacted (a TUI keystroke)
 }
 
 let host: Host | null = null;
@@ -38,8 +31,8 @@ export async function hydrateSessions(h: Host): Promise<void> {
   cache = all.filter((s): s is Session => s !== null);
 }
 
-export function listSessions(): Session[] {
-  return cache.filter((s) => !s.archived); // active sessions only
+export function listSessions(includeArchived = false): Session[] {
+  return includeArchived ? [...cache] : cache.filter((s) => !s.archived);
 }
 
 export function getSession(id: string): Session | undefined {
@@ -53,7 +46,6 @@ function linkedCardId(sessionId: string): string | undefined {
 /** A brand-new session no one has touched — not worth keeping. */
 export function isAbandoned(s: Session): boolean {
   return (
-    s.messages.length === 0 &&
     !s.touched &&
     (s.title === "Untitled" || s.title === "Untitled session")
   );
@@ -90,18 +82,10 @@ export function createSession(opts: { title: string; agent: Agent; projectId?: s
     title: opts.title.trim() || "Untitled session",
     agent: opts.agent,
     projectId,
-    messages: [],
   };
   cache.push(session);
   persist(session);
-  // separate-but-linked: a backlog card on the kanban points back to this session
+  // separate-but-linked: a planning card on the kanban points back to this session
   addItem(session.projectId, session.title, session.id);
   return session;
-}
-
-export function addMessage(id: string, role: SessionMessage["role"], text: string): void {
-  const session = cache.find((s) => s.id === id);
-  if (!session) return;
-  session.messages.push({ role, text, at: new Date().toISOString() });
-  persist(session);
 }

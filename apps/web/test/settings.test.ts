@@ -7,7 +7,7 @@ const DEFAULTS = {
   fontFamily: "system",
   fontSize: 16,
   accent: "#6d28d9",
-  sessionMode: "terminal",
+  showArchived: false,
 };
 
 describe("settings store (host-backed)", () => {
@@ -52,7 +52,7 @@ describe("settings store (host-backed)", () => {
       fontFamily: "lora",
       fontSize: 20,
       accent: "#0099ff",
-      sessionMode: "terminal",
+      showArchived: false,
     });
   });
 

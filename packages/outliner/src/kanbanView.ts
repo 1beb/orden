@@ -1,5 +1,12 @@
-import type { Card } from "./types";
+import type { Card, CardState } from "./types";
 import { buildBoard, needsActionCount, isNeedsAction } from "./kanban";
+
+const STATE_LABELS: Record<CardState, string> = {
+  planning: "Planning",
+  "in-progress": "In-progress",
+  blocked: "Blocked",
+  complete: "Complete",
+};
 
 /**
  * Render a Kanban board into a host element as vanilla DOM (framework-agnostic).
@@ -44,7 +51,7 @@ export function renderBoard(
     head.className = "orden-column__header";
     const label = doc.createElement("span");
     label.className = "orden-column__title";
-    label.textContent = column.state;
+    label.textContent = STATE_LABELS[column.state];
     const count = doc.createElement("span");
     count.className = "orden-column__count";
     count.textContent = String(column.cards.length);

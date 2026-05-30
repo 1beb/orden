@@ -15,6 +15,23 @@ export interface Item {
   sessionId?: string; // future: associated AI session
 }
 
+// Map legacy lifecycle states to the current four-state set so cards stored
+// under an older schema still land in a real column. Unknown values -> planning.
+const LEGACY_STATE_MAP: Record<string, CardState> = {
+  backlog: "planning",
+  todo: "planning",
+  planning: "planning",
+  "in-progress": "in-progress",
+  blocked: "blocked",
+  ready: "complete",
+  complete: "complete",
+  broken: "blocked",
+};
+
+function normalizeState(state: unknown): CardState {
+  return LEGACY_STATE_MAP[String(state)] ?? "planning";
+}
+
 let host: Host | null = null;
 let cache: Item[] = [];
 let counter = 0;
@@ -24,6 +41,15 @@ export async function hydrateCards(h: Host): Promise<void> {
   const ids = await h.vault.list("cards");
   const all = await Promise.all(ids.map((id) => h.vault.get<Item>("cards", id)));
   cache = all.filter((i): i is Item => i !== null);
+  // Migrate legacy states to the current four-state set, persisting any change
+  // so the normalized value sticks across reloads.
+  for (const item of cache) {
+    const normalized = normalizeState(item.state);
+    if (normalized !== item.state) {
+      item.state = normalized;
+      void h.vault.set("cards", item.id, item);
+    }
+  }
 }
 
 export function listItems(): Item[] {
@@ -40,7 +66,7 @@ export function addItem(projectId: string, title: string, sessionId?: string): I
     id: `item_${Date.now().toString(36)}_${counter}`,
     projectId,
     title: title.trim(),
-    state: "backlog",
+    state: "planning",
     notes: "",
     sessionId,
   };
@@ -51,6 +77,13 @@ export function addItem(projectId: string, title: string, sessionId?: string): I
 
 export function setItemState(id: string, state: CardState): void {
   cache = cache.map((i) => (i.id === id ? { ...i, state } : i));
+  const updated = cache.find((i) => i.id === id);
+  if (host && updated) void host.vault.set("cards", id, updated);
+}
+
+/** Reassign a card to a different project. */
+export function setItemProject(id: string, projectId: string): void {
+  cache = cache.map((i) => (i.id === id ? { ...i, projectId } : i));
   const updated = cache.find((i) => i.id === id);
   if (host && updated) void host.vault.set("cards", id, updated);
 }

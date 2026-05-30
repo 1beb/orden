@@ -37,6 +37,10 @@ export interface JournalController {
 export function mountJournal(
   container: HTMLElement,
   onTitle: (title: string) => void,
+  // Intercept wiki-link clicks. Return true if handled externally (e.g. a
+  // [[Project: X]] link that routes to a project page); false falls back to
+  // opening a normal page in the journal.
+  onWikiLink?: (target: string) => boolean,
 ): JournalController {
   let mode: "feed" | "page" = "feed";
   let currentName: string | null = null;
@@ -69,7 +73,10 @@ export function mountJournal(
           "Shift-Tab": liftListItem(schema.nodes.list_item),
         }),
         keymap(baseKeymap),
-        wikiLinkPlugin((target) => showPage(target)),
+        wikiLinkPlugin((target) => {
+          if (onWikiLink?.(target)) return; // handled externally (e.g. [[Project: X]])
+          showPage(target);
+        }),
       ],
     });
     const view = new EditorView(host, {

@@ -1,18 +1,15 @@
-/** Session lifecycle states, per the Orden design doc. */
+/** Session lifecycle states. The four columns on the Kanban board. */
 export type LifecycleState =
-  | "backlog"
-  | "todo"
+  | "planning"
   | "in-progress"
   | "blocked"
-  | "ready"
   | "complete";
 
 /**
- * "broken" is an error state (the hosting process crashed). It is not a normal
- * lifecycle transition, so it lives outside LifecycleState but still feeds the
- * Kanban board and the needs-action badge.
+ * A card's state is exactly its lifecycle state. Kept as an alias so existing
+ * call sites that reference `CardState` keep working.
  */
-export type CardState = LifecycleState | "broken";
+export type CardState = LifecycleState;
 
 /** A single bullet in the outline. */
 export interface Block {

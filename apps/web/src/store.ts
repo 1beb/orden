@@ -20,6 +20,10 @@ export class AnnotationLog {
     if (rec) this.records.set(id, { ...rec, status });
   }
 
+  remove(id: string): void {
+    this.records.delete(id);
+  }
+
   all(): Annotation[] {
     return [...this.records.values()];
   }

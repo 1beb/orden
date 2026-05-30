@@ -1,25 +1,15 @@
 import type { Card, CardState, Column } from "./types";
 
-/**
- * Column order on the board: the design-doc lifecycle, with the error state
- * `broken` pinned last.
- */
+/** Column order on the board: the four lifecycle states. */
 export const LIFECYCLE_ORDER: readonly CardState[] = [
-  "backlog",
-  "todo",
+  "planning",
   "in-progress",
   "blocked",
-  "ready",
   "complete",
-  "broken",
 ];
 
 /** States that need the user's attention and feed the Kanban badge. */
-export const NEEDS_ACTION_STATES: readonly CardState[] = [
-  "blocked",
-  "ready",
-  "broken",
-];
+export const NEEDS_ACTION_STATES: readonly CardState[] = ["blocked"];
 
 export function isNeedsAction(state: CardState): boolean {
   return NEEDS_ACTION_STATES.includes(state);

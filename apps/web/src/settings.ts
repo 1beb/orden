@@ -7,18 +7,16 @@ import type { Host } from "@orden/host-api";
 import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 
 export type StartupView = "journal" | "kanban" | "last";
-export type SessionMode = "chat" | "terminal";
 
 export interface Settings {
   startup: StartupView;
   fontFamily: string; // a FONT_OPTIONS id
   fontSize: number; // px
   accent: string; // hex color (#rrggbb)
-  sessionMode: SessionMode; // chat panel vs embedded agent TUI
+  showArchived: boolean; // include archived (Done) sessions in the list
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
-const SESSION_MODES: readonly SessionMode[] = ["chat", "terminal"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
@@ -29,14 +27,11 @@ const DEFAULT_SETTINGS: Settings = {
   fontFamily: DEFAULT_FONT_ID,
   fontSize: 16,
   accent: DEFAULT_ACCENT,
-  sessionMode: "terminal", // default to the real agent TUI
+  showArchived: false,
 };
 
 function isStartupView(value: unknown): value is StartupView {
   return typeof value === "string" && (STARTUP_VIEWS as readonly string[]).includes(value);
-}
-function isSessionMode(value: unknown): value is SessionMode {
-  return typeof value === "string" && (SESSION_MODES as readonly string[]).includes(value);
 }
 
 function coerce(stored: unknown): Settings {
@@ -56,7 +51,8 @@ function coerce(stored: unknown): Settings {
       typeof s.accent === "string" && HEX_COLOR.test(s.accent)
         ? s.accent
         : DEFAULT_SETTINGS.accent,
-    sessionMode: isSessionMode(s.sessionMode) ? s.sessionMode : DEFAULT_SETTINGS.sessionMode,
+    showArchived:
+      typeof s.showArchived === "boolean" ? s.showArchived : DEFAULT_SETTINGS.showArchived,
   };
 }
 

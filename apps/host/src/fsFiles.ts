@@ -3,6 +3,7 @@
 // is ignored for now (single root); multi-project mapping comes with H2.2.
 
 import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
 import { join, relative, dirname, sep } from "node:path";
 import type { FileSource, FileEntry } from "@orden/host-api";
 
@@ -65,5 +66,29 @@ export class FsFiles implements FileSource {
     const full = this.resolveInRoot(path);
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, content, "utf8");
+  }
+
+  // Watch the root for .md changes (recursive) and report repo-relative paths.
+  // Coalesces bursts per-path (editors write in several syscalls). The returned
+  // FSWatcher is unref'd so it never keeps the process alive on its own.
+  watch(onChange: (path: string) => void): FSWatcher {
+    const timers = new Map<string, NodeJS.Timeout>();
+    const watcher = watch(this.root, { recursive: true }, (_event, filename) => {
+      if (!filename) return;
+      const rel = filename.toString().split(sep).join("/");
+      if (!rel.endsWith(".md")) return;
+      if (rel.split("/").some((seg) => SKIP_DIRS.has(seg) || seg.startsWith("."))) return;
+      const prev = timers.get(rel);
+      if (prev) clearTimeout(prev);
+      timers.set(
+        rel,
+        setTimeout(() => {
+          timers.delete(rel);
+          onChange(rel);
+        }, 120).unref(),
+      );
+    });
+    watcher.unref();
+    return watcher;
   }
 }

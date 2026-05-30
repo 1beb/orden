@@ -1,6 +1,15 @@
-import { pageNames, backlinksTo } from "./pages";
+import { pagesIndex, backlinksTo } from "./pages";
 
-// Renders a table of all pages with their backlink counts; rows open the page.
+// Format an ISO timestamp as a short, locale-friendly date; "—" when unknown.
+function fmtDate(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+// Renders a table of all pages with their creation date + backlink counts,
+// ordered by most recent activity (updated, then created). Rows open the page.
 export function renderPagesIndex(
   container: HTMLElement,
   onOpen: (name: string) => void,
@@ -12,8 +21,8 @@ export function renderPagesIndex(
   heading.textContent = "Pages";
   container.append(heading);
 
-  const names = pageNames();
-  if (names.length === 0) {
+  const pages = pagesIndex();
+  if (pages.length === 0) {
     const empty = document.createElement("p");
     empty.className = "pages-empty";
     empty.textContent =
@@ -25,20 +34,29 @@ export function renderPagesIndex(
   const table = document.createElement("table");
   table.className = "pages-table";
   table.innerHTML =
-    "<thead><tr><th>Page</th><th>Backlinks</th></tr></thead>";
+    "<thead><tr><th>Page</th><th>Created</th><th>Backlinks</th></tr></thead>";
   const tbody = document.createElement("tbody");
-  for (const name of names) {
+  for (const p of pages) {
     const tr = document.createElement("tr");
     const nameCell = document.createElement("td");
     const link = document.createElement("a");
     link.className = "pages-link";
-    link.textContent = name;
-    link.addEventListener("click", () => onOpen(name));
+    link.textContent = p.name;
+    link.addEventListener("click", () => onOpen(p.name));
     nameCell.append(link);
+
+    const createdCell = document.createElement("td");
+    createdCell.className = "pages-date";
+    createdCell.textContent = fmtDate(p.created);
+    if (p.updated && p.updated !== p.created) {
+      createdCell.title = `Updated ${fmtDate(p.updated)}`;
+    }
+
     const countCell = document.createElement("td");
     countCell.className = "pages-count";
-    countCell.textContent = String(backlinksTo(name).length);
-    tr.append(nameCell, countCell);
+    countCell.textContent = String(backlinksTo(p.name).length);
+
+    tr.append(nameCell, createdCell, countCell);
     tbody.append(tr);
   }
   table.append(tbody);

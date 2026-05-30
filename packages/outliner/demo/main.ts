@@ -36,13 +36,13 @@ for (const ref of refs) {
 // --- Kanban: mock cards derived from sessions ---
 const cards: Card[] = [
   { id: "s1", title: "Outliner block-tree model", state: "complete" },
-  { id: "s2", title: "Markdown round-trip", state: "ready" },
-  { id: "s3", title: "Wiki links + backlinks", state: "ready" },
+  { id: "s2", title: "Markdown round-trip", state: "complete" },
+  { id: "s3", title: "Wiki links + backlinks", state: "complete" },
   { id: "s4", title: "Kanban board view", state: "in-progress" },
-  { id: "s5", title: "ProseMirror editor integration", state: "todo" },
-  { id: "s6", title: "SFTP file I/O adapter", state: "backlog" },
+  { id: "s5", title: "ProseMirror editor integration", state: "planning" },
+  { id: "s6", title: "SFTP file I/O adapter", state: "planning" },
   { id: "s7", title: "Remote tmux session host", state: "blocked" },
-  { id: "s8", title: "Transcript adapter (opencode)", state: "broken" },
+  { id: "s8", title: "Transcript adapter (opencode)", state: "blocked" },
 ];
 
 renderBoard(document.getElementById("board")!, cards);

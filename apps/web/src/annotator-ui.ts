@@ -128,10 +128,16 @@ export function mountAnnotator(
     if (mode !== "hidden") position();
   });
 
-  // Click outside dismisses an open composer/button.
+  // Click outside dismisses an open composer/button. But an in-editor mousedown
+  // is a SELECTION action (e.g. double-click to select a word/block): it may be
+  // the very gesture that's about to show the button, so don't let it hide it —
+  // update() decides button visibility from the resulting selection. The composer
+  // still dismisses on any outside-self click, including inside the editor.
   document.addEventListener("mousedown", (e) => {
     if (mode === "hidden") return;
-    if (!el.contains(e.target as Node)) hide();
+    if (el.contains(e.target as Node)) return;
+    if (mode === "button" && view.dom.contains(e.target as Node)) return;
+    hide();
   });
 
   // Called on every editor update.

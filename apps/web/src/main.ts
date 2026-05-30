@@ -12,13 +12,12 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
 import { hydratePages } from "./pages";
-import { hydrateCards } from "./cards";
+import { hydrateCards, listItems } from "./cards";
 import {
   hydrateSessions,
   listSessions,
   getSession,
   createSession,
-  addMessage,
   archiveSession,
   deleteSession,
   isAbandoned,
@@ -37,7 +36,7 @@ import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
-import { getHost, onVaultChange } from "./host";
+import { getHost, onVaultChange, onReconnect } from "./host";
 import { applyFont, FONT_OPTIONS } from "./fonts";
 import "./styles.css";
 
@@ -46,15 +45,44 @@ import "./styles.css";
 // stores before the rest of the module runs (top-level await — Vite supports it
 // in the entry module).
 const host = await getHost();
-await Promise.all([
-  hydrateSettings(host),
-  hydrateOutbox(host),
-  hydratePages(host),
-  hydrateProjects(host),
-  hydrateDocs(host),
-  hydrateCards(host),
-  hydrateSessions(host),
-]);
+async function hydrateAll(): Promise<void> {
+  await Promise.all([
+    hydrateSettings(host),
+    hydrateOutbox(host),
+    hydratePages(host),
+    hydrateProjects(host),
+    hydrateDocs(host),
+    hydrateCards(host),
+    hydrateSessions(host),
+  ]);
+}
+await hydrateAll();
+
+// Toast when a session's linked card flips to "blocked" — Claude finished its
+// turn and is waiting on you (driven by the Stop hook → host → card state, which
+// arrives over the change feed). Seeded from the boot state so pre-existing
+// blocked cards don't fire on load.
+const cardWaitState = new Map<string, string>(listItems().map((i) => [i.id, i.state]));
+function showToast(text: string): void {
+  const t = document.createElement("div");
+  t.className = "orden-toast";
+  t.textContent = text;
+  document.body.append(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 300);
+  }, 6000);
+}
+function notifyBlockedTransitions(): void {
+  for (const it of listItems()) {
+    const prev = cardWaitState.get(it.id);
+    if (it.sessionId && it.state === "blocked" && prev !== "blocked") {
+      showToast(`${it.title} is waiting for you`);
+    }
+    cardWaitState.set(it.id, it.state);
+  }
+}
 
 const DOC_TITLE = "Churn model — review";
 const log = new AnnotationLog();
@@ -176,12 +204,18 @@ function syncPanelColumn(): void {
     annotationsBlock.classList.contains("section-hidden");
   mainSection.classList.toggle("panels-collapsed", bothHidden);
 }
-function wireHideShow(section: HTMLElement, hideBtnId: string, showBtnId: string): void {
+function wireHideShow(
+  section: HTMLElement,
+  hideBtnId: string,
+  showBtnId: string,
+  onChange?: (hidden: boolean) => void,
+): { setHidden: (hidden: boolean) => void; isHidden: () => boolean } {
   const showBtn = document.querySelector<HTMLButtonElement>(showBtnId)!;
   const setHidden = (hidden: boolean) => {
     section.classList.toggle("section-hidden", hidden);
     showBtn.hidden = !hidden;
     syncPanelColumn();
+    onChange?.(hidden);
   };
   document.querySelector(hideBtnId)?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -191,9 +225,21 @@ function wireHideShow(section: HTMLElement, hideBtnId: string, showBtnId: string
     section.classList.remove("collapsed"); // reopen unfurled, not in a collapsed state
     setHidden(false);
   });
+  return { setHidden, isHidden: () => section.classList.contains("section-hidden") };
 }
 wireHideShow(docmap, "#hide-outline", "#show-outline");
-wireHideShow(annotationsBlock, "#hide-annotations", "#show-annotations");
+// Annotations auto-reveal: the first annotation pops the panel open if it was
+// hidden — UNLESS the user deliberately hid it while it already had annotations.
+let prevAnnTotal = 0;
+let annHiddenWhilePopulated = false;
+const annHideShow = wireHideShow(
+  annotationsBlock,
+  "#hide-annotations",
+  "#show-annotations",
+  (hidden) => {
+    annHiddenWhilePopulated = hidden ? prevAnnTotal > 0 : false;
+  },
+);
 
 // Document map: an outline built from the headings, kept in sync with the doc.
 function renderDocMap(): void {
@@ -295,6 +341,28 @@ const STATUS_LABEL: Record<Status, string> = {
   orphaned: "Orphaned",
 };
 
+// Strip every annotation mark carrying this id from the document (only matching
+// marks, so overlapping annotations are untouched). Marks don't shift positions,
+// so positions gathered from the live doc stay valid across the one transaction.
+function removeAnnotationMark(id: string): void {
+  let tr = view.state.tr;
+  view.state.doc.descendants((node, pos) => {
+    if (!node.isText) return true;
+    const m = node.marks.find((mk) => mk.type.name === "annotation" && mk.attrs.id === id);
+    if (m) tr = tr.removeMark(pos, pos + node.nodeSize, m);
+    return true;
+  });
+  if (tr.steps.length) view.dispatch(tr);
+}
+
+function deleteAnnotation(id: string): void {
+  log.remove(id);
+  removeAnnotationMark(id); // dispatches → onUpdate re-renders (no-op for orphans)
+  renderPanel();
+  updateActionBar();
+  persistReview();
+}
+
 function buildRow(opts: {
   id: string;
   status: Status;
@@ -314,6 +382,11 @@ function buildRow(opts: {
   chip.textContent = STATUS_LABEL[status];
   head.append(chip);
 
+  // Keep the action buttons grouped so row-head's space-between only separates
+  // the status chip from the actions — not the buttons from each other.
+  const actions = document.createElement("div");
+  actions.className = "row-actions";
+
   if (status !== "orphaned") {
     const toggle = document.createElement("button");
     toggle.className = "row-action";
@@ -324,8 +397,18 @@ function buildRow(opts: {
       renderPanel();
       updateActionBar();
     });
-    head.append(toggle);
+    actions.append(toggle);
   }
+
+  const del = document.createElement("button");
+  del.className = "row-action";
+  del.textContent = "Delete";
+  del.addEventListener("click", (e) => {
+    e.stopPropagation();
+    deleteAnnotation(id);
+  });
+  actions.append(del);
+  head.append(actions);
 
   const quoteEl = document.createElement("div");
   quoteEl.className = "quote";
@@ -406,6 +489,12 @@ function renderPanel(): void {
   countEl.textContent = String(total);
   countEl.hidden = total === 0; // don't show "0"
   annotationsBlock.classList.toggle("empty", total === 0);
+  // First annotation (0 → some) reveals a hidden panel, unless the user hid it
+  // on purpose while it already held annotations.
+  if (prevAnnTotal === 0 && total > 0 && annHideShow.isHidden() && !annHiddenWhilePopulated) {
+    annHideShow.setHidden(false);
+  }
+  prevAnnTotal = total;
   syncHighlightStates(placed);
 }
 
@@ -486,10 +575,24 @@ let journalTitle = "Journal";
 let projectTitle = "Project";
 let currentProjectId: string | null = null;
 
-const journal = mountJournal(viewEls.journal, (t) => {
-  journalTitle = t;
-  if (viewStore.get() === "journal") viewTitle.textContent = t;
-});
+const journal = mountJournal(
+  viewEls.journal,
+  (t) => {
+    journalTitle = t;
+    if (viewStore.get() === "journal") viewTitle.textContent = t;
+  },
+  // [[Project: X]] links jump to project X's home page (case-insensitive match
+  // on the project name). Consumed even when no such project exists, so it never
+  // falls through to creating a junk "Project: X" page.
+  (target) => {
+    const m = /^Project:\s*(.+)$/i.exec(target);
+    if (!m) return false;
+    const name = m[1].trim().toLowerCase();
+    const proj = listProjects().find((p) => p.name.toLowerCase() === name);
+    if (proj) openProject(proj.id);
+    return true;
+  },
+);
 
 function refreshBoard(): void {
   const count = renderKanban(viewEls.kanban, openProject);
@@ -611,13 +714,19 @@ function loadReviewDoc(opts: {
   title: string;
   markdown: string;
   seedIfEmpty?: boolean;
+  // Use opts.markdown verbatim, ignoring any saved markdown — for a live reload
+  // when the underlying file changed on disk. Saved annotations are still kept
+  // and re-anchored onto the new text.
+  forceMarkdown?: boolean;
 }): void {
   currentDocKey = opts.key;
   currentDocTitle = opts.title;
   void host.vault.set("ui", "last-doc", opts.key);
 
   const saved = loadState(opts.key);
-  const parsed = markdownParser.parse(saved?.markdown ?? opts.markdown);
+  const parsed = markdownParser.parse(
+    opts.forceMarkdown ? opts.markdown : (saved?.markdown ?? opts.markdown),
+  );
   const records = saved?.records ?? [];
 
   log.clear();
@@ -751,24 +860,25 @@ document.querySelector("#add-project-save")?.addEventListener("click", () => {
 renderProjects();
 
 // Right pane: sessions (claude/opencode conversations). Creating one drops a
-// linked card into the kanban backlog (separate-but-linked).
+// linked card into the kanban planning column (separate-but-linked). The session open
+// last run is remembered (vault ui/last-session) so a reload reopens it.
+const lastSessionId = (await host.vault.get<string>("ui", "last-session")) || null;
 const sessionsPanel = mountSessionsPanel({
   container: document.querySelector<HTMLElement>("#sessions")!,
-  list: listSessions,
+  list: () => listSessions(loadSettings().showArchived),
   get: getSession,
+  initialOpenId: lastSessionId,
+  persistOpen: (id) => void host.vault.set("ui", "last-session", id ?? ""),
+  projectName: (id) => getProject(id)?.name ?? "—",
   create: (opts) => {
-    const s = createSession(opts);
-    refreshBoard(); // the new linked backlog card shows on the board
+    // On a project page, scope the new session (and its linked card) to that
+    // project; otherwise it falls to the default Homeroom project.
+    const projectId =
+      viewStore.get() === "project" && currentProjectId ? currentProjectId : undefined;
+    const s = createSession({ ...opts, projectId });
+    refreshBoard(); // the new linked planning card shows on the board
     return s;
   },
-  send: (id, text) => {
-    // The host runs the agent and appends both the user message and the reply
-    // to the vault, which stream back via the change feed.
-    void host.sessions
-      .prompt(id, text)
-      .catch((e) => addMessage(id, "system", `error: ${e instanceof Error ? e.message : String(e)}`));
-  },
-  mode: () => loadSettings().sessionMode,
   mountTerminal: (container, id) => mountTerminal(container, id),
   archive: (id) => {
     archiveSession(id);
@@ -787,13 +897,46 @@ const sessionsPanel = mountSessionsPanel({
   },
 });
 
-// Session view mode (Chat | Terminal) — switching re-renders the open session.
-const sessionModeSelect = document.querySelector<HTMLSelectElement>("#session-mode");
-if (sessionModeSelect) {
-  sessionModeSelect.value = loadSettings().sessionMode;
-  sessionModeSelect.addEventListener("change", () => {
-    void saveSettings({ sessionMode: sessionModeSelect.value as "chat" | "terminal" });
+// Show archived (Done) sessions in the list.
+const showArchivedCb = document.querySelector<HTMLInputElement>("#show-archived");
+if (showArchivedCb) {
+  showArchivedCb.checked = loadSettings().showArchived;
+  showArchivedCb.addEventListener("change", () => {
+    void saveSettings({ showArchived: showArchivedCb.checked });
     sessionsPanel.refresh();
+  });
+}
+
+// --- Omnisearch: a multi-purpose search field in the topbar. What it searches
+// (pages / sessions / files / commands) is still TBD; this wires the UI and a
+// single onSearch() seam so the behaviour can drop in later without touching
+// markup. Cmd/Ctrl+K focuses it, Enter submits, Escape clears + blurs. ---
+const searchForm = document.querySelector<HTMLFormElement>("#omnisearch-form");
+const searchInput = document.querySelector<HTMLInputElement>("#omnisearch");
+
+function onSearch(query: string): void {
+  // Seam: broadcast the query so a future feature can listen, without committing
+  // to a search target yet. Replace with real routing when decided.
+  document.dispatchEvent(new CustomEvent("orden:search", { detail: { query } }));
+}
+
+if (searchForm && searchInput) {
+  searchForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    onSearch(searchInput.value.trim());
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      searchInput.value = "";
+      searchInput.blur();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
   });
 }
 
@@ -801,10 +944,20 @@ if (sessionModeSelect) {
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
 // No-op on BrowserHost (single writer).
-onVaultChange((ns) => {
+onVaultChange((ns, key) => {
   void (async () => {
     const v = viewStore.get();
     switch (ns) {
+      case "files": {
+        // A repo .md changed on disk. If it's the doc we're showing and the user
+        // isn't actively typing in it, re-read and reload so external edits (by
+        // an agent, git, or a collaborator) appear live in the main panel.
+        if (currentDocKey === `review:${key}` && !view.hasFocus()) {
+          const markdown = await host.files.read("repo", key);
+          loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
+        }
+        break;
+      }
       case "pages":
         await hydratePages(host);
         if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
@@ -813,6 +966,7 @@ onVaultChange((ns) => {
       case "cards":
         await hydrateCards(host);
         refreshBoard(); // kanban board + badge count
+        notifyBlockedTransitions(); // toast when a session starts waiting on you
         if (v === "project" && currentProjectId) {
           renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
         }
@@ -847,6 +1001,27 @@ onVaultChange((ns) => {
       case "feedback":
         await hydrateOutbox(host);
         break;
+    }
+  })();
+});
+
+// Connection recovered (host restarted / network blip): the socket auto-reopens,
+// so re-hydrate every store and re-render the active view to catch any writes we
+// missed while disconnected. No-op on BrowserHost.
+onReconnect(() => {
+  void (async () => {
+    await hydrateAll();
+    const s = loadSettings();
+    applyAccent(s.accent);
+    applyFont(s.fontFamily, s.fontSize);
+    renderProjects();
+    refreshBoard();
+    sessionsPanel.refresh();
+    const v = viewStore.get();
+    if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+    else if (v === "journal") journal.refresh();
+    else if (v === "project" && currentProjectId) {
+      renderProjectPage(viewEls.project, currentProjectId, refreshBoard);
     }
   })();
 });

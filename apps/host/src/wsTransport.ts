@@ -1,8 +1,9 @@
 // Browser-clean WebSocket transport for the Host RPC. Multiplexes many
-// request/response pairs over one socket, matching replies to requests by id.
-// Also surfaces server-pushed frames (the vault change feed) via onEvent.
-// Typed structurally against the standard WebSocket API so it needs no DOM lib
-// and runs unchanged in the browser and under Node's global WebSocket.
+// request/response pairs over one socket, surfaces server-pushed frames (the
+// change feed) via onEvent, and AUTO-RECONNECTS: if the socket drops (e.g. the
+// host restarts), in-flight requests reject (so callers fail fast instead of
+// hanging) and a fresh socket is opened; onReconnect fires so the app can
+// re-hydrate. Typed structurally so it needs no DOM lib.
 
 import type { Transport, RpcRequest, RpcResponse } from "./rpc";
 
@@ -18,7 +19,6 @@ interface SocketCtor {
   new (url: string): SocketLike;
 }
 
-/** A server-pushed frame (not a response to a request) — e.g. a vault change. */
 export interface ServerEvent {
   type: "change";
   ns: string;
@@ -28,6 +28,8 @@ export interface ServerEvent {
 export interface WsConnection {
   transport: Transport;
   onEvent(handler: (event: ServerEvent) => void): () => void;
+  /** Fires after the socket drops and successfully reconnects. */
+  onReconnect(handler: () => void): () => void;
   close(): Promise<void>;
 }
 
@@ -36,49 +38,96 @@ export function createWsTransport(
   WebSocketImpl: SocketCtor = (globalThis as { WebSocket: SocketCtor }).WebSocket,
 ): Promise<WsConnection> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocketImpl(url);
     const pending = new Map<number, (res: RpcResponse) => void>();
     const eventHandlers = new Set<(event: ServerEvent) => void>();
+    const reconnectHandlers = new Set<() => void>();
+    let ws: SocketLike;
+    let firstOpen = true;
+    let closedByUser = false;
+    let attempts = 0;
 
-    ws.onmessage = (ev) => {
-      const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-      if (!raw) return; // ignore empty frames
-      let msg: RpcResponse | ServerEvent;
-      try {
-        msg = JSON.parse(raw) as RpcResponse | ServerEvent;
-      } catch {
-        return; // ignore malformed frames rather than throwing into a handler
-      }
-      if ((msg as ServerEvent).type === "change") {
-        for (const handler of eventHandlers) handler(msg as ServerEvent);
-        return;
-      }
-      const res = msg as RpcResponse;
-      const settle = pending.get(res.id);
-      if (settle) {
-        pending.delete(res.id);
-        settle(res);
-      }
+    const failPending = (): void => {
+      for (const [id, settle] of pending) settle({ id, ok: false, error: "connection lost" });
+      pending.clear();
     };
-    ws.onerror = () => reject(new Error(`ws transport: connection to ${url} failed`));
-    ws.onopen = () => {
-      const transport: Transport = (req: RpcRequest) =>
-        new Promise<RpcResponse>((res) => {
-          pending.set(req.id, res);
+
+    const wire = (): void => {
+      ws.onmessage = (ev) => {
+        const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+        if (!raw) return;
+        let msg: RpcResponse | ServerEvent;
+        try {
+          msg = JSON.parse(raw) as RpcResponse | ServerEvent;
+        } catch {
+          return;
+        }
+        if ((msg as ServerEvent).type === "change") {
+          for (const h of eventHandlers) h(msg as ServerEvent);
+          return;
+        }
+        const res = msg as RpcResponse;
+        const settle = pending.get(res.id);
+        if (settle) {
+          pending.delete(res.id);
+          settle(res);
+        }
+      };
+      ws.onerror = () => {
+        if (firstOpen) reject(new Error(`ws transport: connection to ${url} failed`));
+      };
+      ws.onopen = () => {
+        attempts = 0;
+        if (firstOpen) {
+          firstOpen = false;
+          resolve(connection);
+        } else {
+          for (const h of reconnectHandlers) h();
+        }
+      };
+      ws.onclose = () => {
+        failPending(); // don't leave callers hanging on a dead socket
+        if (!closedByUser) {
+          attempts += 1;
+          const delay = Math.min(5000, 500 * 2 ** Math.min(attempts, 4));
+          setTimeout(connect, delay);
+        }
+      };
+    };
+
+    const connect = (): void => {
+      ws = new WebSocketImpl(url);
+      wire();
+    };
+
+    const transport: Transport = (req: RpcRequest) =>
+      new Promise<RpcResponse>((res) => {
+        pending.set(req.id, res);
+        try {
           ws.send(JSON.stringify(req));
-        });
-      resolve({
-        transport,
-        onEvent: (handler) => {
-          eventHandlers.add(handler);
-          return () => eventHandlers.delete(handler);
-        },
-        close: () =>
-          new Promise<void>((res) => {
-            ws.onclose = () => res();
-            ws.close();
-          }),
+        } catch {
+          // socket not open right now; it'll reject via failPending on close,
+          // or the next request after reconnect will succeed.
+        }
       });
+
+    const connection: WsConnection = {
+      transport,
+      onEvent: (handler) => {
+        eventHandlers.add(handler);
+        return () => eventHandlers.delete(handler);
+      },
+      onReconnect: (handler) => {
+        reconnectHandlers.add(handler);
+        return () => reconnectHandlers.delete(handler);
+      },
+      close: () =>
+        new Promise<void>((res) => {
+          closedByUser = true;
+          ws.onclose = () => res();
+          ws.close();
+        }),
     };
+
+    connect();
   });
 }

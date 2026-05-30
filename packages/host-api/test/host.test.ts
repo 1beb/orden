@@ -53,12 +53,13 @@ class NoopHost implements Host {
       id: "",
       projectId,
       title: opts.title,
-      state: "backlog" satisfies SessionState,
+      state: "planning" satisfies SessionState,
       cwd: "",
       agent: opts.agent,
     }),
     open: async (_sessionId: string) => ({ channel: "" }),
     transition: async (_sessionId: string, _to: SessionState) => {},
+    prompt: async (_sessionId: string, _text: string) => {},
   };
 
   locks: LockService = {

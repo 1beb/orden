@@ -42,9 +42,20 @@
 
       <section id="center">
         <header id="topbar">
-          <button id="toggle-left" class="pane-toggle" title="Toggle navigation (⌘\\)">☰</button>
+          <button id="toggle-left" class="pane-toggle" title="Toggle navigation (⌘\\)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
           <span class="doc-title" id="view-title">Churn model — review</span>
-          <button id="toggle-right" class="pane-toggle" title="Toggle session">›_</button>
+          <form id="omnisearch-form" class="omnisearch" role="search">
+            <span class="omnisearch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg></span>
+            <input
+              id="omnisearch"
+              class="omnisearch-input"
+              type="search"
+              placeholder="Search…"
+              autocomplete="off"
+              aria-label="Search"
+            />
+          </form>
+          <button id="toggle-right" class="pane-toggle" title="Toggle session"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 8 9 12 5 16"/><line x1="12" y1="16" x2="18" y2="16"/></svg></button>
         </header>
         <div id="view-area">
           <section id="main" class="view active">
@@ -126,11 +137,7 @@
         </select>
         <div class="settings-label">Accent color</div>
         <input type="color" id="accent-color" class="settings-color" />
-        <div class="settings-label">Session view</div>
-        <select id="session-mode" class="settings-select">
-          <option value="chat">Chat (in orden)</option>
-          <option value="terminal">Terminal (agent TUI)</option>
-        </select>
+        <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

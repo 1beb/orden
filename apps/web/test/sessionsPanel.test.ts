@@ -8,7 +8,6 @@ function makeSession(over: Partial<Session> = {}): Session {
     title: "Untitled",
     agent: "claude",
     projectId: "p1",
-    messages: [],
     ...over,
   };
 }
@@ -23,9 +22,7 @@ function deps(over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {}) {
       created.push(opts);
       return makeSession({ id: `s${created.length}`, agent: opts.agent });
     },
-    send: () => {},
     projectName: () => "Homeroom",
-    mode: () => "chat" as const,
     mountTerminal: () => () => {},
     archive: () => {},
     remove: () => {},
@@ -34,47 +31,49 @@ function deps(over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {}) {
   return { created, deps: { ...base, ...over } };
 }
 
-describe("sessionsPanel new-session agent picker", () => {
+// Find a new-session agent button by its accessible label (no text — they show
+// brand-mark SVGs). The two buttons live in the header, one per agent.
+function agentButton(container: HTMLElement, name: string): HTMLButtonElement {
+  const btn = [...container.querySelectorAll<HTMLButtonElement>(".sess-agent-btn")].find(
+    (b) => b.getAttribute("aria-label") === `New ${name} session`,
+  );
+  if (!btn) throw new Error(`no new-session button for ${name}`);
+  return btn;
+}
+
+describe("sessionsPanel new-session agent buttons", () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
-  it("the + button opens a menu offering both Claude and opencode", () => {
+  it("offers a direct Claude and opencode icon button (no dropdown menu)", () => {
     const { deps: d } = deps();
     document.body.append(d.container);
     mountSessionsPanel(d);
 
-    const plus = d.container.querySelector<HTMLButtonElement>(".sess-icon")!;
-    plus.click();
-
-    const items = [...d.container.querySelectorAll(".sess-menu-item")].map((n) => n.textContent);
-    expect(items).toEqual(["Claude", "opencode"]);
+    expect(d.container.querySelector(".sess-menu")).toBeNull();
+    const labels = [...d.container.querySelectorAll<HTMLButtonElement>(".sess-agent-btn")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    expect(labels).toEqual(["New Claude session", "New opencode session"]);
   });
 
-  it("picking opencode creates a session with agent=opencode", () => {
+  it("clicking the opencode icon creates a session with agent=opencode", () => {
     const { created, deps: d } = deps();
     document.body.append(d.container);
     mountSessionsPanel(d);
 
-    d.container.querySelector<HTMLButtonElement>(".sess-icon")!.click();
-    const opencode = [...d.container.querySelectorAll<HTMLButtonElement>(".sess-menu-item")].find(
-      (b) => b.textContent === "opencode",
-    )!;
-    opencode.click();
+    agentButton(d.container, "opencode").click();
 
     expect(created).toEqual([{ title: "Untitled", agent: "opencode" }]);
   });
 
-  it("picking Claude creates a session with agent=claude", () => {
+  it("clicking the Claude icon creates a session with agent=claude", () => {
     const { created, deps: d } = deps();
     document.body.append(d.container);
     mountSessionsPanel(d);
 
-    d.container.querySelector<HTMLButtonElement>(".sess-icon")!.click();
-    const claude = [...d.container.querySelectorAll<HTMLButtonElement>(".sess-menu-item")].find(
-      (b) => b.textContent === "Claude",
-    )!;
-    claude.click();
+    agentButton(d.container, "Claude").click();
 
     expect(created).toEqual([{ title: "Untitled", agent: "claude" }]);
   });

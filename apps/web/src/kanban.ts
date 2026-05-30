@@ -1,8 +1,16 @@
 import { LIFECYCLE_ORDER, isNeedsAction, type CardState } from "@orden/outliner";
-import { listItems, setItemState } from "./cards";
-import { getProject } from "./projects";
+import { listItems, setItemState, setItemProject } from "./cards";
+import { listProjects } from "./projects";
 
-const STATES: CardState[] = [...LIFECYCLE_ORDER, "broken"];
+const STATES: CardState[] = [...LIFECYCLE_ORDER];
+
+// Capitalized column titles; the stored state stays lowercase.
+const STATE_LABELS: Record<CardState, string> = {
+  planning: "Planning",
+  "in-progress": "In-progress",
+  blocked: "Blocked",
+  complete: "Complete",
+};
 
 // The board is the cross-cutting view of all projects' items. Rendered in-app
 // (not via the package's read-only renderBoard) so cards are clickable (→ their
@@ -54,7 +62,7 @@ export function renderKanban(
 
     const colHead = document.createElement("div");
     colHead.className = "orden-column__header";
-    colHead.innerHTML = `<span class="orden-column__title">${state}</span><span class="orden-column__count">${colItems.length}</span>`;
+    colHead.innerHTML = `<span class="orden-column__title">${STATE_LABELS[state]}</span><span class="orden-column__count">${colItems.length}</span>`;
     col.append(colHead);
 
     const cardsEl = document.createElement("div");
@@ -67,9 +75,26 @@ export function renderKanban(
       const title = document.createElement("div");
       title.className = "orden-card__title";
       title.textContent = item.title;
-      const proj = document.createElement("div");
+      // Project shown in small caps under the title, as a select so the card can
+      // be reassigned to another project inline. Pointer events are stopped so
+      // using it neither navigates (card click) nor starts a drag.
+      const proj = document.createElement("select");
       proj.className = "orden-card__project";
-      proj.textContent = getProject(item.projectId)?.name ?? "—";
+      proj.title = "Project";
+      for (const p of listProjects()) {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name;
+        opt.selected = p.id === item.projectId;
+        proj.append(opt);
+      }
+      proj.addEventListener("mousedown", (e) => e.stopPropagation());
+      proj.addEventListener("click", (e) => e.stopPropagation());
+      proj.addEventListener("change", (e) => {
+        e.stopPropagation();
+        setItemProject(item.id, proj.value);
+        renderKanban(container, onOpenProject);
+      });
       card.append(title, proj);
       card.addEventListener("click", () => onOpenProject(item.projectId));
       card.addEventListener("dragstart", (e) => {

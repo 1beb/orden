@@ -9,6 +9,13 @@
   --accent-soft: color-mix(in srgb, var(--accent) 14%, #fff);
   --human: #6366f1;
   --human-soft: #e0e7ff;
+  /* Symbol/system stack for icon glyphs (☰ ⌕ › ←). The selectable app prose
+     font (--app-font) frequently lacks these Unicode symbols, so the browser
+     substitutes a per-glyph fallback whose metrics are condensed/narrow — that
+     made icon glyphs look "compressed". Icon elements use this stack instead of
+     inheriting --app-font so the glyph comes from a symbol-capable face. */
+  --icon-font: -apple-system, "Segoe UI Symbol", "Noto Sans Symbols 2",
+    "Noto Sans Symbols", system-ui, "Apple Symbols", sans-serif;
 }
 
 * {
@@ -68,12 +75,51 @@ body {
   display: none;
 }
 
+/* Transient notification (e.g. a session is waiting on you). Bottom-right,
+   slides up + fades in; auto-dismissed from JS. */
+.orden-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.orden-toast.show {
+  opacity: 1;
+  transform: none;
+}
+
+/* Icon buttons use inline SVGs (font-independent — Unicode glyphs condense in
+   fonts that lack them). Center the mark in its already-flex'd button. */
+.pane-toggle svg,
+.omnisearch-icon svg,
+.sess-icon svg,
+.sess-rowbtn svg {
+  display: block;
+}
+
 .pane-toggle {
-  font: inherit;
+  /* flex: none so the topbar can't shrink it (that squished the ☰ glyph). */
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* symbol/system font so ☰ / ›_ don't inherit a prose font that condenses them */
+  font-family: var(--icon-font);
   font-size: 15px;
   line-height: 1;
   width: 30px;
-  height: 28px;
+  height: 30px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
@@ -141,6 +187,9 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The rail is all clickable controls — never selectable prose. Suppress the
+     text caret / selection so the editing cursor lives only in the main panel. */
+  user-select: none;
 }
 
 .nav-scroll {
@@ -410,9 +459,14 @@ body {
   white-space: nowrap;
 }
 .sess-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   color: var(--muted);
+  /* symbol/system font so ← renders at natural proportions, not condensed */
+  font-family: var(--icon-font);
   font-size: 16px;
   line-height: 1;
   width: 26px;
@@ -425,36 +479,34 @@ body {
   color: var(--accent);
 }
 .sess-new {
-  position: relative;
   display: inline-flex;
+  gap: 6px;
 }
-.sess-menu {
-  position: absolute;
-  top: 28px;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-  padding: 4px;
-  background: var(--panel-bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-}
-.sess-menu-item {
-  border: none;
-  background: none;
-  color: var(--ink);
-  text-align: left;
-  padding: 6px 10px;
-  font-size: 13px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.sess-menu-item:hover {
+/* Clickable agent badge showing the brand mark (Claude sunburst, opencode
+   square). Lavender pill matching the per-session badge, but interactive —
+   click to spawn a new session. The inline SVG inherits `color` via
+   currentColor, so it flips to white on hover with the rest of the pill. */
+.sess-agent-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent-soft);
   background: var(--accent-soft);
   color: var(--accent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sess-agent-btn svg {
+  display: block;
+}
+.sess-agent-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 .sess-badge {
   flex: none;
@@ -469,6 +521,13 @@ body {
   color: var(--accent);
   border-radius: 999px;
 }
+/* The agent badge holds an inline brand mark; keep it centered and sized to the
+   pill (mark inherits --accent via currentColor). */
+.sess-badge svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
 .sess-empty {
   padding: 16px;
   color: var(--muted);
@@ -481,8 +540,7 @@ body {
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
 }
-.sess-input,
-.sess-input-box {
+.sess-input {
   font: inherit;
   font-size: 13px;
   padding: 7px 9px;
@@ -490,10 +548,6 @@ body {
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink);
-}
-.sess-input-box {
-  flex: 1;
-  resize: none;
 }
 .sess-create {
   align-self: flex-start;
@@ -555,9 +609,14 @@ body {
   white-space: nowrap;
 }
 .sess-rowbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   color: var(--muted);
+  /* symbol/system font so ✓ / ✕ render at natural proportions, not condensed */
+  font-family: var(--icon-font);
   font-size: 12px;
   width: 22px;
   height: 22px;
@@ -571,46 +630,6 @@ body {
 .sess-rowbtn:hover {
   color: var(--accent);
   background: var(--accent-soft);
-}
-.sess-transcript {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sess-msg {
-  max-width: 85%;
-  padding: 8px 11px;
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.sess-msg-user {
-  align-self: flex-end;
-  background: var(--accent);
-  color: #fff;
-}
-.sess-msg-agent {
-  align-self: flex-start;
-  background: #f3f4f6;
-  color: var(--ink);
-}
-.sess-msg-system {
-  align-self: center;
-  background: none;
-  color: var(--muted);
-  font-style: italic;
-  font-size: 12px;
-}
-.sess-commentary {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--line);
 }
 .sess-terminal {
   flex: 1;
@@ -690,6 +709,11 @@ body {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .omnisearch-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* symbol/system font so ⌕ renders at natural proportions, not condensed */
+  font-family: var(--icon-font);
   font-size: 14px;
   line-height: 1;
 }
@@ -1225,22 +1249,6 @@ body {
   gap: 6px;
 }
 
-.panel-send {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 14px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-}
-
-.panel-send:hover {
-  background: color-mix(in srgb, var(--accent) 84%, black); /* a touch deeper */
-}
-
 /* feedback preview modal */
 .preview-overlay {
   position: fixed;
@@ -1348,13 +1356,13 @@ body {
     transform: none;
   }
 
-  /* terminal slide-over from the right */
+  /* terminal slide-over from the right — full width on mobile (no gutter) */
   #sessions {
     position: fixed;
     top: 0;
     right: 0;
     bottom: 0;
-    width: min(92vw, 600px);
+    width: 100vw;
     transform: translateX(100%);
     transition: transform 0.22s ease;
     z-index: 45;
@@ -1819,10 +1827,25 @@ body {
 .orden-card__title {
   font-size: 13px;
 }
+/* Project label/selector under the card title — styled as plain small-caps text
+   (native select chrome stripped) but reassignable inline. */
 .orden-card__project {
   font-size: 11px;
   color: var(--muted);
   margin-top: 3px;
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  max-width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: inherit;
+}
+.orden-card__project:hover {
+  color: var(--ink);
 }
 .orden-card.dragging {
   opacity: 0.5;
@@ -1830,6 +1853,43 @@ body {
 .orden-column.drop-target {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
+}
+
+/* per-state accents: a colored top border on board columns and a colored
+   dot before the issue-group label. Four states only. */
+.orden-column[data-state="planning"] {
+  border-top: 3px solid #64748b; /* slate / neutral grey-blue */
+}
+.orden-column[data-state="in-progress"] {
+  border-top: 3px solid var(--accent); /* app purple */
+}
+.orden-column[data-state="blocked"] {
+  border-top: 3px solid #dc2626; /* red */
+}
+.orden-column[data-state="complete"] {
+  border-top: 3px solid #16a34a; /* green */
+}
+
+.issue-group-state::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.issue-group-state[data-state="planning"]::before {
+  background: #64748b;
+}
+.issue-group-state[data-state="in-progress"]::before {
+  background: var(--accent);
+}
+.issue-group-state[data-state="blocked"]::before {
+  background: #dc2626;
+}
+.issue-group-state[data-state="complete"]::before {
+  background: #16a34a;
 }
 .nav-proj-item {
   cursor: pointer;

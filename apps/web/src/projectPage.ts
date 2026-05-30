@@ -2,7 +2,15 @@ import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
 import { itemsByProject, addItem, setItemState } from "./cards";
 import { getProject } from "./projects";
 
-const STATES: CardState[] = [...LIFECYCLE_ORDER, "broken"];
+const STATES: CardState[] = [...LIFECYCLE_ORDER];
+
+// Capitalized labels for group headers and the state picker.
+const STATE_LABELS: Record<CardState, string> = {
+  planning: "Planning",
+  "in-progress": "In-progress",
+  blocked: "Blocked",
+  complete: "Complete",
+};
 
 // A project's page: a simple issue tracker — items grouped into collapsible
 // sections by state, plus an add-item box. (AI sessions per item come later.)
@@ -25,14 +33,18 @@ export function renderProjectPage(
   heading.className = "project-title";
   heading.textContent = project.name;
 
-  const meta = document.createElement("div");
-  meta.className = "project-meta";
-  meta.textContent =
+  // Source subtitle: the path for local projects, the source kind for remote
+  // ones. Ephemeral projects (e.g. Homeroom) show no subtitle — "ephemeral" is
+  // an implementation detail, not something to surface.
+  const metaText =
     project.source.kind === "local"
       ? project.source.path
       : project.source.kind === "ephemeral"
-        ? "ephemeral project"
+        ? ""
         : project.source.kind;
+  const meta = document.createElement("div");
+  meta.className = "project-meta";
+  meta.textContent = metaText;
 
   const addRow = document.createElement("div");
   addRow.className = "project-add";
@@ -59,7 +71,7 @@ export function renderProjectPage(
   const list = document.createElement("div");
   list.className = "issue-list";
 
-  container.append(heading, meta, addRow, list);
+  container.append(heading, ...(metaText ? [meta] : []), addRow, list);
 
   function render(): void {
     const items = itemsByProject(projectId);
@@ -78,7 +90,7 @@ export function renderProjectPage(
       details.className = "issue-group";
       details.open = true;
       const summary = document.createElement("summary");
-      summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${state}</span> <span class="issue-group-count">${group.length}</span>`;
+      summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${STATE_LABELS[state]}</span> <span class="issue-group-count">${group.length}</span>`;
       details.append(summary);
       for (const item of group) {
         const row = document.createElement("div");
@@ -91,7 +103,7 @@ export function renderProjectPage(
         for (const s of STATES) {
           const opt = document.createElement("option");
           opt.value = s;
-          opt.textContent = s;
+          opt.textContent = STATE_LABELS[s];
           opt.selected = s === item.state;
           select.append(opt);
         }
