@@ -14,6 +14,7 @@ export interface Settings {
   fontSize: number; // px
   accent: string; // hex color (#rrggbb)
   showArchived: boolean; // include archived (Done) sessions in the list
+  sessionAutoLaunch: boolean; // auto-spawn the agent TUI when a session is created
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
   fontSize: 16,
   accent: DEFAULT_ACCENT,
   showArchived: false,
+  sessionAutoLaunch: true,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -53,6 +55,10 @@ function coerce(stored: unknown): Settings {
         : DEFAULT_SETTINGS.accent,
     showArchived:
       typeof s.showArchived === "boolean" ? s.showArchived : DEFAULT_SETTINGS.showArchived,
+    sessionAutoLaunch:
+      typeof s.sessionAutoLaunch === "boolean"
+        ? s.sessionAutoLaunch
+        : DEFAULT_SETTINGS.sessionAutoLaunch,
   };
 }
 
