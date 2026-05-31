@@ -3,6 +3,14 @@
 //   - UserPromptSubmit  -> state "in-progress" (Claude is working/thinking)
 //   - Stop              -> state "blocked"     (Claude finished, awaiting you)
 //
+// Division of labor: the HOOKS drive the automatic working/waiting cycle only
+// (UserPromptSubmit -> in-progress, Stop / waiting-notification -> blocked) and
+// may set just planning | in-progress | blocked. They NEVER touch a card that is
+// already "complete" — complete is terminal and user-owned, so the next Stop
+// hook must not knock a just-completed card back to blocked. Deliberate moves —
+// and the ONLY path to "complete" — come from the LLM via the MCP `card_*` tools
+// (`card_complete`), not from a hook.
+//
 // The orden-launched `claude --session-id <uuid>` writes <uuid> as the session
 // record's conversationId, and Claude's hook payload carries that same id as
 // `session_id` — so we map payload.session_id -> session.conversationId ->
@@ -13,7 +21,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Host } from "@orden/host-api";
 import { sessionForConversation, cardForSession } from "@orden/mcp";
 
-const ALLOWED = new Set(["in-progress", "blocked", "planning", "complete"]);
+// Hooks may only set the automatic cycle states. "complete" is intentionally
+// excluded — it comes solely from the `card_complete` MCP tool.
+const ALLOWED = new Set(["in-progress", "blocked", "planning"]);
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -74,11 +84,15 @@ const WAITING_NOTIFICATIONS = new Set([
   "elicitation_dialog",
 ]);
 
-async function applyState(host: Host, claudeSessionId: string, state: string): Promise<void> {
+export async function applyState(host: Host, claudeSessionId: string, state: string): Promise<void> {
   const session = await sessionForConversation(host.vault, claudeSessionId);
   if (!session) return; // not an orden-tracked session
   const card = await cardForSession(host.vault, session.id);
-  if (card && card.state !== state) {
+  if (!card) return;
+  // "complete" is terminal and user/LLM-owned: never let an automatic hook
+  // (e.g. a trailing Stop) knock a just-completed card back to blocked.
+  if (card.state === "complete") return;
+  if (card.state !== state) {
     await host.vault.set("cards", card.id, { ...card, state });
   }
 }
