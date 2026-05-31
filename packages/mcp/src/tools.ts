@@ -211,6 +211,10 @@ export async function panelOpen(
   kind: "doc" | "page" | "kanban" | "card",
   target: string,
 ): Promise<ToolResult> {
-  await vault.set("ui", "panel-intent", { kind, target, nonce: Date.now() });
+  // nonce must differ on every call so the web's change feed fires even when the
+  // same kind/target is opened twice in a row. Date.now() alone collides within a
+  // millisecond; append a random suffix to make it strictly distinct.
+  const nonce = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  await vault.set("ui", "panel-intent", { kind, target, nonce });
   return text(target ? `opened ${kind} in panel: ${target}` : `opened ${kind} in panel`);
 }

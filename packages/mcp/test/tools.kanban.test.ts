@@ -187,12 +187,21 @@ describe("panelOpen", () => {
     expect(out(r)).toBe("opened card in panel: c1");
     const intent = await v.get<Record<string, unknown>>("ui", "panel-intent");
     expect(intent).toMatchObject({ kind: "card", target: "c1" });
-    expect(typeof intent?.nonce).toBe("number");
+    expect(typeof intent?.nonce).toBe("string");
+    expect((intent?.nonce as string).length).toBeGreaterThan(0);
   });
   it("handles kanban with no target", async () => {
     const v = seed();
     expect(out(await panelOpen(v, "kanban", ""))).toBe("opened kanban in panel");
     const intent = await v.get<Record<string, unknown>>("ui", "panel-intent");
     expect(intent).toMatchObject({ kind: "kanban", target: "" });
+  });
+  it("uses a fresh nonce so repeat opens of the same target still differ", async () => {
+    const v = seed();
+    await panelOpen(v, "card", "c1");
+    const first = (await v.get<Record<string, unknown>>("ui", "panel-intent"))?.nonce;
+    await panelOpen(v, "card", "c1");
+    const second = (await v.get<Record<string, unknown>>("ui", "panel-intent"))?.nonce;
+    expect(second).not.toBe(first);
   });
 });
