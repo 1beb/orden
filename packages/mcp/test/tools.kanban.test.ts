@@ -142,7 +142,9 @@ describe("sessionCreate", () => {
       projectIdOrName: "Alpha",
       prompt: "  look into it  ",
     });
-    const m = out(r).match(/created session "Investigate bug" \+ planning card \((sess_[^)]+)\)/);
+    const m = out(r).match(
+      /created session "Investigate bug" \+ planning card \(launching\) \((sess_[^)]+)\)/,
+    );
     expect(m).not.toBeNull();
     const sessionId = m![1];
     const session = await v.get<Record<string, unknown>>("sessions", sessionId);
@@ -177,6 +179,38 @@ describe("sessionCreate", () => {
     expect(out(await sessionCreate(seed(), { title: "x", projectIdOrName: "Nope" }))).toBe(
       'unknown project "Nope"; available: Homeroom, Alpha',
     );
+  });
+
+  it("flags the session pendingLaunch when auto-launch is on", async () => {
+    const v = fakeVault({
+      projects: { homeroom: { id: "homeroom", name: "Homeroom", source: "local" } },
+      settings: { app: { sessionAutoLaunch: true } },
+    });
+    const r = await sessionCreate(v, { title: "Go" });
+    expect(out(r)).toMatch(/created session "Go" \+ planning card \(launching\) \(sess_[^)]+\)/);
+    const sessionId = out(r).match(/\((sess_[^)]+)\)/)![1];
+    const session = await v.get<Record<string, unknown>>("sessions", sessionId);
+    expect(session?.pendingLaunch).toBe(true);
+  });
+
+  it("flags the session pendingLaunch when no setting is present (default on)", async () => {
+    const v = seed();
+    const r = await sessionCreate(v, { title: "Go" });
+    const sessionId = out(r).match(/\((sess_[^)]+)\)/)![1];
+    const session = await v.get<Record<string, unknown>>("sessions", sessionId);
+    expect(session?.pendingLaunch).toBe(true);
+  });
+
+  it("does not flag pendingLaunch when auto-launch is off", async () => {
+    const v = fakeVault({
+      projects: { homeroom: { id: "homeroom", name: "Homeroom", source: "local" } },
+      settings: { app: { sessionAutoLaunch: false } },
+    });
+    const r = await sessionCreate(v, { title: "Go" });
+    expect(out(r)).toMatch(/created session "Go" \+ planning card \(sess_[^)]+\)/);
+    const sessionId = out(r).match(/\((sess_[^)]+)\)/)![1];
+    const session = await v.get<Record<string, unknown>>("sessions", sessionId);
+    expect(session?.pendingLaunch).toBeFalsy();
   });
 });
 

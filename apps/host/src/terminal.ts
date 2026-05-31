@@ -10,7 +10,7 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host } from "@orden/host-api";
@@ -181,6 +181,63 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
   }
   await host.vault.set("sessions", sessionId, rec);
   return cmd;
+}
+
+// Launch-on-create: spawn a DETACHED tmux session running the agent, with no
+// client attached. Used by the host's pendingLaunch reactor so a session created
+// via the MCP tool starts working immediately, before any browser opens its panel.
+//
+// buildCommand here mints+persists the conversationId and the bound --mcp-config,
+// then clears initialPrompt — exactly what a later attach needs. When the user
+// opens the panel, handle()'s `new-session -A` ATTACHES to this same tmux session;
+// and because conversationId is now persisted, buildCommand returns `--resume`,
+// so there is no double-mint.
+//
+// Idempotent: tmux `new-session -d -A` is attach-or-create detached, so if the
+// session already exists this is a no-op. Never throws — a failed launch must
+// not crash the host.
+export async function launchDetached(
+  host: Host,
+  defaultCwd: string,
+  sessionId: string,
+): Promise<void> {
+  try {
+    const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
+    if (!rec) return;
+    const cmd = await buildCommand(host, rec, sessionId);
+    const tmuxName = `orden-${sessionId}`;
+    // Mirror handle()'s tmux invocation, but detached (-d) and via plain spawn
+    // (no pty needed to merely create). `cmd` is a single shell string and is
+    // passed as the trailing positional arg, exactly as handle() does.
+    await new Promise<void>((resolve) => {
+      const child = spawn(
+        "tmux",
+        [
+          "new-session", "-d", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
+          "-c", defaultCwd, cmd,
+          ";", "set-option", "-g", "mouse", "on",
+          ";", "set-option", "-g", "window-size", "latest",
+          ";", "set-option", "-g", "aggressive-resize", "on",
+        ],
+        {
+          cwd: defaultCwd,
+          env: { ...process.env, ORDEN_MANAGED: "1" } as Record<string, string>,
+          stdio: "ignore",
+          detached: true,
+        },
+      );
+      child.on("error", (err) => {
+        // eslint-disable-next-line no-console
+        console.warn(`orden: launchDetached spawn failed for ${sessionId}:`, err);
+        resolve();
+      });
+      child.on("exit", () => resolve());
+      child.unref();
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: launchDetached failed for ${sessionId}:`, err);
+  }
 }
 
 async function handle(

@@ -4,6 +4,10 @@ export interface SessionRec {
   id: string;
   conversationId?: string;
   projectId?: string;
+  // Set by the MCP session_create tool when auto-launch is on. The host watches
+  // for it, spawns a detached agent, and clears the flag. Web-created sessions
+  // never set it (they launch on open).
+  pendingLaunch?: boolean;
   [k: string]: unknown;
 }
 export interface CardRec {

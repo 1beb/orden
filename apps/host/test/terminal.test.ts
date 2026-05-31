@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { mcpConfigArg } from "../src/terminal";
+import { mcpConfigArg, launchDetached } from "../src/terminal";
+import type { Host } from "@orden/host-api";
 
 const ORIGINAL_PORT = process.env.ORDEN_PORT;
 afterEach(() => {
@@ -30,5 +31,28 @@ describe("mcpConfigArg", () => {
     process.env.ORDEN_PORT = "5555";
     const cfg = parseConfig(mcpConfigArg("abc"));
     expect(cfg.mcpServers.orden.url).toBe("http://127.0.0.1:5555/mcp/abc");
+  });
+});
+
+describe("launchDetached", () => {
+  // Guard path only: a missing session record short-circuits BEFORE any tmux
+  // spawn, so this never touches tmux (which we must not run in tests).
+  test("returns without spawning when the session record is missing", async () => {
+    let getCalled = false;
+    const host = {
+      vault: {
+        get: async () => {
+          getCalled = true;
+          return null;
+        },
+        set: async () => {
+          throw new Error("set should not be called for a missing session");
+        },
+        list: async () => [],
+        delete: async () => {},
+      },
+    } as unknown as Host;
+    await expect(launchDetached(host, "/tmp", "sess_missing")).resolves.toBeUndefined();
+    expect(getCalled).toBe(true);
   });
 });

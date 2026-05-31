@@ -184,12 +184,17 @@ export async function sessionCreate(
   const sessionId = rid("sess");
   const prompt = opts.prompt?.trim();
   const title = opts.title.trim() || "Untitled session";
+  // Auto-launch is ON unless explicitly disabled. When on, flag the record so
+  // the host spawns a detached agent for it; web-created sessions never set this.
+  const settings = await vault.get<{ sessionAutoLaunch?: boolean }>("settings", "app");
+  const autoLaunch = settings?.sessionAutoLaunch !== false;
   const session: SessionRec = {
     id: sessionId,
     title,
     agent: opts.agent ?? "claude",
     projectId,
     ...(prompt ? { initialPrompt: prompt } : {}),
+    ...(autoLaunch ? { pendingLaunch: true } : {}),
   };
   await vault.set("sessions", sessionId, session);
   // separate-but-linked: drop a planning card pointing back to this session.
@@ -203,7 +208,11 @@ export async function sessionCreate(
     sessionIds: [sessionId],
   };
   await vault.set("cards", cardId, card);
-  return text(`created session "${title}" + planning card (${sessionId})`);
+  return text(
+    autoLaunch
+      ? `created session "${title}" + planning card (launching) (${sessionId})`
+      : `created session "${title}" + planning card (${sessionId})`,
+  );
 }
 
 export async function panelOpen(

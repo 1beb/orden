@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, stat } from "node:fs/promises";
 import { NodeHost } from "./nodeHost";
 import { createHostWss } from "./wsServer";
-import { createTerminalWss } from "./terminal";
+import { createTerminalWss, launchDetached } from "./terminal";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 
@@ -25,6 +25,32 @@ const vaultRoot = process.env.ORDEN_VAULT ?? join(homedir(), ".orden", "vault");
 const filesRoot = process.env.ORDEN_FILES_ROOT ?? repoRoot;
 const webDist = process.env.ORDEN_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
 const host = new NodeHost({ vaultRoot, filesRoot });
+
+// Launch-on-create reactor: the MCP session_create tool flags new sessions with
+// pendingLaunch when auto-launch is on. Watch the vault, clear the flag, and
+// spawn a detached agent for it. Web-created sessions never set the flag, so
+// they're unaffected (they still launch when their panel opens).
+async function maybeLaunch(host: NodeHost, defaultCwd: string, sessionId: string): Promise<void> {
+  try {
+    const rec = await host.vault.get<{ pendingLaunch?: boolean; conversationId?: string }>(
+      "sessions",
+      sessionId,
+    );
+    if (!rec?.pendingLaunch) return;
+    // Clear the flag FIRST to avoid a re-entrant loop. The clearing write fires
+    // another "sessions" change, but it has no pendingLaunch so this returns early.
+    const { pendingLaunch: _drop, ...rest } = rec;
+    await host.vault.set("sessions", sessionId, rest);
+    await launchDetached(host, defaultCwd, sessionId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: maybeLaunch failed for ${sessionId}:`, err);
+  }
+}
+host.onChange((change) => {
+  if (change.ns !== "sessions") return;
+  void maybeLaunch(host, filesRoot, change.key);
+});
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
