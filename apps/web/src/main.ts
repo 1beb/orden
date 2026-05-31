@@ -12,7 +12,7 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
 import { hydratePages } from "./pages";
-import { hydrateCards, listItems, cardSessionIds, type Item } from "./cards";
+import { hydrateCards, listItems, getItem, cardSessionIds, type Item } from "./cards";
 import {
   hydrateSessions,
   listSessions,
@@ -44,6 +44,8 @@ import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
+import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
+import { openCardModal } from "./cardModal";
 import { applyFont, FONT_OPTIONS } from "./fonts";
 import "./styles.css";
 
@@ -1009,6 +1011,16 @@ if (showArchivedCb) {
   });
 }
 
+// When on, the MCP session_create tool launches the agent immediately; when
+// off, it only drops a planning card on the board.
+const autoLaunchCb = document.querySelector<HTMLInputElement>("#session-autolaunch");
+if (autoLaunchCb) {
+  autoLaunchCb.checked = loadSettings().sessionAutoLaunch;
+  autoLaunchCb.addEventListener("change", () => {
+    void saveSettings({ sessionAutoLaunch: autoLaunchCb.checked });
+  });
+}
+
 // --- Omnisearch: a multi-purpose search field in the topbar. What it searches
 // (pages / sessions / files / commands) is still TBD; this wires the UI and a
 // single onSearch() seam so the behaviour can drop in later without touching
@@ -1101,6 +1113,40 @@ onVaultChange((ns, key) => {
       case "feedback":
         await hydrateOutbox(host);
         break;
+      case "ui": {
+        // An agent asked (via the MCP panel_open tool) to steer the main panel.
+        if (key !== "panel-intent") break;
+        // Don't yank the panel out from under someone who's actively typing.
+        if (view.hasFocus()) break;
+        const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
+        if (!intent) break;
+        dispatchPanelIntent(intent, {
+          openRepoFile: (path) => void openRepoFile(path),
+          openPage,
+          openKanban: () => {
+            viewStore.set("kanban");
+            refreshBoard();
+          },
+          resolveCardId: (target) => {
+            // Match by id first, then by case-insensitive title.
+            if (getItem(target)) return target;
+            const lower = target.trim().toLowerCase();
+            return listItems().find((i) => i.title.trim().toLowerCase() === lower)?.id;
+          },
+          openCard: (id) => {
+            if (!getItem(id)) return false;
+            viewStore.set("kanban");
+            refreshBoard();
+            openCardModal(id, {
+              onStartSession: startSessionForItem,
+              onOpenSession: openSessionInPanel,
+              onChange: refreshBoard,
+            });
+            return true;
+          },
+        });
+        break;
+      }
     }
   })();
 });
