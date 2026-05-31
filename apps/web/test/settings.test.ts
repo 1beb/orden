@@ -8,6 +8,7 @@ const DEFAULTS = {
   fontSize: 16,
   accent: "#6d28d9",
   showArchived: false,
+  sessionAutoLaunch: true,
 };
 
 describe("settings store (host-backed)", () => {
@@ -53,6 +54,7 @@ describe("settings store (host-backed)", () => {
       fontSize: 20,
       accent: "#0099ff",
       showArchived: false,
+      sessionAutoLaunch: true,
     });
   });
 
