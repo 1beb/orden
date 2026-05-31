@@ -13,6 +13,21 @@ import { createMcpServer } from "./server";
 
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 
+/**
+ * Pull the orden session uuid that binds this MCP connection to a card. An
+ * `x-orden-session` header wins; otherwise the first path segment after /mcp
+ * (e.g. `/mcp/<uuid>`) is used. Pure for testability.
+ */
+export function parseSessionBinding(req: {
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+}): string | undefined {
+  const header = req.headers["x-orden-session"];
+  if (typeof header === "string" && header) return header;
+  const m = (req.url ?? "").match(/^\/mcp\/([^/?#]+)/);
+  return m ? decodeURIComponent(m[1]) : undefined;
+}
+
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -51,7 +66,7 @@ export async function handleMcpRequest(
       transport.onclose = () => {
         if (transport!.sessionId) delete transports[transport!.sessionId];
       };
-      await createMcpServer(host).connect(transport);
+      await createMcpServer(host, { conversationId: parseSessionBinding(req) }).connect(transport);
     }
 
     if (!transport) {

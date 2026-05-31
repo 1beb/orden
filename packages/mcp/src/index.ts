@@ -1,5 +1,5 @@
 export { createMcpServer } from "./server";
-export { handleMcpRequest } from "./http";
+export { handleMcpRequest, parseSessionBinding } from "./http";
 export {
   pageList,
   pageRead,
