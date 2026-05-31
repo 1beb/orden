@@ -11,25 +11,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Host } from "@orden/host-api";
-
-interface SessionRec {
-  id: string;
-  conversationId?: string;
-  [k: string]: unknown;
-}
-interface CardRec {
-  id: string;
-  state: string;
-  sessionIds?: string[];
-  sessionId?: string; // legacy single-session shape
-  [k: string]: unknown;
-}
-
-/** A card's linked sessions, tolerant of the legacy single-sessionId shape. */
-function cardSessions(card: CardRec): string[] {
-  if (Array.isArray(card.sessionIds)) return card.sessionIds;
-  return card.sessionId ? [card.sessionId] : [];
-}
+import { sessionForConversation, cardForSession } from "@orden/mcp";
 
 const ALLOWED = new Set(["in-progress", "blocked", "planning", "complete"]);
 
@@ -93,22 +75,10 @@ const WAITING_NOTIFICATIONS = new Set([
 ]);
 
 async function applyState(host: Host, claudeSessionId: string, state: string): Promise<void> {
-  const sessionIds = await host.vault.list("sessions");
-  let ordenSessionId: string | undefined;
-  for (const id of sessionIds) {
-    const rec = await host.vault.get<SessionRec>("sessions", id);
-    if (rec?.conversationId === claudeSessionId) {
-      ordenSessionId = rec.id;
-      break;
-    }
-  }
-  if (!ordenSessionId) return; // not an orden-tracked session
-  const cardIds = await host.vault.list("cards");
-  for (const cid of cardIds) {
-    const card = await host.vault.get<CardRec>("cards", cid);
-    if (card && cardSessions(card).includes(ordenSessionId)) {
-      if (card.state !== state) await host.vault.set("cards", cid, { ...card, state });
-      return;
-    }
+  const session = await sessionForConversation(host.vault, claudeSessionId);
+  if (!session) return; // not an orden-tracked session
+  const card = await cardForSession(host.vault, session.id);
+  if (card && card.state !== state) {
+    await host.vault.set("cards", card.id, { ...card, state });
   }
 }
