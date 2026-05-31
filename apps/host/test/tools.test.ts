@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeHost } from "../src/nodeHost";
-import { pageList, pageRead, pageWrite, vaultGet, vaultSet, vaultList } from "../src/tools";
+import { pageList, pageRead, pageWrite, vaultGet, vaultSet, vaultList } from "@orden/mcp";
 
 // The MCP tools operate on a real Host. We test the tool functions directly
 // (the MCP transport is verified separately/live) against a disk-backed NodeHost.

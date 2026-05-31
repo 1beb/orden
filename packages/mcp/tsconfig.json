@@ -9,8 +9,7 @@
     "skipLibCheck": true,
     "types": ["node"],
     "paths": {
-      "@orden/host-api": ["../../packages/host-api/src/index.ts"],
-      "@orden/mcp": ["../../packages/mcp/src/index.ts"]
+      "@orden/host-api": ["../../packages/host-api/src/index.ts"]
     }
   },
   "include": ["src", "test"]

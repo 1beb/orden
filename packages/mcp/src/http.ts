@@ -9,7 +9,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Host } from "@orden/host-api";
-import { createMcpServer } from "./mcp";
+import { createMcpServer } from "./server";
 
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 

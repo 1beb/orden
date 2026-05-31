@@ -14,7 +14,7 @@ import { readFile, stat } from "node:fs/promises";
 import { NodeHost } from "./nodeHost";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss } from "./terminal";
-import { handleMcpRequest } from "./mcpHttp";
+import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src

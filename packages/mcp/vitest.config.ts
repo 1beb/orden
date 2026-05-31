@@ -7,8 +7,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@orden/host-api": resolve(__dirname, "../../packages/host-api/src/index.ts"),
-      "@orden/mcp": resolve(__dirname, "../../packages/mcp/src/index.ts"),
+      "@orden/host-api": resolve(__dirname, "../host-api/src/index.ts"),
     },
   },
 });
