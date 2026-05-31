@@ -59,7 +59,18 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   }
   try {
     const body = await readFile(filePath);
-    res.writeHead(200, { "content-type": MIME[extname(filePath)] ?? "application/octet-stream" });
+    // Content-hashed assets/* are immutable — cache them hard. Everything else
+    // (above all index.html, including the SPA fallback) must revalidate every
+    // load, or the browser pins a stale bundle that points at old asset hashes
+    // and no plain reload can dislodge it.
+    const immutable = filePath.startsWith(join(webDist, "assets") + "/");
+    const cacheControl = immutable
+      ? "public, max-age=31536000, immutable"
+      : "no-cache, must-revalidate";
+    res.writeHead(200, {
+      "content-type": MIME[extname(filePath)] ?? "application/octet-stream",
+      "cache-control": cacheControl,
+    });
     res.end(body);
   } catch {
     res.writeHead(404).end("not found");
