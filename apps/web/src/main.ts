@@ -15,19 +15,22 @@ import { hydratePages } from "./pages";
 import { hydrateCards, listItems, getItem, cardSessionIds, type Item } from "./cards";
 import {
   hydrateSessions,
+  reapDeadSessions,
   listSessions,
   getSession,
   createSession,
   archiveSession,
   deleteSession,
   isAbandoned,
+  isSessionComplete,
+  markSessionTouched,
   type Agent,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal } from "./terminalView";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
-import { renderProjectPage, projectNotesHasFocus } from "./projectPage";
+import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
 import {
   hydrateRecentFiles,
   recordRecentFile,
@@ -67,6 +70,10 @@ async function hydrateAll(): Promise<void> {
   ]);
 }
 await hydrateAll();
+// Sweep dead "Untitled" stub sessions left by prior runs (touched or not) so they
+// don't linger in the active list. Boot-only: hydrateAll also runs on reconnect,
+// where reaping could nuke a freshly-started, not-yet-titled session.
+reapDeadSessions();
 
 // Toast when a session's linked card flips to "blocked" — Claude finished its
 // turn and is waiting on you (driven by the Stop hook → host → card state, which
@@ -133,7 +140,6 @@ const view = new EditorView(document.querySelector<HTMLElement>("#editor")!, {
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const listEl = document.querySelector<HTMLUListElement>("#annotation-list")!;
-const countEl = document.querySelector<HTMLElement>("#count")!;
 const primaryBtn = document.querySelector<HTMLButtonElement>("#primary-action")!;
 const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
 
@@ -496,8 +502,6 @@ function renderPanel(): void {
   }
 
   const total = placed.length + orphans.length;
-  countEl.textContent = String(total);
-  countEl.hidden = total === 0; // don't show "0"
   annotationsBlock.classList.toggle("empty", total === 0);
   // First annotation (0 → some) reveals a hidden panel, unless the user hid it
   // on purpose while it already held annotations.
@@ -698,6 +702,10 @@ function renderProject(projectId: string): void {
 function refreshProject(): void {
   if (viewStore.get() !== "project" || !currentProjectId) return;
   if (projectNotesHasFocus()) return;
+  // Don't rebuild the page out from under an editable control (e.g. the
+  // add-item box) — a live card transition would otherwise wipe in-progress
+  // typing. Mirrors the notes-focus guard above.
+  if (projectPageHasFocus()) return;
   renderProject(currentProjectId);
 }
 
@@ -973,6 +981,10 @@ const sessionsPanel = mountSessionsPanel({
   initialOpenId: lastSessionId,
   persistOpen: (id) => void host.vault.set("ui", "last-session", id ?? ""),
   projectName: (id) => getProject(id)?.name ?? "—",
+  isComplete: (id) => {
+    const s = getSession(id);
+    return s ? isSessionComplete(s) : false;
+  },
   create: (opts) => {
     // On a project page, scope the new session (and its linked card) to that
     // project; otherwise it falls to the default Homeroom project.
@@ -982,7 +994,7 @@ const sessionsPanel = mountSessionsPanel({
     refreshBoard(); // the new linked planning card shows on the board
     return s;
   },
-  mountTerminal: (container, id) => mountTerminal(container, id),
+  mountTerminal: (container, id) => mountTerminal(container, id, () => markSessionTouched(id)),
   archive: (id) => {
     archiveSession(id);
     refreshBoard(); // its card moved to Done

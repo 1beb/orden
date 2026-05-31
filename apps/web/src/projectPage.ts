@@ -11,7 +11,7 @@ import {
 } from "./cards";
 import { getProject, listProjects, type Project } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
-import { listSessions, setSessionProject, type Agent, type Session } from "./sessions";
+import { listSessions, setSessionProject, isSessionComplete, type Agent, type Session } from "./sessions";
 import { makeOutlineEditor } from "./outlineEditor";
 import { openCardModal } from "./cardModal";
 
@@ -21,11 +21,25 @@ const STATES: CardState[] = [...LIFECYCLE_ORDER];
 // Torn down whenever the page re-renders so detached EditorViews don't leak.
 let notesView: EditorView | null = null;
 
+// The container the page is mounted in, captured each render so focus guards
+// can scope themselves to "is the user typing somewhere on this page".
+let pageContainer: HTMLElement | null = null;
+
 // True while the user is typing in the embedded notes outline. Callers should
 // skip re-rendering the project page on remote changes when this is set, or
 // they'd destroy the editor mid-keystroke (mirrors journal.refresh's guard).
 export function projectNotesHasFocus(): boolean {
   return notesView?.hasFocus() ?? false;
+}
+
+// True while focus is in an editable control on the page (the add-item box, a
+// state/project picker). A live card transition rebuilds the whole page, so
+// callers skip the rebuild when this is set or they'd wipe what's being typed.
+export function projectPageHasFocus(): boolean {
+  const el = document.activeElement;
+  if (!el || !pageContainer?.contains(el)) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 // Capitalized labels for group headers and the state picker.
@@ -73,6 +87,7 @@ export function renderProjectPage(
     /* ignore */
   }
   notesView = null;
+  pageContainer = container;
   container.replaceChildren();
   if (!project) {
     const p = document.createElement("p");
@@ -170,7 +185,9 @@ function sessionsWidget(
 
   const refresh = (): void => {
     body.replaceChildren();
-    const sessions = listSessions().filter((s: Session) => s.projectId === projectId);
+    const sessions = listSessions().filter(
+      (s: Session) => s.projectId === projectId && !isSessionComplete(s),
+    );
     if (sessions.length === 0) {
       const empty = document.createElement("p");
       empty.className = "project-widget-empty";
@@ -253,7 +270,9 @@ function itemsWidget(
       if (group.length === 0) continue;
       const details = document.createElement("details");
       details.className = "issue-group";
-      details.open = true;
+      // Completed cards can pile up; show the group but keep it furled until the
+      // user opens it. Every other state defaults open.
+      details.open = state !== "complete";
       const summary = document.createElement("summary");
       summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${STATE_LABELS[state]}</span> <span class="issue-group-count">${group.length}</span>`;
       details.append(summary);
