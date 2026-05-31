@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { encodeCwd, readTranscriptTitle } from "../src/transcriptTitle";
+import { encodeCwd, readTranscriptTitle, readTranscriptSummary } from "../src/transcriptTitle";
 
 describe("transcriptTitle", () => {
   test("encodeCwd maps an absolute path to Claude's project dir name", () => {
@@ -10,5 +10,9 @@ describe("transcriptTitle", () => {
 
   test("readTranscriptTitle returns null when no transcript exists (never throws)", () => {
     expect(readTranscriptTitle("/no/such/cwd", "00000000-0000-0000-0000-000000000000")).toBeNull();
+  });
+
+  test("readTranscriptSummary returns null when no transcript exists (never throws)", () => {
+    expect(readTranscriptSummary("/no/such/cwd", "00000000-0000-0000-0000-000000000000")).toBeNull();
   });
 });

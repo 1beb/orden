@@ -1,11 +1,19 @@
 import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
 import type { EditorView } from "prosemirror-view";
 import type { FileEntry } from "@orden/host-api";
-import { itemsByProject, addItem, setItemState, setItemProject, type Item } from "./cards";
+import {
+  itemsByProject,
+  addItem,
+  setItemState,
+  setItemProject,
+  cardSessionIds,
+  type Item,
+} from "./cards";
 import { getProject, listProjects, type Project } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
 import { listSessions, setSessionProject, type Agent, type Session } from "./sessions";
 import { makeOutlineEditor } from "./outlineEditor";
+import { openCardModal } from "./cardModal";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
@@ -92,9 +100,12 @@ export function renderProjectPage(
   meta.textContent = metaText;
 
   container.append(heading, ...(metaText ? [meta] : []));
+  const sessions = sessionsWidget(projectId, onOpenSession, onNewSession);
   container.append(
-    sessionsWidget(projectId, onOpenSession, onNewSession),
-    itemsWidget(projectId, onChange, onStartSession),
+    sessions.section,
+    // Moving a card to another project also moves its linked session — refresh
+    // the Active sessions widget so the session leaves this page's list too.
+    itemsWidget(projectId, onChange, sessions.refresh, onStartSession, onOpenSession),
     // File explorer — only for file-backed (local) projects. Ephemeral/ssh/s3
     // projects have no browsable local files, so the widget is omitted.
     ...(project.source.kind === "local" ? [filesWidget(repoFiles, onOpenFile)] : []),
@@ -154,48 +165,52 @@ function sessionsWidget(
   projectId: string,
   onOpenSession?: (id: string) => void,
   onNewSession?: (agent: Agent) => void,
-): HTMLElement {
+): { section: HTMLElement; refresh: () => void } {
   const { section, body } = widget("Active sessions");
 
-  const sessions = listSessions().filter((s: Session) => s.projectId === projectId);
-  if (sessions.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "project-widget-empty";
-    empty.textContent = "No active sessions for this project.";
-    body.append(empty);
-  } else {
-    const list = document.createElement("div");
-    list.className = "project-sess-list";
-    for (const s of sessions) {
-      const row = document.createElement("button");
-      row.className = "project-sess-row";
-      row.type = "button";
-      const mark = document.createElement("span");
-      mark.className = "project-sess-mark";
-      mark.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
-      mark.title = s.agent;
-      const title = document.createElement("span");
-      title.className = "project-sess-title";
-      title.textContent = s.title;
-      row.append(mark, title);
-      if (onOpenSession) row.addEventListener("click", () => onOpenSession(s.id));
-      list.append(row);
+  const refresh = (): void => {
+    body.replaceChildren();
+    const sessions = listSessions().filter((s: Session) => s.projectId === projectId);
+    if (sessions.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "project-widget-empty";
+      empty.textContent = "No active sessions for this project.";
+      body.append(empty);
+    } else {
+      const list = document.createElement("div");
+      list.className = "project-sess-list";
+      for (const s of sessions) {
+        const row = document.createElement("button");
+        row.className = "project-sess-row";
+        row.type = "button";
+        const mark = document.createElement("span");
+        mark.className = "project-sess-mark";
+        mark.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
+        mark.title = s.agent;
+        const title = document.createElement("span");
+        title.className = "project-sess-title";
+        title.textContent = s.title;
+        row.append(mark, title);
+        if (onOpenSession) row.addEventListener("click", () => onOpenSession(s.id));
+        list.append(row);
+      }
+      body.append(list);
     }
-    body.append(list);
-  }
 
-  // Start a new project-scoped session via the Claude / opencode brand marks.
-  if (onNewSession) {
-    const newRow = document.createElement("div");
-    newRow.className = "project-sess-new";
-    const label = document.createElement("span");
-    label.className = "project-sess-new-label";
-    label.textContent = "New session";
-    newRow.append(label, agentLauncher((agent) => onNewSession(agent)));
-    body.append(newRow);
-  }
+    // Start a new project-scoped session via the Claude / opencode brand marks.
+    if (onNewSession) {
+      const newRow = document.createElement("div");
+      newRow.className = "project-sess-new";
+      const label = document.createElement("span");
+      label.className = "project-sess-new-label";
+      label.textContent = "New session";
+      newRow.append(label, agentLauncher((agent) => onNewSession(agent)));
+      body.append(newRow);
+    }
+  };
 
-  return section;
+  refresh();
+  return { section, refresh };
 }
 
 // --- 2. Items by state (the existing issue tracker) -----------------------
@@ -203,7 +218,11 @@ function sessionsWidget(
 function itemsWidget(
   projectId: string,
   onChange: () => void,
+  // Refresh the Active sessions widget when a card (and its linked session)
+  // moves to another project, so the session leaves this page's list.
+  refreshSessions: () => void,
   onStartSession?: (item: Item, agent: Agent) => void,
+  onOpenSession?: (id: string) => void,
 ): HTMLElement {
   const { section, body } = widget("Items by state");
 
@@ -241,9 +260,24 @@ function itemsWidget(
       for (const item of group) {
         const row = document.createElement("div");
         row.className = "issue-row";
-        const title = document.createElement("span");
+        // Click the title to open the card's detail modal (same modal the
+        // kanban board opens). Mutations there refresh this list + the sessions
+        // widget; onStart/onOpen fall back to no-ops if the page didn't wire them.
+        const title = document.createElement("button");
+        title.type = "button";
         title.className = "issue-title";
         title.textContent = item.title;
+        title.addEventListener("click", () => {
+          openCardModal(item.id, {
+            onStartSession: (it, agent) => onStartSession?.(it, agent),
+            onOpenSession: (id) => onOpenSession?.(id),
+            onChange: () => {
+              onChange();
+              render();
+              refreshSessions();
+            },
+          });
+        });
         const select = document.createElement("select");
         select.className = "issue-state";
         for (const s of STATES) {
@@ -271,15 +305,16 @@ function itemsWidget(
         }
         projSel.addEventListener("change", () => {
           setItemProject(item.id, projSel.value);
-          // Move the linked session too, so it follows the card off this page
+          // Move the linked sessions too, so they follow the card off this page
           // instead of stranding under its old project's "Active sessions".
-          if (item.sessionId) setSessionProject(item.sessionId, projSel.value);
+          for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
           onChange();
           render();
+          refreshSessions();
         });
         row.append(title, select, projSel);
         // No AI conversation yet → start one (Claude / opencode) from the row.
-        if (!item.sessionId && onStartSession) {
+        if (cardSessionIds(item).length === 0 && onStartSession) {
           row.append(agentLauncher((agent) => onStartSession(item, agent)));
         }
         details.append(row);

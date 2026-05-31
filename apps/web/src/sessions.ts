@@ -5,7 +5,15 @@
 // writes write through. The live agent backend (spawn/resume) runs the embedded
 // agent TUI per session.
 import type { Host } from "@orden/host-api";
-import { addItem, listItems, setItemState, removeItem, setItemSession } from "./cards";
+import {
+  addItem,
+  listItems,
+  setItemState,
+  addItemSession,
+  removeItemSession,
+  cardSessionIds,
+  type Item,
+} from "./cards";
 import { ensureDefaultProject } from "./projects";
 
 export type Agent = "claude" | "opencode";
@@ -18,7 +26,13 @@ export interface Session {
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
   touched?: boolean; // user interacted (a TUI keystroke)
+  summary?: string; // digest added once complete / aged (see ensureSummary)
+  // Text handed to the agent on first launch (the card's title when started from
+  // a card). The host consumes + clears it in buildCommand.
+  initialPrompt?: string;
 }
+
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 let host: Host | null = null;
 let cache: Session[] = [];
@@ -39,8 +53,24 @@ export function getSession(id: string): Session | undefined {
   return cache.find((s) => s.id === id);
 }
 
+/** Sessions linked to a given card, in link order. */
+export function sessionsForCard(item: Item): Session[] {
+  return cardSessionIds(item)
+    .map((id) => getSession(id))
+    .filter((s): s is Session => s !== undefined);
+}
+
 function linkedCardId(sessionId: string): string | undefined {
-  return listItems().find((i) => i.sessionId === sessionId)?.id;
+  return listItems().find((i) => cardSessionIds(i).includes(sessionId))?.id;
+}
+
+// Session ids embed their creation time as base36 (`sess_<time36>_<n>`); decode
+// it to estimate age. Returns null for ids that don't carry a timestamp.
+export function sessionCreatedAt(session: Session): number | null {
+  const part = session.id.split("_")[1];
+  if (!part) return null;
+  const ms = parseInt(part, 36);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
 /** A brand-new session no one has touched — not worth keeping. */
@@ -49,6 +79,34 @@ export function isAbandoned(s: Session): boolean {
     !s.touched &&
     (s.title === "Untitled" || s.title === "Untitled session")
   );
+}
+
+/**
+ * Give a session a summary once it's "done": its card reached complete, or it's
+ * older than a day. The host's title poller may have already written a richer
+ * summary off the transcript (no `claude -p`); if not, seed from the session's
+ * self-authored title so the card always shows something. No-op once a summary
+ * exists (so a user edit is never clobbered). Returns the (possibly updated)
+ * session.
+ */
+export function ensureSummary(session: Session, cardState?: string): Session {
+  if (session.summary && session.summary.trim()) return session;
+  const created = sessionCreatedAt(session);
+  const aged = created !== null && Date.now() - created > DAY_MS;
+  if (cardState !== "complete" && !aged) return session;
+  const seed = session.title && session.title !== "Untitled session" ? session.title : "";
+  if (!seed) return session;
+  session.summary = seed;
+  persist(session);
+  return session;
+}
+
+/** Set (or clear) a session's summary — the card modal's editable field. */
+export function setSessionSummary(id: string, summary: string): void {
+  const session = cache.find((s) => s.id === id);
+  if (!session) return;
+  session.summary = summary;
+  persist(session);
 }
 
 /** Archive a session (hide it from the list) — like moving its card to Done. */
@@ -61,12 +119,16 @@ export function archiveSession(id: string): void {
   if (cardId) setItemState(cardId, "complete");
 }
 
-/** Permanently remove a session and its linked card. */
+/**
+ * Permanently remove a session and unlink it from its card. The card is KEPT
+ * (cards are first-class and can have zero sessions) — use removeItem to delete
+ * the card itself.
+ */
 export function deleteSession(id: string): void {
   cache = cache.filter((s) => s.id !== id);
   if (host) void host.vault.delete("sessions", id);
   const cardId = linkedCardId(id);
-  if (cardId) removeItem(cardId);
+  if (cardId) removeItemSession(cardId, id);
 }
 
 function persist(session: Session): void {
@@ -90,23 +152,28 @@ export function createSession(opts: {
   agent: Agent;
   projectId?: string;
   // Link to an EXISTING card instead of creating a new one — used when starting
-  // a session from a card that has no AI conversation yet.
+  // a session from a card.
   linkToCardId?: string;
+  // Text handed to the agent on first launch (the card's title). The host
+  // consumes + clears it once the TUI is spawned.
+  initialPrompt?: string;
 }): Session {
   counter += 1;
   // No project chosen → drop it in the default "Homeroom" project.
   const projectId = opts.projectId || ensureDefaultProject().id;
+  const prompt = opts.initialPrompt?.trim();
   const session: Session = {
     id: `sess_${Date.now().toString(36)}_${counter}`,
     title: opts.title.trim() || "Untitled session",
     agent: opts.agent,
     projectId,
+    ...(prompt ? { initialPrompt: prompt } : {}),
   };
   cache.push(session);
   persist(session);
   // separate-but-linked: a card on the kanban points back to this session.
   // Started from an existing card → link that one; otherwise drop a new card.
-  if (opts.linkToCardId) setItemSession(opts.linkToCardId, session.id);
+  if (opts.linkToCardId) addItemSession(opts.linkToCardId, session.id);
   else addItem(session.projectId, session.title, session.id);
   return session;
 }

@@ -20,8 +20,15 @@ interface SessionRec {
 interface CardRec {
   id: string;
   state: string;
-  sessionId?: string;
+  sessionIds?: string[];
+  sessionId?: string; // legacy single-session shape
   [k: string]: unknown;
+}
+
+/** A card's linked sessions, tolerant of the legacy single-sessionId shape. */
+function cardSessions(card: CardRec): string[] {
+  if (Array.isArray(card.sessionIds)) return card.sessionIds;
+  return card.sessionId ? [card.sessionId] : [];
 }
 
 const ALLOWED = new Set(["in-progress", "blocked", "planning", "complete"]);
@@ -99,7 +106,7 @@ async function applyState(host: Host, claudeSessionId: string, state: string): P
   const cardIds = await host.vault.list("cards");
   for (const cid of cardIds) {
     const card = await host.vault.get<CardRec>("cards", cid);
-    if (card?.sessionId === ordenSessionId) {
+    if (card && cardSessions(card).includes(ordenSessionId)) {
       if (card.state !== state) await host.vault.set("cards", cid, { ...card, state });
       return;
     }

@@ -12,7 +12,7 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
 import { hydratePages } from "./pages";
-import { hydrateCards, listItems, type Item } from "./cards";
+import { hydrateCards, listItems, cardSessionIds, type Item } from "./cards";
 import {
   hydrateSessions,
   listSessions,
@@ -85,7 +85,7 @@ function showToast(text: string): void {
 function notifyBlockedTransitions(): void {
   for (const it of listItems()) {
     const prev = cardWaitState.get(it.id);
-    if (it.sessionId && it.state === "blocked" && prev !== "blocked") {
+    if (cardSessionIds(it).length > 0 && it.state === "blocked" && prev !== "blocked") {
       showToast(`${it.title} is waiting for you`);
     }
     cardWaitState.set(it.id, it.state);
@@ -603,7 +603,10 @@ const journal = mountJournal(
 );
 
 function refreshBoard(): void {
-  const count = renderKanban(viewEls.kanban, openProject, startSessionForItem);
+  const count = renderKanban(viewEls.kanban, {
+    onStartSession: startSessionForItem,
+    onOpenSession: openSessionInPanel,
+  });
   navBadge.textContent = String(count);
   navBadge.hidden = count === 0;
 }
@@ -617,6 +620,8 @@ function startSessionForItem(item: Item, agent: Agent): void {
     agent,
     projectId: item.projectId,
     linkToCardId: item.id,
+    // Hand the card's text to the agent the moment its TUI launches.
+    initialPrompt: item.title,
   });
   refreshBoard();
   app.classList.remove("right-closed"); // ensure the sessions pane is visible

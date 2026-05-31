@@ -6,6 +6,10 @@ import {
   itemsByProject,
   listItems,
   setItemState,
+  setItemDueDate,
+  addItemSession,
+  removeItemSession,
+  cardSessionIds,
 } from "../src/cards";
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -48,6 +52,45 @@ describe("cards store (host-backed)", () => {
     const got = listItems().find((x) => x.id === i.id);
     expect(got?.title).toBe("kept");
     expect(got?.state).toBe("blocked");
+  });
+
+  it("addItem starts with an empty sessionIds array (or seeds one)", () => {
+    expect(addItem("p1", "no sessions").sessionIds).toEqual([]);
+    expect(addItem("p1", "seeded", "sess_1").sessionIds).toEqual(["sess_1"]);
+  });
+
+  it("addItemSession / removeItemSession link and unlink sessions (deduped)", () => {
+    const i = addItem("p1", "x");
+    addItemSession(i.id, "sess_a");
+    addItemSession(i.id, "sess_a"); // dedupe
+    addItemSession(i.id, "sess_b");
+    expect(cardSessionIds(listItems().find((x) => x.id === i.id)!)).toEqual(["sess_a", "sess_b"]);
+    removeItemSession(i.id, "sess_a");
+    expect(cardSessionIds(listItems().find((x) => x.id === i.id)!)).toEqual(["sess_b"]);
+  });
+
+  it("setItemDueDate sets and clears a due date", () => {
+    const i = addItem("p1", "x");
+    setItemDueDate(i.id, "2026-06-01");
+    expect(listItems().find((x) => x.id === i.id)?.dueDate).toBe("2026-06-01");
+    setItemDueDate(i.id, undefined);
+    expect(listItems().find((x) => x.id === i.id)?.dueDate).toBeUndefined();
+  });
+
+  it("migrates a legacy single sessionId into sessionIds on hydrate", async () => {
+    const host = new BrowserHost();
+    await host.vault.set("cards", "L_sess", {
+      id: "L_sess",
+      projectId: "p1",
+      title: "legacy",
+      state: "planning",
+      notes: "",
+      sessionId: "sess_legacy",
+    });
+    await hydrateCards(host);
+    const got = listItems().find((x) => x.id === "L_sess")!;
+    expect(got.sessionIds).toEqual(["sess_legacy"]);
+    expect(got.sessionId).toBeUndefined();
   });
 
   it("migrates legacy states to the four-state set on hydrate", async () => {

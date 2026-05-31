@@ -2046,21 +2046,270 @@ body {
   outline-offset: -2px;
 }
 
-/* per-state accents: a colored top border on board columns and a colored
-   dot before the issue-group label. Four states only. */
-.orden-column[data-state="planning"] {
-  border-top: 3px solid #64748b; /* slate / neutral grey-blue */
+/* board filter bar */
+.orden-board__filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
 }
-.orden-column[data-state="in-progress"] {
-  border-top: 3px solid var(--accent); /* app purple */
+.orden-board__filter-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
 }
-.orden-column[data-state="blocked"] {
-  border-top: 3px solid #dc2626; /* red */
+.orden-board__filter-chip:hover {
+  color: var(--ink);
 }
-.orden-column[data-state="complete"] {
-  border-top: 3px solid #16a34a; /* green */
+.orden-board__filter-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.orden-board__filter-project {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+.orden-board__filter-clear {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
 }
 
+/* card footer: due-date + session-count badges */
+.orden-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.orden-card__due,
+.orden-card__sesscount {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #ececea;
+  color: var(--muted);
+}
+.orden-card__due.is-overdue {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.orden-card__sesscount.is-clickable {
+  cursor: pointer;
+}
+.orden-card__sesscount.is-clickable:hover {
+  background: #e0e0dd;
+  color: var(--ink);
+}
+
+/* card detail modal (reuses .preview-overlay / .preview-modal base) */
+.card-modal {
+  width: 480px;
+}
+.card-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.card-modal__title {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 3px 6px;
+  margin: -3px 0;
+}
+.card-modal__title:hover {
+  border-color: var(--line);
+}
+.card-modal__title:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #fff;
+}
+.card-modal__close {
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.card-modal__close:hover {
+  color: var(--ink);
+}
+.card-modal__body {
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+.card-modal__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.card-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-modal__field-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.card-modal__field-input {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+}
+.card-modal__section-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-bottom: 8px;
+}
+.card-modal__empty {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.card-modal__sess {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.card-modal__sess-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-modal__sess-mark {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.card-modal__sess-mark svg {
+  width: 16px;
+  height: 16px;
+}
+.card-modal__sess-title {
+  flex: 1;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-modal__sess-title:hover {
+  color: var(--accent);
+}
+.card-modal__sess-remove {
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  flex: none;
+}
+.card-modal__sess-remove:hover {
+  color: #b91c1c;
+  border-color: #f3c4c4;
+}
+.card-modal__sess-summary {
+  width: 100%;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.card-modal__sess-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.card-modal__sess-new-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.card-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.card-modal__delete {
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #b91c1c;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.card-modal__delete:hover {
+  background: #fee2e2;
+  border-color: #f3c4c4;
+}
+
+/* per-state accents: a colored dot before the issue-group label (on the project
+   page). The board columns themselves carry no colored top border. */
 .issue-group-state::before {
   content: "";
   display: inline-block;
@@ -2109,4 +2358,21 @@ body {
 }
 .annotations-block.empty #annotation-list {
   display: none;
+}
+
+/* The card title in the project page's "Items by state" list is a <button> so
+   clicking it opens the card modal; strip the button chrome so it reads as
+   plain, left-aligned text with a pointer affordance. */
+.issue-row .issue-title {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.issue-row .issue-title:hover {
+  text-decoration: underline;
 }

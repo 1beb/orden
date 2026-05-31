@@ -2,7 +2,8 @@
 // Backed by the host vault (ns "cards", one key per item id), stored separately
 // from wiki pages so they never show up in the Pages index. Accessors stay
 // synchronous over a cache hydrated at boot; writes write through.
-// AI sessions per item arrive with the host backend (sessionId placeholder kept).
+// A card may have zero or more linked AI sessions (sessionIds); it outlives them
+// (deleting a session unlinks it but keeps the card).
 import type { CardState } from "@orden/outliner";
 import type { Host } from "@orden/host-api";
 
@@ -12,7 +13,10 @@ export interface Item {
   title: string;
   state: CardState;
   notes: string;
-  sessionId?: string; // future: associated AI session
+  sessionIds: string[]; // linked AI sessions (0+)
+  dueDate?: string; // ISO yyyy-mm-dd, optional
+  /** @deprecated legacy single-session field; migrated into sessionIds at boot. */
+  sessionId?: string;
 }
 
 // Map legacy lifecycle states to the current four-state set so cards stored
@@ -32,6 +36,12 @@ function normalizeState(state: unknown): CardState {
   return LEGACY_STATE_MAP[String(state)] ?? "planning";
 }
 
+/** The card's linked sessions, tolerant of the legacy single-sessionId shape. */
+export function cardSessionIds(item: Item): string[] {
+  if (Array.isArray(item.sessionIds)) return item.sessionIds;
+  return item.sessionId ? [item.sessionId] : [];
+}
+
 let host: Host | null = null;
 let cache: Item[] = [];
 let counter = 0;
@@ -41,19 +51,33 @@ export async function hydrateCards(h: Host): Promise<void> {
   const ids = await h.vault.list("cards");
   const all = await Promise.all(ids.map((id) => h.vault.get<Item>("cards", id)));
   cache = all.filter((i): i is Item => i !== null);
-  // Migrate legacy states to the current four-state set, persisting any change
-  // so the normalized value sticks across reloads.
+  // Migrate legacy fields, persisting any change so the normalized value sticks
+  // across reloads: lifecycle state -> four-state set, single sessionId -> array.
   for (const item of cache) {
+    let changed = false;
     const normalized = normalizeState(item.state);
     if (normalized !== item.state) {
       item.state = normalized;
-      void h.vault.set("cards", item.id, item);
+      changed = true;
     }
+    if (!Array.isArray(item.sessionIds)) {
+      item.sessionIds = item.sessionId ? [item.sessionId] : [];
+      changed = true;
+    }
+    if (item.sessionId !== undefined) {
+      delete item.sessionId;
+      changed = true;
+    }
+    if (changed) void h.vault.set("cards", item.id, item);
   }
 }
 
 export function listItems(): Item[] {
   return [...cache];
+}
+
+export function getItem(id: string): Item | undefined {
+  return cache.find((i) => i.id === id);
 }
 
 export function itemsByProject(projectId: string): Item[] {
@@ -68,31 +92,60 @@ export function addItem(projectId: string, title: string, sessionId?: string): I
     title: title.trim(),
     state: "planning",
     notes: "",
-    sessionId,
+    sessionIds: sessionId ? [sessionId] : [],
   };
   cache.push(item);
   if (host) void host.vault.set("cards", item.id, item);
   return item;
 }
 
-export function setItemState(id: string, state: CardState): void {
-  cache = cache.map((i) => (i.id === id ? { ...i, state } : i));
+function persist(id: string): void {
   const updated = cache.find((i) => i.id === id);
   if (host && updated) void host.vault.set("cards", id, updated);
+}
+
+export function setItemState(id: string, state: CardState): void {
+  cache = cache.map((i) => (i.id === id ? { ...i, state } : i));
+  persist(id);
+}
+
+/** Rename a card. Empty/whitespace titles are ignored (a card keeps its name). */
+export function setItemTitle(id: string, title: string): void {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  cache = cache.map((i) => (i.id === id ? { ...i, title: trimmed } : i));
+  persist(id);
 }
 
 /** Reassign a card to a different project. */
 export function setItemProject(id: string, projectId: string): void {
   cache = cache.map((i) => (i.id === id ? { ...i, projectId } : i));
-  const updated = cache.find((i) => i.id === id);
-  if (host && updated) void host.vault.set("cards", id, updated);
+  persist(id);
 }
 
-/** Link a card to an AI session (e.g. one started from the card). */
-export function setItemSession(id: string, sessionId: string): void {
-  cache = cache.map((i) => (i.id === id ? { ...i, sessionId } : i));
-  const updated = cache.find((i) => i.id === id);
-  if (host && updated) void host.vault.set("cards", id, updated);
+/** Set (or clear, with undefined) a card's due date — ISO yyyy-mm-dd. */
+export function setItemDueDate(id: string, dueDate: string | undefined): void {
+  cache = cache.map((i) => (i.id === id ? { ...i, dueDate } : i));
+  persist(id);
+}
+
+/** Link an AI session to a card (no-op if already linked). */
+export function addItemSession(id: string, sessionId: string): void {
+  cache = cache.map((i) => {
+    if (i.id !== id) return i;
+    const existing = cardSessionIds(i);
+    if (existing.includes(sessionId)) return { ...i, sessionIds: existing };
+    return { ...i, sessionIds: [...existing, sessionId] };
+  });
+  persist(id);
+}
+
+/** Unlink an AI session from a card (the card itself is kept). */
+export function removeItemSession(id: string, sessionId: string): void {
+  cache = cache.map((i) =>
+    i.id === id ? { ...i, sessionIds: cardSessionIds(i).filter((s) => s !== sessionId) } : i,
+  );
+  persist(id);
 }
 
 export function removeItem(id: string): void {

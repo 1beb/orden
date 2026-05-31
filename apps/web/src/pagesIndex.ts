@@ -34,7 +34,7 @@ export function renderPagesIndex(
   const table = document.createElement("table");
   table.className = "pages-table";
   table.innerHTML =
-    "<thead><tr><th>Page</th><th>Created</th><th>Backlinks</th></tr></thead>";
+    '<thead><tr><th>Page</th><th>Created</th><th>Updated</th><th>Backlinks</th><th class="pages-actions"></th></tr></thead>';
   const tbody = document.createElement("tbody");
   for (const p of pages) {
     const tr = document.createElement("tr");
@@ -48,9 +48,10 @@ export function renderPagesIndex(
     const createdCell = document.createElement("td");
     createdCell.className = "pages-date";
     createdCell.textContent = fmtDate(p.created);
-    if (p.updated && p.updated !== p.created) {
-      createdCell.title = `Updated ${fmtDate(p.updated)}`;
-    }
+
+    const updatedCell = document.createElement("td");
+    updatedCell.className = "pages-date";
+    updatedCell.textContent = fmtDate(p.updated ?? p.created);
 
     const countCell = document.createElement("td");
     countCell.className = "pages-count";
@@ -75,7 +76,7 @@ export function renderPagesIndex(
     });
     actionCell.append(del);
 
-    tr.append(nameCell, createdCell, countCell, actionCell);
+    tr.append(nameCell, createdCell, updatedCell, countCell, actionCell);
     tbody.append(tr);
   }
   table.append(tbody);

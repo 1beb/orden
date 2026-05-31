@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host } from "@orden/host-api";
-import { readTranscriptTitle } from "./transcriptTitle";
+import { readTranscriptTitle, readTranscriptSummary } from "./transcriptTitle";
 import {
   discoverOpencodeSession,
   existingOpencodeSessions,
@@ -26,11 +26,22 @@ const exec = promisify(execFile);
 interface SessionRecord {
   id: string;
   title?: string;
+  summary?: string;
   agent: "claude" | "opencode";
   conversationId?: string;
   touched?: boolean;
   projectId: string;
+  // Text to hand the agent on FIRST launch (the card's title when a session is
+  // started from a card). Consumed + cleared by buildCommand so a later reattach
+  // doesn't re-send it.
+  initialPrompt?: string;
   [k: string]: unknown;
+}
+
+// Single-quote a string for /bin/sh — tmux runs the launch command through the
+// shell, so the prompt must survive spaces, quotes, and metacharacters intact.
+function shquote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 const UNTITLED = new Set(["", "Untitled", "Untitled session"]);
@@ -53,13 +64,34 @@ async function persistTitle(host: Host, sessionId: string, title: string): Promi
   await host.vault.set("sessions", sessionId, rec);
   const cardIds = await host.vault.list("cards");
   for (const cid of cardIds) {
-    const card = await host.vault.get<{ sessionId?: string; [k: string]: unknown }>("cards", cid);
-    if (card && card.sessionId === sessionId) {
+    const card = await host.vault.get<{
+      sessionIds?: string[];
+      sessionId?: string;
+      [k: string]: unknown;
+    }>("cards", cid);
+    const linked = Array.isArray(card?.sessionIds)
+      ? card!.sessionIds
+      : card?.sessionId
+        ? [card.sessionId]
+        : [];
+    if (card && linked.includes(sessionId)) {
       await host.vault.set("cards", cid, { ...card, title });
       break;
     }
   }
   return true;
+}
+
+// Capture a transcript-derived digest onto the session record once available.
+// Independent of titling (a user may have renamed the session) and idempotent —
+// it never overwrites an existing summary (e.g. a user edit). No `claude -p`.
+async function persistSummary(host: Host, sessionId: string, cwd: string, conversationId: string): Promise<void> {
+  const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
+  if (!rec || (rec.summary ?? "").trim()) return;
+  const summary = readTranscriptSummary(cwd, conversationId);
+  if (!summary) return;
+  rec.summary = summary;
+  await host.vault.set("sessions", sessionId, rec);
 }
 
 // Title a still-untitled session from the AGENT's OWN session title, retitling the
@@ -97,6 +129,9 @@ async function applyTranscriptTitle(
   if (!conversationId) return false;
   const title = readTranscriptTitle(cwd, conversationId);
   if (!title) return false;
+  // Once the transcript has a title it also has enough content for a digest;
+  // capture it alongside (independent of whether the title actually sticks).
+  await persistSummary(host, sessionId, cwd, conversationId);
   return persistTitle(host, sessionId, title);
 }
 
@@ -108,15 +143,29 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
     // persists conversationId — see applyTranscriptTitle). First open: launch bare;
     // the discovered id is captured shortly after.
     if (rec.conversationId) return `opencode --session ${rec.conversationId}`;
-    return "opencode"; // interactive opencode TUI (id discovered post-launch)
+    // First open: launch the TUI, seeding the card's text as the initial prompt.
+    let cmd = "opencode"; // interactive opencode TUI (id discovered post-launch)
+    if (rec.initialPrompt) {
+      cmd += ` --prompt ${shquote(rec.initialPrompt)}`;
+      rec.initialPrompt = undefined;
+      await host.vault.set("sessions", sessionId, rec);
+    }
+    return cmd;
   }
   // claude: resume the conversation if we have its id, else mint one and persist
   // it so chat-mode and future TUI opens continue the same session.
   if (rec.conversationId) return `claude --resume ${rec.conversationId}`;
   const id = randomUUID();
   rec.conversationId = id;
+  // First open: pass the card's text as claude's positional prompt so the agent
+  // starts working on it immediately. Cleared so a later --resume won't resend.
+  let cmd = `claude --session-id ${id}`;
+  if (rec.initialPrompt) {
+    cmd += ` ${shquote(rec.initialPrompt)}`;
+    rec.initialPrompt = undefined;
+  }
   await host.vault.set("sessions", sessionId, rec);
-  return `claude --session-id ${id}`;
+  return cmd;
 }
 
 async function handle(
@@ -161,7 +210,14 @@ async function handle(
     //     client's size, so reattaching from a wider device uses the full width
     //     for live output (tmux can't reflow already-captured scrollback lines).
     [
-      "new-session", "-A", "-s", tmuxName,
+      // -e sets ORDEN_MANAGED in the SESSION environment so the pane (shell +
+      // agent) inherits it. Setting it only on this spawn's env (below) is not
+      // enough: `new-session -A` runs the command inside the tmux SERVER, which
+      // — when a server is already running from an earlier session — keeps its
+      // own env and drops the client's. -e is applied per new session, so it
+      // survives a shared server. Without it the Claude hooks see no
+      // ORDEN_MANAGED and never POST state, so the kanban card never moves.
+      "new-session", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
       "-x", String(cols), "-y", String(rows), "-c", defaultCwd, cmd,
       ";", "set-option", "-g", "mouse", "on",
       ";", "set-option", "-g", "window-size", "latest",
@@ -169,7 +225,8 @@ async function handle(
     ],
     // ORDEN_MANAGED marks this as an orden-launched session: the project-local
     // Claude hooks only POST state updates when it's set, so the hooks stay inert
-    // for the user's own Claude sessions in this repo.
+    // for the user's own Claude sessions in this repo. (Belt-and-suspenders for the
+    // case where this spawn starts the tmux server fresh; -e above is the real fix.)
     {
       name: "xterm-256color",
       cwd: defaultCwd,

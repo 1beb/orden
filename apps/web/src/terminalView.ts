@@ -65,7 +65,70 @@ export function mountTerminal(container: HTMLElement, sessionId: string): () => 
   });
   ro.observe(container);
 
+  // Mobile browsers emit no wheel events, so the desktop scroll path never runs
+  // on a touch swipe. The host forces tmux `mouse on` (see host terminal.ts), so
+  // scrolling an alternate-screen TUI goes: wheel event -> xterm encodes a mouse
+  // wheel report -> tmux scrolls. We replay that exact path by synthesizing
+  // WheelEvents on xterm's screen element. Each event is one cell-height notch
+  // carrying the touch coordinates (xterm needs them to build the mouse report),
+  // emitted once per cell of finger travel so the speed tracks the swipe.
+  let touchY: number | null = null;
+  let touchX = 0;
+  let accum = 0;
+  const screenEl = () =>
+    container.querySelector<HTMLElement>(".xterm-screen") ?? container;
+  const cellHeight = () => {
+    const vp = container.querySelector<HTMLElement>(".xterm-viewport");
+    return vp && term.rows > 0 ? vp.clientHeight / term.rows : 17;
+  };
+  const onTouchStart = (e: TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    touchY = e.touches[0].clientY;
+    touchX = e.touches[0].clientX;
+    accum = 0;
+  };
+  const onTouchMove = (e: TouchEvent) => {
+    if (touchY === null || e.touches.length !== 1) return;
+    const y = e.touches[0].clientY;
+    touchX = e.touches[0].clientX;
+    accum += touchY - y; // finger up (positive) => scroll content down
+    touchY = y;
+    const h = cellHeight();
+    const notches = Math.trunc(accum / h);
+    if (notches === 0) return;
+    accum -= notches * h;
+    const screen = screenEl();
+    const dir = notches > 0 ? 1 : -1;
+    for (let i = 0; i < Math.abs(notches); i++) {
+      screen.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY: dir * h,
+          deltaMode: 0, // pixels, same as a real trackpad
+          clientX: touchX,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }
+    e.preventDefault();
+  };
+  const onTouchEnd = () => {
+    touchY = null;
+    accum = 0;
+  };
+  container.addEventListener("touchstart", onTouchStart, { passive: true });
+  container.addEventListener("touchmove", onTouchMove, { passive: false });
+  container.addEventListener("touchend", onTouchEnd, { passive: true });
+
   return () => {
+    try {
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+    } catch {
+      /* ignore */
+    }
     try {
       ro.disconnect();
     } catch {
