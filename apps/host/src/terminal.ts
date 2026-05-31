@@ -46,6 +46,19 @@ function shquote(s: string): string {
 
 const UNTITLED = new Set(["", "Untitled", "Untitled session"]);
 
+// Build the `--mcp-config <json>` fragment that binds a launched claude session
+// to ITS OWN scoped orden MCP endpoint: http://127.0.0.1:<port>/mcp/<convId>.
+// The server reads the conversationId from the path, so every tool call from
+// this agent is bound to this session. Quoted with shquote so the inline JSON
+// survives the shell tmux runs the launch command through.
+export function mcpConfigArg(convId: string): string {
+  const port = Number(process.env.ORDEN_PORT ?? 4319);
+  const config = {
+    mcpServers: { orden: { type: "http", url: `http://127.0.0.1:${port}/mcp/${convId}` } },
+  };
+  return `--mcp-config ${shquote(JSON.stringify(config))}`;
+}
+
 async function markTouched(host: Host, sessionId: string): Promise<void> {
   const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
   if (rec && !rec.touched) {
@@ -154,12 +167,14 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
   }
   // claude: resume the conversation if we have its id, else mint one and persist
   // it so chat-mode and future TUI opens continue the same session.
-  if (rec.conversationId) return `claude --resume ${rec.conversationId}`;
+  if (rec.conversationId)
+    return `claude ${mcpConfigArg(rec.conversationId)} --resume ${rec.conversationId}`;
   const id = randomUUID();
   rec.conversationId = id;
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
-  let cmd = `claude --session-id ${id}`;
+  // --mcp-config binds this session's claude to its scoped orden MCP endpoint.
+  let cmd = `claude ${mcpConfigArg(id)} --session-id ${id}`;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;
