@@ -45,7 +45,7 @@ export const readTranscriptTitle = (cwd: string, sessionId: string): string | nu
 // opening line. Claude Code stores user turns as
 //   {"type":"user","message":{"role":"user","content":"..."|[{type:"text",text}]}}
 // We take the first non-empty text turn, collapse whitespace, and cap length.
-const firstUserPrompt = (raw: string): string | null => {
+export const firstUserPrompt = (raw: string): string | null => {
   for (const line of raw.split("\n")) {
     if (!line.includes('"user"')) continue;
     try {
@@ -70,6 +70,20 @@ const firstUserPrompt = (raw: string): string | null => {
     }
   }
   return null;
+};
+
+// Did the user actually submit a prompt in this session? Reads the transcript
+// and reports whether it holds at least one real human turn. Used by the boot
+// reconcile to protect a prompted-but-not-yet-titled session from being reaped
+// as a dead "Untitled" stub. Returns false on any missing file / parse issue —
+// the safe default (don't claim activity we can't see). Never throws.
+export const readUserPrompt = (cwd: string, sessionId: string): string | null => {
+  try {
+    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    return firstUserPrompt(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 };
 
 // A short, mechanically-assembled session digest read straight off the

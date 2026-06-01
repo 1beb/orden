@@ -114,19 +114,78 @@ export function renderProjectPage(
   meta.className = "project-meta";
   meta.textContent = metaText;
 
-  container.append(heading, ...(metaText ? [meta] : []));
-  const sessions = sessionsWidget(projectId, onOpenSession, onNewSession);
+  const sessions = sessionsWidget(projectId, onOpenSession);
+  // Moving a card to another project also moves its linked session — refresh
+  // the Active sessions widget so the session leaves this page's list too.
+  const items = itemsWidget(projectId, onChange, sessions.refresh, onStartSession, onOpenSession);
+  // A single bar at the very top: type a title and either Add it, or hit a
+  // Claude / opencode mark to add the item AND start a session on it at once.
+  const top = addBar(projectId, onChange, items.render, sessions.refresh, onStartSession);
+  // onNewSession (a cardless project-scoped session) no longer has a launcher —
+  // add+start covers session creation from the page now.
+  void onNewSession;
   container.append(
+    heading,
+    ...(metaText ? [meta] : []),
+    top,
     sessions.section,
-    // Moving a card to another project also moves its linked session — refresh
-    // the Active sessions widget so the session leaves this page's list too.
-    itemsWidget(projectId, onChange, sessions.refresh, onStartSession, onOpenSession),
+    items.section,
     // File explorer — only for file-backed (local) projects. Ephemeral/ssh/s3
     // projects have no browsable local files, so the widget is omitted.
     ...(project.source.kind === "local" ? [filesWidget(repoFiles, onOpenFile)] : []),
     notesWidget(project),
     activityWidget(),
   );
+}
+
+// --- Top bar: add an item, or add + start a session on it -----------------
+
+function addBar(
+  projectId: string,
+  onChange: () => void,
+  refreshItems: () => void,
+  refreshSessions: () => void,
+  onStartSession?: (item: Item, agent: Agent) => void,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "project-add project-add-top";
+  const input = document.createElement("input");
+  input.className = "project-add-input";
+  input.placeholder = "Add an item…";
+  const addBtn = document.createElement("button");
+  addBtn.className = "project-add-btn";
+  addBtn.textContent = "Add";
+
+  // Create the card from the typed title and refresh the Items list. Returns the
+  // new item so the launch buttons can immediately start a session on it.
+  const create = (): Item | null => {
+    const title = input.value.trim();
+    if (!title) return null;
+    const item = addItem(projectId, title);
+    input.value = "";
+    onChange();
+    refreshItems();
+    return item;
+  };
+
+  addBtn.addEventListener("click", () => create());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") create();
+  });
+  row.append(input, addBtn);
+
+  // The brand marks add the item and start a session on it in one action.
+  if (onStartSession) {
+    row.append(
+      agentLauncher((agent) => {
+        const item = create();
+        if (!item) return;
+        onStartSession(item, agent);
+        refreshSessions();
+      }),
+    );
+  }
+  return row;
 }
 
 // --- Files (file-backed projects only) ------------------------------------
@@ -179,7 +238,6 @@ function widget(title: string): { section: HTMLElement; body: HTMLElement } {
 function sessionsWidget(
   projectId: string,
   onOpenSession?: (id: string) => void,
-  onNewSession?: (agent: Agent) => void,
 ): { section: HTMLElement; refresh: () => void } {
   const { section, body } = widget("Active sessions");
 
@@ -213,17 +271,6 @@ function sessionsWidget(
       }
       body.append(list);
     }
-
-    // Start a new project-scoped session via the Claude / opencode brand marks.
-    if (onNewSession) {
-      const newRow = document.createElement("div");
-      newRow.className = "project-sess-new";
-      const label = document.createElement("span");
-      label.className = "project-sess-new-label";
-      label.textContent = "New session";
-      newRow.append(label, agentLauncher((agent) => onNewSession(agent)));
-      body.append(newRow);
-    }
   };
 
   refresh();
@@ -240,17 +287,8 @@ function itemsWidget(
   refreshSessions: () => void,
   onStartSession?: (item: Item, agent: Agent) => void,
   onOpenSession?: (id: string) => void,
-): HTMLElement {
+): { section: HTMLElement; render: () => void } {
   const { section, body } = widget("Items by state");
-
-  const addRow = document.createElement("div");
-  addRow.className = "project-add";
-  const input = document.createElement("input");
-  input.className = "project-add-input";
-  input.placeholder = "Add an item…";
-  const addBtn = document.createElement("button");
-  addBtn.className = "project-add-btn";
-  addBtn.textContent = "Add";
 
   const list = document.createElement("div");
   list.className = "issue-list";
@@ -342,23 +380,9 @@ function itemsWidget(
     }
   };
 
-  const commit = (): void => {
-    const title = input.value.trim();
-    if (!title) return;
-    addItem(projectId, title);
-    input.value = "";
-    onChange();
-    render();
-  };
-  addBtn.addEventListener("click", commit);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") commit();
-  });
-  addRow.append(input, addBtn);
-
-  body.append(addRow, list);
+  body.append(list);
   render();
-  return section;
+  return { section, render };
 }
 
 // --- 3. Project notes (embedded outliner page) ----------------------------

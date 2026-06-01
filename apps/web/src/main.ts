@@ -45,7 +45,14 @@ import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
-import { hydrateSettings, loadSettings, saveSettings, type StartupView } from "./settings";
+import {
+  hydrateSettings,
+  loadSettings,
+  saveSettings,
+  MIN_PANEL_WIDTH,
+  MAX_PANEL_WIDTH,
+  type StartupView,
+} from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
 import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
 import { openCardModal } from "./cardModal";
@@ -750,6 +757,27 @@ accentInput.value = settings.accent;
 accentInput.addEventListener("input", () => {
   applyAccent(accentInput.value);
   void saveSettings({ accent: accentInput.value });
+});
+
+// Session panel width: drive --session-width (px) on :root; #app's --right
+// falls back to the responsive clamp when this is unset. Apply now, then wire
+// the slider — live preview on input, persist on the same event.
+function applyPanelWidth(width: number): void {
+  document.documentElement.style.setProperty("--session-width", `${width}px`);
+}
+applyPanelWidth(settings.sessionPanelWidth);
+
+const panelWidthInput = document.querySelector<HTMLInputElement>("#panel-width")!;
+const panelWidthValue = document.querySelector<HTMLElement>("#panel-width-value")!;
+panelWidthInput.min = String(MIN_PANEL_WIDTH);
+panelWidthInput.max = String(MAX_PANEL_WIDTH);
+panelWidthInput.value = String(settings.sessionPanelWidth);
+panelWidthValue.textContent = `${settings.sessionPanelWidth}px`;
+panelWidthInput.addEventListener("input", () => {
+  const width = Number(panelWidthInput.value);
+  panelWidthValue.textContent = `${width}px`;
+  applyPanelWidth(width);
+  void saveSettings({ sessionPanelWidth: width });
 });
 
 // Font family + size: apply the saved choice now, then wire the selectors.

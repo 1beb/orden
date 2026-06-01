@@ -9,6 +9,7 @@ const DEFAULTS = {
   accent: "#6d28d9",
   showArchived: false,
   sessionAutoLaunch: true,
+  sessionPanelWidth: 480,
 };
 
 describe("settings store (host-backed)", () => {
@@ -55,7 +56,20 @@ describe("settings store (host-backed)", () => {
       accent: "#0099ff",
       showArchived: false,
       sessionAutoLaunch: true,
+      sessionPanelWidth: 480,
     });
+  });
+
+  it("round-trips the session panel width", async () => {
+    await saveSettings({ sessionPanelWidth: 560 });
+    expect(loadSettings().sessionPanelWidth).toBe(560);
+  });
+
+  it("rejects an out-of-range panel width, falling back to the default", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", { sessionPanelWidth: 9000 });
+    await hydrateSettings(h);
+    expect(loadSettings().sessionPanelWidth).toBe(480);
   });
 
   it("falls back to defaults for invalid stored values", async () => {

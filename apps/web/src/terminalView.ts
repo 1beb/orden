@@ -5,7 +5,11 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
-export function mountTerminal(container: HTMLElement, sessionId: string): () => void {
+export function mountTerminal(
+  container: HTMLElement,
+  sessionId: string,
+  onInput?: () => void,
+): () => void {
   const term = new Terminal({
     fontSize: 13,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -36,7 +40,14 @@ export function mountTerminal(container: HTMLElement, sessionId: string): () => 
     if (typeof e.data === "string") term.write(e.data);
     else term.write(new Uint8Array(e.data as ArrayBuffer));
   };
+  let signalledInput = false;
   term.onData((d) => {
+    // First keystroke = the user is using this session. Signal synchronously so
+    // the reap predicate (isAbandoned) sees it before a fast navigate-away.
+    if (!signalledInput) {
+      signalledInput = true;
+      onInput?.();
+    }
     if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(d));
   });
 

@@ -14,6 +14,7 @@ import { readFile, stat } from "node:fs/promises";
 import { NodeHost } from "./nodeHost";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss, launchDetached } from "./terminal";
+import { reconcileUntitledSessions } from "./sessionTitles";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 

@@ -14,7 +14,8 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host } from "@orden/host-api";
-import { readTranscriptTitle, readTranscriptSummary } from "./transcriptTitle";
+import { readTranscriptTitle } from "./transcriptTitle";
+import { persistTitle, persistSummary } from "./sessionTitles";
 import {
   discoverOpencodeSession,
   existingOpencodeSessions,
@@ -44,8 +45,6 @@ function shquote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-const UNTITLED = new Set(["", "Untitled", "Untitled session"]);
-
 // Build the `--mcp-config <json>` fragment that binds a launched claude session
 // to ITS OWN scoped orden MCP endpoint: http://127.0.0.1:<port>/mcp/<convId>.
 // The server reads the conversationId from the path, so every tool call from
@@ -65,46 +64,6 @@ async function markTouched(host: Host, sessionId: string): Promise<void> {
     rec.touched = true;
     await host.vault.set("sessions", sessionId, rec);
   }
-}
-
-// Write a discovered title onto the session record (while still "Untitled") and
-// the linked kanban card. Returns true once a title sticks (so the poller stops).
-async function persistTitle(host: Host, sessionId: string, title: string): Promise<boolean> {
-  const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
-  if (!rec) return true; // session gone — nothing more to do
-  if (!UNTITLED.has((rec.title ?? "").trim())) return true; // user/agent already named it
-  rec.title = title;
-  await host.vault.set("sessions", sessionId, rec);
-  const cardIds = await host.vault.list("cards");
-  for (const cid of cardIds) {
-    const card = await host.vault.get<{
-      sessionIds?: string[];
-      sessionId?: string;
-      [k: string]: unknown;
-    }>("cards", cid);
-    const linked = Array.isArray(card?.sessionIds)
-      ? card!.sessionIds
-      : card?.sessionId
-        ? [card.sessionId]
-        : [];
-    if (card && linked.includes(sessionId)) {
-      await host.vault.set("cards", cid, { ...card, title });
-      break;
-    }
-  }
-  return true;
-}
-
-// Capture a transcript-derived digest onto the session record once available.
-// Independent of titling (a user may have renamed the session) and idempotent —
-// it never overwrites an existing summary (e.g. a user edit). No `claude -p`.
-async function persistSummary(host: Host, sessionId: string, cwd: string, conversationId: string): Promise<void> {
-  const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
-  if (!rec || (rec.summary ?? "").trim()) return;
-  const summary = readTranscriptSummary(cwd, conversationId);
-  if (!summary) return;
-  rec.summary = summary;
-  await host.vault.set("sessions", sessionId, rec);
 }
 
 // Title a still-untitled session from the AGENT's OWN session title, retitling the

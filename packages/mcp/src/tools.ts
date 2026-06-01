@@ -103,12 +103,48 @@ const cardMiss = (target: string, candidates: string[]): ToolResult =>
     `no card matches "${target}"` + (candidates.length ? `; closest: ${candidates.join(", ")}` : ""),
   );
 
+// Each card's narrative lives on a page keyed `card:<id>` (vault ns "pages"),
+// mirroring project notes (`notes:<id>`): editable in the outliner, [[linkable]],
+// listed in Pages. This replaced the old write-only `card.notes` string.
+const cardLogKey = (id: string): string => `card:${id}`;
+
+// ISO date key for today's journal page (UTC), matching outliner's journalKey.
+const journalKey = (d: Date): string => d.toISOString().slice(0, 10);
+// UTC HH:MM prefix; consistent with the UTC date key so an entry never lands on
+// the wrong day's page.
+const hhmm = (d: Date): string => d.toISOString().slice(11, 16);
+
+// Append a line to a page, creating it if absent. Pages are plain markdown
+// strings in the vault; the web's pages store picks the change up live.
+async function appendToPage(vault: VaultStore, key: string, line: string): Promise<void> {
+  const cur = (await vault.get<string>("pages", key)) ?? "";
+  await vault.set("pages", key, (cur ? cur.trimEnd() + "\n" : "") + line + "\n");
+}
+
+// Canonical project link target, resolving the id to its display name.
+async function projectLink(vault: VaultStore, projectId?: string): Promise<string> {
+  if (!projectId) return "";
+  const p = await vault.get<ProjectRec>("projects", projectId);
+  return `[[Project: ${p?.name ?? projectId}]]`;
+}
+
 export async function cardGet(vault: VaultStore, target: string): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
+  // Prefer the log page; fall back to a legacy notes string for old cards.
+  const log =
+    (await vault.get<string>("pages", cardLogKey(card.id))) ??
+    (typeof card.notes === "string" ? card.notes : "");
   return text(
     JSON.stringify(
-      { id: card.id, title: card.title, state: card.state, project: card.projectId, notes: card.notes ?? "" },
+      {
+        id: card.id,
+        title: card.title,
+        state: card.state,
+        project: card.projectId,
+        log,
+        ...(typeof card.planDoc === "string" && card.planDoc ? { planDoc: card.planDoc } : {}),
+      },
       null,
       2,
     ),
@@ -123,17 +159,59 @@ export async function cardMove(
 ): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
-  const next: CardRec = { ...card, state };
-  if (note) next.notes = (card.notes ? card.notes + "\n" : "") + state + ": " + note;
-  await vault.set("cards", card.id, next);
+  await vault.set("cards", card.id, { ...card, state });
+  if (note) await appendToPage(vault, cardLogKey(card.id), `- ${hhmm(new Date())} ${state}: ${note}`);
   return text(`card "${card.title}" -> ${state}`);
 }
 
-export async function cardComplete(vault: VaultStore, target: string): Promise<ToolResult> {
+export async function cardComplete(
+  vault: VaultStore,
+  target: string,
+  summary?: string,
+): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
   await vault.set("cards", card.id, { ...card, state: "complete" });
+
+  const now = new Date();
+  const time = hhmm(now);
+  const sum = summary?.trim();
+
+  // Card log: a Completed line, with the summary when given.
+  await appendToPage(vault, cardLogKey(card.id), `- ${time} Completed${sum ? " — " + sum : ""}`);
+
+  // Journal: a single bullet on today's page linking back to the project (and
+  // the plan doc, when one is associated).
+  const link = await projectLink(vault, card.projectId);
+  const plan =
+    typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
+  const bullet =
+    [`- ${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
+    plan;
+  await appendToPage(vault, journalKey(now), bullet);
+
   return text(`card "${card.title}" -> complete`);
+}
+
+// Associate a planning document (a docs/plans/*.md repo file) with a card. The
+// path is validated against the card's project so a typo doesn't silently stick.
+export async function cardSetPlan(host: Host, target: string, path: string): Promise<ToolResult> {
+  const { card, candidates } = await findCard(host.vault, target);
+  if (!card) return cardMiss(target, candidates);
+  const p = path.trim();
+  if (!p.startsWith("docs/plans/")) {
+    return text(`plan path must be under docs/plans/ (got "${p}")`);
+  }
+  if (!card.projectId) {
+    return text(`card "${card.title}" has no project; cannot resolve plan file`);
+  }
+  try {
+    await host.files.read(card.projectId, p);
+  } catch {
+    return text(`plan file not found: ${p}`);
+  }
+  await host.vault.set("cards", card.id, { ...card, planDoc: p });
+  return text(`card "${card.title}" plan -> ${p}`);
 }
 
 export async function cardCreate(
@@ -154,10 +232,12 @@ export async function cardCreate(
     title: title.trim(),
     state: "planning",
     projectId,
-    notes: notes ?? "",
     sessionIds: [],
   };
   await vault.set("cards", id, card);
+  // Seed the card log page with the opening notes rather than the retired
+  // `card.notes` field.
+  if (notes?.trim()) await appendToPage(vault, cardLogKey(id), notes.trim());
   return text(`created card "${card.title}" in planning (${id})`);
 }
 
@@ -204,7 +284,6 @@ export async function sessionCreate(
     title,
     state: "planning",
     projectId,
-    notes: "",
     sessionIds: [sessionId],
   };
   await vault.set("cards", cardId, card);

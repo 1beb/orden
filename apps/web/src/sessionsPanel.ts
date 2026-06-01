@@ -13,6 +13,8 @@ export interface SessionsPanelDeps {
   projectName: (projectId: string) => string;
   /** Mount the agent TUI into container; returns a dispose fn. */
   mountTerminal: (container: HTMLElement, sessionId: string) => () => void;
+  /** True if a session is done (its linked card reached Complete) — furled below. */
+  isComplete: (id: string) => boolean;
   /** Archive a session (move it to Done / out of the active list). */
   archive: (id: string) => void;
   /** Permanently delete a session. */
@@ -72,6 +74,9 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   let currentId: string | null = deps.initialOpenId ?? null;
   let disposeTerm: (() => void) | null = null;
   let termSessionId: string | null = null;
+  // Completed sessions live in a furled bar pinned to the panel bottom; unfurled
+  // they expand inline into the scroll list. Default furled.
+  let completedOpen = false;
 
   // Assign the open session and remember it, so a reload reopens it.
   function setCurrent(id: string | null): void {
@@ -149,9 +154,11 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       c.append(empty);
       return;
     }
-    const ul = el("ul", "sess-list");
-    for (const s of sessions) {
-      const li = el("li", "sess-card");
+
+    // One row per session, reused by the active list and the furled Completed
+    // section below.
+    function sessionRow(s: Session): HTMLLIElement {
+      const li = el("li", "sess-card") as HTMLLIElement;
       if (s.archived) li.classList.add("archived");
 
       const main = el("div", "sess-card-main");
@@ -183,9 +190,44 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
         setCurrent(s.id);
         render();
       });
-      ul.append(li);
+      return li;
+    }
+
+    // Done sessions (their linked card reached Complete) move out of the active
+    // list. Furled, the header is a bar pinned to the panel bottom; unfurled, it
+    // becomes an inline header row and the done rows scroll with the active list.
+    const active = sessions.filter((s) => !deps.isComplete(s.id));
+    const completed = sessions.filter((s) => deps.isComplete(s.id));
+
+    function doneHeader(tag: string): HTMLElement {
+      const h = el(tag, "sess-done-head");
+      if (completedOpen) h.classList.add("open");
+      const caret = el("span", "sess-done-caret");
+      const label = el("span", "sess-done-label");
+      label.textContent = `Completed (${completed.length})`;
+      h.append(caret, label);
+      h.addEventListener("click", () => {
+        completedOpen = !completedOpen;
+        renderList();
+      });
+      return h;
+    }
+
+    const ul = el("ul", "sess-list");
+    for (const s of active) ul.append(sessionRow(s));
+    // Unfurled: header row + done rows append to the scroll list.
+    if (completed.length && completedOpen) {
+      ul.append(doneHeader("li"));
+      for (const s of completed) ul.append(sessionRow(s));
     }
     c.append(ul);
+
+    // Furled: a bar pinned to the bottom of the panel (sibling after the list).
+    if (completed.length && !completedOpen) {
+      const footer = doneHeader("div");
+      footer.classList.add("pinned");
+      c.append(footer);
+    }
   }
 
   function renderDetail(s: Session): void {

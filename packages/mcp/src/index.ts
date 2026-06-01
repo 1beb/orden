@@ -11,6 +11,7 @@ export {
   cardGet,
   cardMove,
   cardComplete,
+  cardSetPlan,
   cardCreate,
   projectList,
   sessionCreate,

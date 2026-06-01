@@ -26,6 +26,7 @@ export interface Session {
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
   touched?: boolean; // user interacted (a TUI keystroke)
+  prompted?: boolean; // host found a real human turn in the transcript — never reap
   summary?: string; // digest added once complete / aged (see ensureSummary)
   // Text handed to the agent on first launch (the card's title when started from
   // a card). The host consumes + clears it in buildCommand.
@@ -64,6 +65,13 @@ function linkedCardId(sessionId: string): string | undefined {
   return listItems().find((i) => cardSessionIds(i).includes(sessionId))?.id;
 }
 
+/** A session whose linked card has reached the Complete column — done, not active. */
+export function isSessionComplete(session: Session): boolean {
+  const id = linkedCardId(session.id);
+  if (!id) return false;
+  return listItems().find((i) => i.id === id)?.state === "complete";
+}
+
 // Session ids embed their creation time as base36 (`sess_<time36>_<n>`); decode
 // it to estimate age. Returns null for ids that don't carry a timestamp.
 export function sessionCreatedAt(session: Session): number | null {
@@ -79,6 +87,50 @@ export function isAbandoned(s: Session): boolean {
     !s.touched &&
     (s.title === "Untitled" || s.title === "Untitled session")
   );
+}
+
+/**
+ * Mark a session as used (a keystroke in its terminal) so it survives reaping.
+ * The host also sets `touched` on first keystroke, but that only reaches us via
+ * an async vault-change roundtrip — and the reap decision (isAbandoned) reads
+ * this cache synchronously. Setting it here closes the race: type, then navigate
+ * away fast, and the session is still protected. No-op once already touched.
+ */
+export function markSessionTouched(id: string): void {
+  const session = cache.find((s) => s.id === id);
+  if (!session || session.touched) return;
+  session.touched = true;
+  persist(session);
+}
+
+const UNTITLED_TITLES = new Set(["", "Untitled", "Untitled session"]);
+
+/**
+ * A session that never earned a title — neither the agent (which titles any real
+ * session off its transcript within seconds) nor the user named it. Unlike
+ * isAbandoned this ignores `touched`: a session the user typed a keystroke into
+ * but that still has no title is a dead stub, not work worth keeping.
+ */
+export function isUntitled(s: Session): boolean {
+  return UNTITLED_TITLES.has((s.title ?? "").trim());
+}
+
+/**
+ * Reap dead "Untitled" sessions left over from prior runs. The in-panel
+ * cleanup() only drops UNTOUCHED ghosts on navigate-away, so a session the user
+ * briefly touched but that never got a title (agent crashed / closed before its
+ * first turn) lingers forever in the list as a dead "active" session. Call once
+ * at boot (after hydrateSessions): nothing is open yet, and a live session gets
+ * titled within seconds, so any still-Untitled record on disk is stale. Returns
+ * the reaped ids.
+ */
+export function reapDeadSessions(): string[] {
+  // `prompted` is set by the host once it finds a real human turn in the
+  // transcript (terminal.ts reconcile) — that's genuine work, never a dead stub,
+  // even while still awaiting the agent's self-authored title.
+  const dead = cache.filter((s) => isUntitled(s) && !s.prompted);
+  for (const s of dead) deleteSession(s.id); // removes the record + unlinks its card
+  return dead.map((s) => s.id);
 }
 
 /**

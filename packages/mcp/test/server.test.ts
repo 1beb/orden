@@ -34,7 +34,7 @@ function resultText(res: { content?: Array<{ type: string; text?: string }> }): 
 }
 
 describe("createMcpServer registration + binding", () => {
-  it("exposes the seven new kanban/session/project/panel tools", async () => {
+  it("exposes the new kanban/session/project/panel tools", async () => {
     const { client } = await connectedClient({ conversationId: "uuid-1" });
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
@@ -42,6 +42,7 @@ describe("createMcpServer registration + binding", () => {
       "card_get",
       "card_move",
       "card_complete",
+      "card_set_plan",
       "card_create",
       "session_create",
       "project_list",

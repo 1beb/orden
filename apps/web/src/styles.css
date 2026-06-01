@@ -9,6 +9,11 @@
   --accent-soft: color-mix(in srgb, var(--accent) 14%, #fff);
   --human: #6366f1;
   --human-soft: #e0e7ff;
+  /* Shared height for the two chrome bars (center #topbar + #sessions .sess-head)
+     so they line up. Without this, each bar's height falls out of whichever
+     control happens to be tallest (topbar's 30px pane-toggle vs the sess-head's
+     24px agent button) plus mismatched padding, so they drift apart. */
+  --bar-h: 52px;
   /* Symbol/system stack for icon glyphs (☰ ⌕ › ←). The selectable app prose
      font (--app-font) frequently lacks these Unicode symbols, so the browser
      substitutes a per-glyph fallback whose metrics are condensed/narrow — that
@@ -46,7 +51,11 @@ body {
   /* terminal pane: ~33% of the page, capped at 600px (reached on wide screens)
      and floored at 340px so the document + annotations stay usable on narrower
      desktops. A hard 600px *floor* crushes the center at ~1280px. */
-  --right: clamp(340px, 33vw, 600px);
+  /* session panel width: the user setting (--session-width, applied as px on
+     :root) wins; the responsive clamp is the fallback before settings hydrate
+     and when no width is saved. right-closed overrides --right directly, so the
+     collapse still works. */
+  --right: var(--session-width, clamp(340px, 33vw, 600px));
   display: grid;
   grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
   height: 100vh;
@@ -295,6 +304,21 @@ body {
   cursor: pointer;
 }
 
+.settings-range {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* live px readout next to the panel-width label; normalize the inherited
+   uppercase label styling so the value reads as a plain number. */
+.settings-value {
+  margin-left: 6px;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .nav-brand {
   font-weight: 700;
   font-size: 15px;
@@ -419,13 +443,19 @@ body {
   overflow: hidden;
   background: var(--panel-bg);
   border-left: 1px solid var(--line);
+  /* The list view is all clickable chrome (header + session cards), never
+     selectable prose. Suppress the text caret/selection so clicking the panel
+     can't drop an editing cursor at the front of the list. The terminal, which
+     holds real prose you copy from, re-enables selection below. */
+  user-select: none;
 }
 
 .sess-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  min-height: var(--bar-h);
+  padding: 0 16px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
   font-size: 13px;
@@ -604,6 +634,47 @@ body {
 .sess-card.archived {
   opacity: 0.55;
 }
+/* "Completed" section header — an inline row when unfurled, a pinned bottom bar
+   when furled. Same look in both states; only position differs. */
+.sess-done-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.sess-done-head:hover {
+  color: var(--ink);
+}
+/* Inline (unfurled): a header row that scrolls with the list above the done rows. */
+li.sess-done-head {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+/* Furled: a flex-none footer pinned to the bottom of the panel. */
+.sess-done-head.pinned {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--panel-bg);
+}
+.sess-done-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s;
+}
+.sess-done-head.open .sess-done-caret {
+  transform: rotate(90deg);
+}
 .sess-card-main {
   flex: 1;
   min-width: 0;
@@ -652,6 +723,8 @@ body {
   overflow: hidden;
   padding: 6px 8px;
   background: #fbfbfa;
+  /* Re-enable selection the panel suppresses: terminal output is prose to copy. */
+  user-select: text;
 }
 .sess-terminal .xterm {
   height: 100%;
@@ -692,7 +765,8 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  min-height: var(--bar-h);
+  padding: 0 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-bg);
 }
@@ -1080,9 +1154,34 @@ body {
   min-height: 0;
 }
 
-#panel header #count {
-  color: var(--muted);
-  font-weight: 400;
+/* primary annotation action — solid accent (Send) / neutral (Approve) pill */
+.panel-send {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.panel-send:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+  border-color: color-mix(in srgb, var(--accent) 88%, #000);
+}
+
+.panel-send[data-kind="approve"] {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.panel-send[data-kind="approve"]:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .panel-copy {
@@ -1778,6 +1877,16 @@ body {
   margin: 0 auto 16px;
   display: flex;
   gap: 8px;
+}
+/* Top-of-page variant: also carries the add+start session launch marks, so
+   center everything and fence the marks off from the Add button. */
+.project-add-top {
+  align-items: center;
+}
+.project-add-top .agent-launch {
+  padding-left: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--line);
 }
 .project-add-input {
   flex: 1;

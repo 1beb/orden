@@ -17,7 +17,10 @@ export interface CardRec {
   projectId?: string;
   sessionIds?: string[];
   sessionId?: string;
+  /** Legacy freeform narrative; superseded by the `card:<id>` log page. */
   notes?: string;
+  /** Associated planning doc, a docs/plans/*.md repo path. */
+  planDoc?: string;
   [k: string]: unknown;
 }
 

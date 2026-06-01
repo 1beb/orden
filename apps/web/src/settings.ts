@@ -15,12 +15,15 @@ export interface Settings {
   accent: string; // hex color (#rrggbb)
   showArchived: boolean; // include archived (Done) sessions in the list
   sessionAutoLaunch: boolean; // auto-spawn the agent TUI when a session is created
+  sessionPanelWidth: number; // px width of the right-hand session panel
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
+export const MIN_PANEL_WIDTH = 320;
+export const MAX_PANEL_WIDTH = 700;
 export const DEFAULT_ACCENT = "#6d28d9";
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +33,7 @@ const DEFAULT_SETTINGS: Settings = {
   accent: DEFAULT_ACCENT,
   showArchived: false,
   sessionAutoLaunch: true,
+  sessionPanelWidth: 480,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -39,6 +43,7 @@ function isStartupView(value: unknown): value is StartupView {
 function coerce(stored: unknown): Settings {
   const s = (typeof stored === "object" && stored !== null ? stored : {}) as Record<string, unknown>;
   const size = s.fontSize;
+  const width = s.sessionPanelWidth;
   return {
     startup: isStartupView(s.startup) ? s.startup : DEFAULT_SETTINGS.startup,
     fontFamily:
@@ -59,6 +64,10 @@ function coerce(stored: unknown): Settings {
       typeof s.sessionAutoLaunch === "boolean"
         ? s.sessionAutoLaunch
         : DEFAULT_SETTINGS.sessionAutoLaunch,
+    sessionPanelWidth:
+      typeof width === "number" && width >= MIN_PANEL_WIDTH && width <= MAX_PANEL_WIDTH
+        ? width
+        : DEFAULT_SETTINGS.sessionPanelWidth,
   };
 }
 

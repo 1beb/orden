@@ -16,7 +16,8 @@ import { sessionForConversation, cardForSession } from "./sessionLink";
 
 const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - card_move("in-progress") when you start real work; card_move("blocked") only when you genuinely need the user's input or are done with the turn.
-- NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done.
+- NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done. When you do, pass a one- or two-sentence summary — it is written to today's journal.
+- Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
 - Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
 - card_get/card_move with no target act on THIS session's card.`;
@@ -140,15 +141,36 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
     "card_complete",
     {
       description:
-        "Mark a card complete. ONLY call this when the user has explicitly told you to finish/close the item.",
+        "Mark a card complete. ONLY call this when the user has explicitly told you to finish/close the item. Pass a short summary of what was accomplished — it is appended to today's journal.",
       inputSchema: {
+        target: z.string().optional().describe("card id or title; omit to use the current session's card"),
+        summary: z
+          .string()
+          .optional()
+          .describe("one- or two-sentence summary of what was done, for the journal entry"),
+      },
+    },
+    async ({ target, summary }) => {
+      const id = target ?? (await currentCardId());
+      if (!id) return unbound();
+      return tools.cardComplete(host.vault, id, summary);
+    },
+  );
+
+  server.registerTool(
+    "card_set_plan",
+    {
+      description:
+        "Associate a planning document (a docs/plans/*.md repo file) with a card. With no target it acts on THIS session's card.",
+      inputSchema: {
+        path: z.string().describe("repo path under docs/plans/, e.g. docs/plans/2026-06-01-foo.md"),
         target: z.string().optional().describe("card id or title; omit to use the current session's card"),
       },
     },
-    async ({ target }) => {
+    async ({ path, target }) => {
       const id = target ?? (await currentCardId());
       if (!id) return unbound();
-      return tools.cardComplete(host.vault, id);
+      return tools.cardSetPlan(host, id, path);
     },
   );
 

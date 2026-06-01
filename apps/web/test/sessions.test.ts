@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
-import { hydrateCards, listItems, cardSessionIds } from "../src/cards";
+import { hydrateCards, listItems, cardSessionIds, setItemState } from "../src/cards";
 import { hydrateProjects, getProject } from "../src/projects";
 import {
   createSession,
@@ -8,8 +8,12 @@ import {
   hydrateSessions,
   listSessions,
   deleteSession,
+  reapDeadSessions,
   ensureSummary,
   setSessionSummary,
+  isAbandoned,
+  markSessionTouched,
+  isSessionComplete,
   type Session,
 } from "../src/sessions";
 
@@ -79,5 +83,57 @@ describe("sessions store (host-backed)", () => {
     setSessionSummary(s.id, "hand-written digest");
     ensureSummary(getSession(s.id) as Session, "complete");
     expect(getSession(s.id)?.summary).toBe("hand-written digest");
+  });
+
+  it("markSessionTouched flips isAbandoned synchronously (the navigate-away reap path)", () => {
+    // Reproduces the bug: create an Untitled session, type a prompt, navigate
+    // away fast. cleanup() reaps via isAbandoned, which reads the cache — so the
+    // touch must land in the cache immediately, not after a host roundtrip.
+    const s = createSession({ title: "Untitled", agent: "claude" });
+    expect(isAbandoned(s)).toBe(true);
+    markSessionTouched(s.id);
+    expect(isAbandoned(getSession(s.id) as Session)).toBe(false);
+  });
+
+  it("markSessionTouched writes through and survives a re-hydrate", async () => {
+    const s = createSession({ title: "Untitled", agent: "claude" });
+    markSessionTouched(s.id);
+    await settle();
+    await hydrateSessions(new BrowserHost());
+    expect(getSession(s.id)?.touched).toBe(true);
+  });
+
+  it("isSessionComplete is true once the linked card reaches Complete", () => {
+    const s = createSession({ title: "Ship it", agent: "claude" });
+    const card = listItems().find((i) => cardSessionIds(i).includes(s.id))!;
+    expect(isSessionComplete(s)).toBe(false);
+    setItemState(card.id, "complete");
+    expect(isSessionComplete(s)).toBe(true);
+  });
+
+  it("reapDeadSessions spares an Untitled session the host flagged `prompted`", () => {
+    const ghost = createSession({ title: "Untitled", agent: "claude" });
+    const prompted = createSession({ title: "Untitled", agent: "claude" });
+    // The host reconcile sets `prompted` after finding a real human turn in the
+    // transcript; it reaches us via the vault → cache. Mirror that here.
+    (getSession(prompted.id) as Session).prompted = true;
+
+    const reaped = reapDeadSessions();
+    expect(reaped).toContain(ghost.id);
+    expect(reaped).not.toContain(prompted.id);
+    expect(getSession(prompted.id)?.id).toBe(prompted.id);
+  });
+
+  it("reapDeadSessions drops Untitled stubs but keeps titled work", () => {
+    const ghost = createSession({ title: "Untitled", agent: "claude" });
+    const blank = createSession({ title: "", agent: "opencode" }); // -> "Untitled session"
+    const real = createSession({ title: "Real task", agent: "claude" });
+
+    const reaped = reapDeadSessions();
+    expect(reaped.sort()).toEqual([blank.id, ghost.id].sort());
+    expect(getSession(ghost.id)).toBeUndefined();
+    expect(getSession(blank.id)).toBeUndefined();
+    expect(getSession(real.id)?.title).toBe("Real task");
+    expect(listSessions().map((s) => s.id)).toEqual([real.id]);
   });
 });

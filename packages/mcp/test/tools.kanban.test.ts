@@ -5,12 +5,13 @@ import {
   cardGet,
   cardMove,
   cardComplete,
+  cardSetPlan,
   cardCreate,
   projectList,
   sessionCreate,
   panelOpen,
 } from "../src/tools";
-import type { VaultStore } from "@orden/host-api";
+import type { Host, VaultStore } from "@orden/host-api";
 
 const seed = (): VaultStore =>
   fakeVault({
@@ -54,15 +55,29 @@ describe("resolveProject", () => {
 });
 
 describe("cardGet", () => {
-  it("returns parsed fields on a hit", async () => {
+  it("returns parsed fields on a hit, with the legacy notes as the log fallback", async () => {
     const parsed = JSON.parse(out(await cardGet(seed(), "Fix login")));
     expect(parsed).toEqual({
       id: "c1",
       title: "Fix login",
       state: "in-progress",
       project: "proj_alpha",
-      notes: "existing",
+      log: "existing",
     });
+  });
+  it("prefers the card log page over the legacy notes string", async () => {
+    const v = seed();
+    await v.set("pages", "card:c1", "- logged line\n");
+    const parsed = JSON.parse(out(await cardGet(v, "c1")));
+    expect(parsed.log).toBe("- logged line\n");
+    expect(parsed).not.toHaveProperty("notes");
+  });
+  it("includes planDoc when set", async () => {
+    const v = seed();
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    await v.set("cards", "c1", { ...card, planDoc: "docs/plans/x.md" });
+    const parsed = JSON.parse(out(await cardGet(v, "c1")));
+    expect(parsed.planDoc).toBe("docs/plans/x.md");
   });
   it("reports a miss with closest candidates", async () => {
     expect(out(await cardGet(seed(), "log"))).toBe('no card matches "log"; closest: Fix login');
@@ -82,11 +97,18 @@ describe("cardMove", () => {
     expect(card?.title).toBe("Fix login");
     expect(card?.sessionIds).toEqual(["s1"]);
   });
-  it("appends a note when given", async () => {
+  it("appends a note to the card log page (not card.notes)", async () => {
     const v = seed();
     await cardMove(v, "c1", "blocked", "waiting on review");
+    const log = await v.get<string>("pages", "card:c1");
+    expect(log).toMatch(/^- \d\d:\d\d blocked: waiting on review\n$/);
     const card = await v.get<Record<string, unknown>>("cards", "c1");
-    expect(card?.notes).toBe("existing\nblocked: waiting on review");
+    expect(card?.notes).toBe("existing"); // untouched legacy field
+  });
+  it("does not write a log line when no note is given", async () => {
+    const v = seed();
+    await cardMove(v, "c1", "blocked");
+    expect(await v.get("pages", "card:c1")).toBeNull();
   });
   it("reports a miss", async () => {
     expect(out(await cardMove(seed(), "zzz", "blocked"))).toBe('no card matches "zzz"');
@@ -94,11 +116,97 @@ describe("cardMove", () => {
 });
 
 describe("cardComplete", () => {
+  const todayKey = () => new Date().toISOString().slice(0, 10);
+
   it("reaches complete", async () => {
     const v = seed();
     expect(out(await cardComplete(v, "c2"))).toBe('card "Write docs" -> complete');
     const card = await v.get<Record<string, unknown>>("cards", "c2");
     expect(card?.state).toBe("complete");
+  });
+  it("appends a Completed line with the summary to the card log", async () => {
+    const v = seed();
+    await cardComplete(v, "c1", "  shipped the fix  ");
+    const log = await v.get<string>("pages", "card:c1");
+    expect(log).toMatch(/^- \d\d:\d\d Completed — shipped the fix\n$/);
+  });
+  it("writes a journal bullet linking the project, on today's page", async () => {
+    const v = seed();
+    await cardComplete(v, "c1", "shipped the fix");
+    const journal = await v.get<string>("pages", todayKey());
+    expect(journal).toContain('Completed "Fix login"');
+    expect(journal).toContain("— shipped the fix");
+    expect(journal).toContain("[[Project: Alpha]]");
+  });
+  it("includes the plan suffix when the card has a planDoc", async () => {
+    const v = seed();
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    await v.set("cards", "c1", { ...card, planDoc: "docs/plans/p.md" });
+    await cardComplete(v, "c1", "done");
+    const journal = await v.get<string>("pages", todayKey());
+    expect(journal).toContain("· plan: docs/plans/p.md");
+  });
+  it("works with no summary and creates the journal page", async () => {
+    const v = seed();
+    await cardComplete(v, "c2");
+    const journal = await v.get<string>("pages", todayKey());
+    expect(journal).toContain('Completed "Write docs"');
+    expect(journal).not.toContain("—");
+  });
+  it("appends to an existing journal page without clobbering", async () => {
+    const v = seed();
+    await v.set("pages", todayKey(), "- earlier entry\n");
+    await cardComplete(v, "c1", "later");
+    const journal = await v.get<string>("pages", todayKey());
+    expect(journal).toContain("- earlier entry");
+    expect(journal).toContain('Completed "Fix login"');
+  });
+});
+
+// cardSetPlan needs a host with a files source; build a minimal fake over a vault.
+function hostWith(vault: VaultStore, files: Record<string, string>): Host {
+  return {
+    vault,
+    files: {
+      async read(_projectId: string, path: string) {
+        if (path in files) return files[path];
+        throw new Error("ENOENT");
+      },
+      async list() {
+        return [];
+      },
+      async write() {},
+    },
+  } as unknown as Host;
+}
+
+describe("cardSetPlan", () => {
+  it("sets planDoc when the file exists under docs/plans/", async () => {
+    const v = seed();
+    const host = hostWith(v, { "docs/plans/good.md": "# plan" });
+    const r = await cardSetPlan(host, "c1", "docs/plans/good.md");
+    expect(out(r)).toBe('card "Fix login" plan -> docs/plans/good.md');
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card?.planDoc).toBe("docs/plans/good.md");
+  });
+  it("rejects a path outside docs/plans/", async () => {
+    const v = seed();
+    const host = hostWith(v, { "src/foo.md": "x" });
+    const r = await cardSetPlan(host, "c1", "src/foo.md");
+    expect(out(r)).toContain("must be under docs/plans/");
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card).not.toHaveProperty("planDoc");
+  });
+  it("rejects a missing file", async () => {
+    const v = seed();
+    const host = hostWith(v, {});
+    const r = await cardSetPlan(host, "c1", "docs/plans/missing.md");
+    expect(out(r)).toBe("plan file not found: docs/plans/missing.md");
+  });
+  it("reports a card miss", async () => {
+    const v = seed();
+    const host = hostWith(v, {});
+    expect(out(await cardSetPlan(host, "zzz", "docs/plans/x.md"))).toBe('no card matches "zzz"');
   });
 });
 
@@ -114,9 +222,11 @@ describe("cardCreate", () => {
       title: "New task",
       state: "planning",
       projectId: "proj_alpha",
-      notes: "some notes",
       sessionIds: [],
     });
+    expect(card).not.toHaveProperty("notes");
+    // Opening notes seed the card log page, not a card.notes field.
+    expect(await v.get<string>("pages", `card:${id}`)).toBe("some notes\n");
   });
   it("returns the error text on unknown project", async () => {
     expect(out(await cardCreate(seed(), "x", "Nope"))).toBe(

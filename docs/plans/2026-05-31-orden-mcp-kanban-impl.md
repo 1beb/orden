@@ -4,9 +4,11 @@
 
 **Goal:** Give the orden MCP server first-class tools to drive the kanban and spawn sessions, so an agent moves its own card deliberately (by instruction) instead of having state inferred from Claude hook events.
 
-**Architecture:** New MCP tools (`card_*`, `session_create`, `project_list`, `panel_open`) live as pure functions in the host, registered in `mcp.ts`. The calling session is identified by a spawn-injected id (`/mcp/<uuid>`), resolved to its linked card by a helper shared with the existing hook path. All writes go through the vault, which already streams to the live board via the change feed. The hook-driven `Stop -> blocked` / `UserPromptSubmit -> in-progress` heuristics are retired in favor of explicit `card_move`; only the genuine "waiting on you" notification stays.
+**Architecture:** The MCP server moves into its own monorepo package, `@orden/mcp` (`packages/mcp`), independent of `apps/host` but consumed by it. It exports `createMcpServer(host, ctx?)` and `handleMcpRequest(host, req, res)`; `apps/host/src/serve.ts` mounts the HTTP handler so the server still runs IN the host process and shares the live in-memory `Host` + change feed (a separate process couldn't, so the web would miss live updates). New tools (`card_*`, `session_create`, `project_list`, `panel_open`) are pure functions in the package. The calling session is identified by a spawn-injected id (`/mcp/<uuid>`), resolved to its linked card by a helper (`sessionLink`) the host's hook path also imports. All writes go through the vault, which already streams to the live board. Hooks keep the automatic working/waiting cycle; the LLM drives deliberate moves and is the only path to `complete`.
 
-**Tech Stack:** TypeScript, `@modelcontextprotocol/sdk`, zod, node:http, the existing `NodeHost` / `DiskVault` / change feed, Vitest.
+**Package resolution:** This monorepo has NO root package.json / npm workspaces. Cross-package imports resolve via per-package tsconfig `paths` and vitest `resolve.alias` (see `apps/host/tsconfig.json` + `apps/host/vitest.config.ts`). The new package mirrors `packages/host-api` exactly: `name` `@orden/mcp`, `type: module`, `main: src/index.ts`, no build step (runtime is `tsx`).
+
+**Tech Stack:** TypeScript, `@modelcontextprotocol/sdk` (^1.29.0), zod (^4.4.3), node:http, the existing `NodeHost` / `DiskVault` / change feed, Vitest.
 
 **Companion design:** `docs/plans/2026-05-31-orden-mcp-kanban-design.md`.
 
@@ -22,7 +24,62 @@
 
 ---
 
-## Task 0: Branch
+## Task A: Extract the MCP into `@orden/mcp`
+
+Move the existing MCP code out of `apps/host` into a new independent package, rewire the host to consume it, and verify nothing regressed BEFORE adding any new tools.
+
+**Files:**
+- Create: `packages/mcp/package.json`, `packages/mcp/tsconfig.json`, `packages/mcp/vitest.config.ts`
+- Create: `packages/mcp/src/index.ts` (barrel: re-export `createMcpServer`, `handleMcpRequest`)
+- Move: `apps/host/src/mcp.ts` -> `packages/mcp/src/server.ts`; `apps/host/src/mcpHttp.ts` -> `packages/mcp/src/http.ts`; `apps/host/src/tools.ts` -> `packages/mcp/src/tools.ts` (and its test if present)
+- Modify: `apps/host/src/serve.ts` (import `handleMcpRequest` from `@orden/mcp`)
+- Modify: `apps/host/tsconfig.json` + `apps/host/vitest.config.ts` (add `@orden/mcp` -> `../../packages/mcp/src/index.ts`)
+
+**package.json** (mirror host-api; add the SDK + zod it actually uses):
+
+```json
+{
+  "name": "@orden/mcp",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "test": "vitest run", "test:watch": "vitest", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "zod": "^4.4.3" },
+  "devDependencies": { "@types/node": "^20.12.0", "typescript": "^5.4.0", "vitest": "^1.6.0" }
+}
+```
+
+**tsconfig.json** (mirror host-api's, add the path it needs):
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2022"], "strict": true, "noEmit": true, "skipLibCheck": true, "types": ["node"],
+    "paths": { "@orden/host-api": ["../../packages/host-api/src/index.ts"] }
+  },
+  "include": ["src", "test"]
+}
+```
+
+**vitest.config.ts** — alias `@orden/host-api` to its source (copy `apps/host/vitest.config.ts`).
+
+**Steps:**
+1. Scaffold the three config files + `src/index.ts`.
+2. `git mv` the three source files into `packages/mcp/src/` (rename per above) and fix their relative imports (`./tools` stays; `@orden/host-api` already aliased).
+3. Add the `@orden/mcp` alias to host tsconfig + vitest; change `serve.ts` to `import { handleMcpRequest } from "@orden/mcp"`.
+4. Verify: `npm test --prefix packages/mcp` (move any tools test along), `npm run typecheck --prefix apps/host`, `npm test --prefix apps/host`. The dev host (`tsx`) must still resolve `@orden/mcp` — confirm by checking the host starts (or that `serve.ts` typechecks).
+5. **Commit** (`refactor: extract MCP server into @orden/mcp package`).
+
+The remaining tasks (1, 2, 4, 5 below) now CREATE/MODIFY files under `packages/mcp/src` and `packages/mcp/test` instead of `apps/host`. Tasks 3 (settings), 7 (terminal/serve wiring), 8 (web), 9 (hooks) keep their stated `apps/*` locations; the `sessionLink` helper (Task 1) lives in `packages/mcp/src` and is imported by `apps/host/src/hooks.ts` via the new alias.
+
+---
+
+## Task 0: Branch (done)
+
+Already on branch `mcp-kanban-tools` with the plan docs committed. Skip.
+
+## Task 0 (original): Branch
 
 **Step 1:** `git switch -c mcp-kanban-tools`
 
