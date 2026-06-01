@@ -1,0 +1,18 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+  node-pty: true
+
+# Supply-chain cooldown: only resolve dependency versions that have been
+# published for at least 30 days (43200 minutes), so a freshly-compromised
+# release can't be pulled in. Internal workspace:* deps are local and exempt.
+minimumReleaseAge: 43200
+# Postinstall build scripts are blocked by default (supply-chain safety).
+# Only these two are explicitly allowed — both are required & trusted:
+#   esbuild   — fetches its platform binary (used by vite + vitest)
+#   node-pty  — native PTY module that apps/host depends on
+onlyBuiltDependencies:
+  - esbuild
+  - node-pty
