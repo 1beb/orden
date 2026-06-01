@@ -70,6 +70,38 @@ export function mcpConfigArg(convId: string): string {
   return `--mcp-config ${shquote(JSON.stringify(config))}`;
 }
 
+// Build the `--settings '<json>'` fragment that injects this session's kanban
+// state hooks at launch — so an orden-managed claude carries the automatic
+// working/waiting cycle WITHOUT depending on an ambient project
+// `.claude/settings.json`. Mirrors mcpConfigArg: orden owns the wiring and
+// templates the live port (the old ambient file hardcoded 4319). The receiving
+// contract is apps/host/src/hooks.ts:
+//   UserPromptSubmit / PostToolUse -> in-progress  (Claude is working; PostToolUse
+//     is the recovery edge that un-blocks a card after a mid-turn permission or
+//     AskUserQuestion pause, which is otherwise never followed by a prompt submit)
+//   Stop                           -> blocked      (turn over, awaiting you)
+//   Notification                   -> /notification (the host blocks only the
+//     waiting types: permission / idle / elicitation)
+// No ORDEN_MANAGED gate is needed here: unlike the ambient file (which applied to
+// EVERY claude launched in the repo, including the user's own, hence the gate),
+// these settings reach ONLY the process orden launches.
+export function settingsArg(): string {
+  const port = Number(process.env.ORDEN_PORT ?? 4319);
+  const post = (path: string): string =>
+    `curl -sS -m 3 -X POST 'http://127.0.0.1:${port}/hooks/${path}' ` +
+    `-H 'Content-Type: application/json' -d @- >/dev/null 2>&1 || true`;
+  const hook = (command: string) => [{ hooks: [{ type: "command", command }] }];
+  const settings = {
+    hooks: {
+      UserPromptSubmit: hook(post("session-state?state=in-progress")),
+      PostToolUse: hook(post("session-state?state=in-progress")),
+      Stop: hook(post("session-state?state=blocked")),
+      Notification: hook(post("notification")),
+    },
+  };
+  return `--settings ${shquote(JSON.stringify(settings))}`;
+}
+
 async function markTouched(host: Host, sessionId: string): Promise<void> {
   const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
   if (rec && !rec.touched) {
@@ -126,6 +158,25 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
     // Reattach: resume the id we discovered after the first launch (the poller
     // persists conversationId — see applyTranscriptTitle). First open: launch bare;
     // the discovered id is captured shortly after.
+    //
+    // NOTE (kanban state hooks — NOT wired for opencode yet): claude gets the
+    // working/blocked hooks via settingsArg() below. opencode needs a different
+    // approach and three things differ:
+    //   1. No Claude hook taxonomy. opencode has no UserPromptSubmit/PostToolUse/
+    //      Stop/Notification. Map its OWN lifecycle events instead — message/tool
+    //      activity -> in-progress, session-idle / permission-request -> blocked,
+    //      first activity after idle -> in-progress (the recovery edge).
+    //   2. No inline --settings. opencode is configured via opencode.json /
+    //      OPENCODE_CONFIG / a plugin module, not an inline JSON flag — so we
+    //      can't do the file-free injection trick. Likeliest path: a tiny bundled
+    //      opencode plugin that POSTs to /hooks/* on the relevant events, pointed
+    //      at via OPENCODE_CONFIG (port templated in, same as settingsArg). A
+    //      JS plugin POSTs with fetch in-process — no curl/shell-quoting, and it
+    //      already knows opencode's session id from the event payload.
+    //   3. id timing. We discover+persist opencode's conversationId only AFTER
+    //      first launch, so a plugin firing on turn 1 carries an id the host hasn't
+    //      mapped yet (sessionForConversation misses -> no-op). Either gate the
+    //      plugin until discovery lands, or have the plugin self-register the id.
     if (rec.conversationId) return `opencode --session ${rec.conversationId}`;
     // First open: launch the TUI, seeding the card's text as the initial prompt.
     let cmd = "opencode"; // interactive opencode TUI (id discovered post-launch)
@@ -138,14 +189,15 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
   }
   // claude: resume the conversation if we have its id, else mint one and persist
   // it so chat-mode and future TUI opens continue the same session.
+  // --mcp-config binds this session to its scoped orden endpoint; --settings
+  // injects the kanban state hooks (both port-templated by orden, no repo files).
   if (rec.conversationId)
-    return `claude ${mcpConfigArg(rec.conversationId)} --resume ${rec.conversationId}`;
+    return `claude ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
   const id = randomUUID();
   rec.conversationId = id;
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
-  // --mcp-config binds this session's claude to its scoped orden MCP endpoint.
-  let cmd = `claude ${mcpConfigArg(id)} --session-id ${id}`;
+  let cmd = `claude ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;

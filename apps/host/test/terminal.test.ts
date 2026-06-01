@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { mcpConfigArg, launchDetached } from "../src/terminal";
+import { mcpConfigArg, settingsArg, launchDetached } from "../src/terminal";
 import type { Host } from "@orden/host-api";
 
 const ORIGINAL_PORT = process.env.ORDEN_PORT;
@@ -31,6 +31,42 @@ describe("mcpConfigArg", () => {
     process.env.ORDEN_PORT = "5555";
     const cfg = parseConfig(mcpConfigArg("abc"));
     expect(cfg.mcpServers.orden.url).toBe("http://127.0.0.1:5555/mcp/abc");
+  });
+});
+
+// Reverse shquote's single-quote escaping (`'` -> `'\''`) to recover the inline
+// JSON. settingsArg's curl commands contain single quotes (around the URL), so
+// this exercises the escaping path mcpConfigArg's quote-free JSON never hits.
+function parseSettings(arg: string): {
+  hooks: Record<string, { hooks: { type: string; command: string }[] }[]>;
+} {
+  const m = arg.match(/^--settings '(.*)'$/s);
+  if (!m) throw new Error(`unexpected fragment: ${arg}`);
+  return JSON.parse(m[1].replace(/'\\''/g, "'"));
+}
+
+describe("settingsArg", () => {
+  test("injects the four kanban state hooks, port-templated", () => {
+    delete process.env.ORDEN_PORT;
+    const arg = settingsArg();
+    expect(arg.startsWith("--settings ")).toBe(true);
+    const s = parseSettings(arg);
+    // The state edges that drive the automatic working/waiting cycle.
+    expect(Object.keys(s.hooks).sort()).toEqual(
+      ["Notification", "PostToolUse", "Stop", "UserPromptSubmit"].sort(),
+    );
+    const cmdOf = (e: string) => s.hooks[e][0].hooks[0].command;
+    expect(cmdOf("UserPromptSubmit")).toContain("/hooks/session-state?state=in-progress");
+    expect(cmdOf("PostToolUse")).toContain("/hooks/session-state?state=in-progress");
+    expect(cmdOf("Stop")).toContain("/hooks/session-state?state=blocked");
+    expect(cmdOf("Notification")).toContain("/hooks/notification");
+    expect(cmdOf("Stop")).toContain("http://127.0.0.1:4319/");
+  });
+
+  test("uses ORDEN_PORT when set", () => {
+    process.env.ORDEN_PORT = "5555";
+    const s = parseSettings(settingsArg());
+    expect(s.hooks.PostToolUse[0].hooks[0].command).toContain("http://127.0.0.1:5555/");
   });
 });
 
