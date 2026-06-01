@@ -2,6 +2,12 @@ import { BLOCK_ID_ATTR } from "./blockId";
 import { rangeFromOffsets } from "./textOffsets";
 import type { Selector, TextQuoteSelector, TextPositionSelector } from "./wadm";
 
+// The quote scorer below is intentionally duplicated from anchor.ts (which
+// resolves the legacy Anchor type) — Phase 1 is additive and must not edit
+// anchor.ts. The two copies have already diverged slightly (this one guards
+// exact.length === 0). Keep them in sync, or extract a shared scorer in Phase 2
+// once anchor.ts is in scope for the switch-over.
+
 function commonSuffixLength(a: string, b: string): number {
   let n = 0;
   while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++;
