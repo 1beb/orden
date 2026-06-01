@@ -310,7 +310,7 @@ body {
   cursor: pointer;
 }
 
-/* live px readout next to the panel-width label; normalize the inherited
+/* live "% · px" readout next to the panel-width label; normalize the inherited
    uppercase label styling so the value reads as a plain number. */
 .settings-value {
   margin-left: 6px;
@@ -1435,6 +1435,49 @@ li.sess-done-head {
   color: var(--muted);
 }
 
+/* confirm/choice dialog (reuses .preview-overlay / .preview-modal base) */
+.preview-modal.dialog {
+  width: 440px;
+}
+.dialog__message {
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+}
+.dialog__btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+}
+.dialog__btn--primary {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.dialog__btn--danger {
+  background: #fff;
+  color: #b91c1c;
+  border-color: #f3c4c4;
+}
+.dialog__btn--danger:hover {
+  background: #fee2e2;
+}
+
 /* ============================================================
    Responsive — kept at end of file so these win over base rules.
    ============================================================ */
@@ -1860,16 +1903,130 @@ li.sess-done-head {
   overflow-y: auto;
   padding: 32px 48px 96px;
 }
+.project-header {
+  max-width: 760px;
+  margin: 0 auto 18px;
+}
+.project-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .project-title {
   max-width: 760px;
   margin: 0 auto 4px;
   font-size: 22px;
   font-weight: 700;
 }
+.project-header .project-title {
+  margin: 0;
+  max-width: none;
+}
 .project-meta {
   max-width: 760px;
   margin: 0 auto 18px;
   font-size: 12px;
+  color: var(--muted);
+}
+.project-header .project-meta {
+  margin: 4px 0 0;
+  max-width: none;
+}
+
+/* Cog button + dropdown menu beside the project title. */
+.project-cog-wrap {
+  position: relative;
+  flex: none;
+}
+.project-cog {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+  opacity: 0.55;
+}
+.project-cog:hover {
+  opacity: 1;
+  background: var(--line);
+}
+.project-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  /* the .project-menu display:flex below would otherwise defeat [hidden] */
+  /* (see #add-project-form[hidden]); keep the toggle working. */
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.project-menu__item {
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--ink);
+}
+.project-menu__item:hover {
+  background: var(--line);
+}
+.project-menu__item--danger {
+  color: #b91c1c;
+}
+.project-menu__item--danger:hover {
+  background: #fee2e2;
+}
+.project-menu[hidden] {
+  display: none;
+}
+
+/* Inline edit form (name + path). */
+.project-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.project-edit[hidden] {
+  display: none;
+}
+.project-edit__input {
+  flex: 1 1 200px;
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.project-edit__save,
+.project-edit__cancel {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+}
+.project-edit__save {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.project-edit__cancel {
+  background: #fff;
   color: var(--muted);
 }
 .project-add {
@@ -1939,6 +2096,43 @@ li.sess-done-head {
 .issue-title {
   flex: 1;
 }
+/* leading control on a row: open the linked session(s) or launch one. */
+.issue-row-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+/* a filled brand-mark button → an existing session, click to open. Mirrors the
+   hollow .agent-launch__btn used to START one, so an item reads at a glance:
+   filled = has a session, hollow = none yet. */
+.issue-sess-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.issue-sess-open:hover {
+  opacity: 0.82;
+}
+/* a completed session: muted, but still openable to read the transcript. */
+.issue-sess-open.is-complete {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+.issue-sess-open svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
 .issue-state,
 .issue-project {
   font: inherit;
@@ -1987,48 +2181,6 @@ li.sess-done-head {
   margin-right: 0;
 }
 
-/* active-sessions widget */
-.project-sess-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-.project-sess-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: 14px;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #fff;
-  cursor: pointer;
-}
-.project-sess-row:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.project-sess-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-  flex: none;
-}
-.project-sess-mark svg {
-  display: block;
-}
-.project-sess-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* File explorer widget (file-backed project pages) */
 .project-file-list {
   display: flex;
@@ -2066,16 +2218,6 @@ li.sess-done-head {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.project-sess-new {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.project-sess-new-label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
 /* notes widget: the embedded outliner. Reuse .journal-editor styling but drop
    its auto-centering / huge min-height so it sits naturally in the column. */
 .project-notes {

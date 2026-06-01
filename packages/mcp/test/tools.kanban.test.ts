@@ -97,13 +97,21 @@ describe("cardMove", () => {
     expect(card?.title).toBe("Fix login");
     expect(card?.sessionIds).toEqual(["s1"]);
   });
-  it("appends a note to the card log page (not card.notes)", async () => {
+  it("appends a note under the Automatic Logging section (not card.notes)", async () => {
     const v = seed();
     await cardMove(v, "c1", "blocked", "waiting on review");
     const log = await v.get<string>("pages", "card:c1");
-    expect(log).toMatch(/^- \d\d:\d\d blocked: waiting on review\n$/);
+    expect(log).toMatch(/^- Automatic Logging\n  - \d\d:\d\d blocked: waiting on review\n$/);
     const card = await v.get<Record<string, unknown>>("cards", "c1");
     expect(card?.notes).toBe("existing"); // untouched legacy field
+  });
+  it("files repeated notes as siblings under one Automatic Logging section", async () => {
+    const v = seed();
+    await cardMove(v, "c1", "in-progress", "starting");
+    await cardMove(v, "c1", "blocked", "stuck");
+    const log = await v.get<string>("pages", "card:c1");
+    expect((log!.match(/^- Automatic Logging$/gm) ?? []).length).toBe(1);
+    expect(log).toMatch(/  - \d\d:\d\d in-progress: starting\n  - \d\d:\d\d blocked: stuck\n$/);
   });
   it("does not write a log line when no note is given", async () => {
     const v = seed();
@@ -124,19 +132,19 @@ describe("cardComplete", () => {
     const card = await v.get<Record<string, unknown>>("cards", "c2");
     expect(card?.state).toBe("complete");
   });
-  it("appends a Completed line with the summary to the card log", async () => {
+  it("appends a Completed line with the summary under Automatic Logging", async () => {
     const v = seed();
     await cardComplete(v, "c1", "  shipped the fix  ");
     const log = await v.get<string>("pages", "card:c1");
-    expect(log).toMatch(/^- \d\d:\d\d Completed — shipped the fix\n$/);
+    expect(log).toMatch(/^- Automatic Logging\n  - \d\d:\d\d Completed — shipped the fix\n$/);
   });
-  it("writes a journal bullet linking the project, on today's page", async () => {
+  it("writes a journal entry under Automatic Logging, linking the project", async () => {
     const v = seed();
     await cardComplete(v, "c1", "shipped the fix");
     const journal = await v.get<string>("pages", todayKey());
-    expect(journal).toContain('Completed "Fix login"');
-    expect(journal).toContain("— shipped the fix");
-    expect(journal).toContain("[[Project: Alpha]]");
+    expect(journal).toContain("- Automatic Logging\n");
+    // The entry is a second-level (indented) child of the section.
+    expect(journal).toMatch(/^  - \d\d:\d\d Completed "Fix login" — shipped the fix \[\[Project: Alpha\]\]$/m);
   });
   it("includes the plan suffix when the card has a planDoc", async () => {
     const v = seed();
@@ -153,13 +161,16 @@ describe("cardComplete", () => {
     expect(journal).toContain('Completed "Write docs"');
     expect(journal).not.toContain("—");
   });
-  it("appends to an existing journal page without clobbering", async () => {
+  it("preserves the user's top-level entries, nesting auto entries below", async () => {
     const v = seed();
     await v.set("pages", todayKey(), "- earlier entry\n");
     await cardComplete(v, "c1", "later");
     const journal = await v.get<string>("pages", todayKey());
-    expect(journal).toContain("- earlier entry");
-    expect(journal).toContain('Completed "Fix login"');
+    // User's flush-left line is untouched; the auto entry is a nested child of
+    // a new Automatic Logging section appended after it.
+    expect(journal).toMatch(
+      /^- earlier entry\n- Automatic Logging\n  - \d\d:\d\d Completed "Fix login" — later \[\[Project: Alpha\]\]\n$/,
+    );
   });
 });
 

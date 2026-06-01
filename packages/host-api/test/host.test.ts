@@ -60,6 +60,7 @@ class NoopHost implements Host {
     open: async (_sessionId: string) => ({ channel: "" }),
     transition: async (_sessionId: string, _to: SessionState) => {},
     prompt: async (_sessionId: string, _text: string) => {},
+    kill: async (_sessionId: string) => {},
   };
 
   locks: LockService = {

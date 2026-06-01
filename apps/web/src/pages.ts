@@ -98,10 +98,18 @@ export function pageNames(): string[] {
   return Object.keys(cache).sort();
 }
 
-// All pages with their timestamps, newest activity first (most recently updated,
-// then created). Drives the Pages index.
+// Derived pages that live in the "pages" ns but aren't standalone wiki pages:
+// per-card narratives (`card:<id>`) and project notes (`notes:<id>`). They stay
+// readable, [[linkable]], and backlinkable — they're just reached through the
+// card modal / project page, so the Pages index omits them as noise.
+const INTERNAL_PAGE_PREFIX = /^(card|notes):/;
+
+// All standalone pages with their timestamps, newest activity first (most
+// recently updated, then created). Drives the Pages index; excludes the derived
+// card:/notes: pages.
 export function pagesIndex(): PageInfo[] {
   return Object.keys(cache)
+    .filter((name) => !INTERNAL_PAGE_PREFIX.test(name))
     .map((name) => {
       const m = metaCache[name];
       return {

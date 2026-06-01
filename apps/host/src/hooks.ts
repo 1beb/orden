@@ -1,15 +1,28 @@
 // Receives Claude Code hook callbacks (POST /hooks/session-state?state=X) and
 // reflects the agent's live state onto the session's linked kanban card:
 //   - UserPromptSubmit  -> state "in-progress" (Claude is working/thinking)
+//   - PostToolUse       -> state "in-progress" (a tool ran => still working)
 //   - Stop              -> state "blocked"     (Claude finished, awaiting you)
 //
+// PostToolUse is the RECOVERY edge. Without it the cycle is asymmetric: only
+// UserPromptSubmit restores in-progress, but a turn can be parked at blocked
+// mid-flight by a waiting-notification (a permission or AskUserQuestion prompt).
+// Answering that prompt is NOT a new prompt submission, so nothing fired to
+// un-block the card and it stayed "blocked" for the rest of the turn while the
+// agent was actively working. PostToolUse fires after every completed tool —
+// i.e. once the agent is demonstrably working again — so the first tool run
+// after the prompt is answered flips the card back to in-progress. It's a no-op
+// the rest of the time (applyState only writes on an actual state change), and
+// at end-of-turn the trailing Stop still wins (last PostToolUse -> in-progress,
+// then Stop -> blocked).
+//
 // Division of labor: the HOOKS drive the automatic working/waiting cycle only
-// (UserPromptSubmit -> in-progress, Stop / waiting-notification -> blocked) and
-// may set just planning | in-progress | blocked. They NEVER touch a card that is
-// already "complete" — complete is terminal and user-owned, so the next Stop
-// hook must not knock a just-completed card back to blocked. Deliberate moves —
-// and the ONLY path to "complete" — come from the LLM via the MCP `card_*` tools
-// (`card_complete`), not from a hook.
+// (UserPromptSubmit / PostToolUse -> in-progress, Stop / waiting-notification ->
+// blocked) and may set just planning | in-progress | blocked. They NEVER touch a
+// card that is already "complete" — complete is terminal and user-owned, so
+// neither a trailing Stop nor a trailing PostToolUse may knock a just-completed
+// card off complete. Deliberate moves — and the ONLY path to "complete" — come
+// from the LLM via the MCP `card_*` tools (`card_complete`), not from a hook.
 //
 // The orden-launched `claude --session-id <uuid>` writes <uuid> as the session
 // record's conversationId, and Claude's hook payload carries that same id as

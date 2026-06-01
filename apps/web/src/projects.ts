@@ -65,6 +65,18 @@ export function addProject(name: string, source: ProjectSource = { kind: "epheme
   return project;
 }
 
+// Edit an existing project's name and (for local projects) its folder path.
+// Path is ignored for ephemeral/ssh/s3 sources — only `local` has a path field.
+export function updateProject(id: string, patch: { name?: string; path?: string }): void {
+  const project = cache.find((p) => p.id === id);
+  if (!project) return;
+  if (patch.name !== undefined && patch.name.trim()) project.name = patch.name.trim();
+  if (patch.path !== undefined && project.source.kind === "local") {
+    project.source = { kind: "local", path: patch.path.trim() };
+  }
+  if (host) void host.vault.set("projects", project.id, project);
+}
+
 export function removeProject(id: string): void {
   cache = cache.filter((p) => p.id !== id);
   if (host) void host.vault.delete("projects", id);

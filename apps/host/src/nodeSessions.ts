@@ -7,6 +7,7 @@
 // the chat-style prompt() path (which used `claude -p`) has been removed.
 
 import type { SessionManager, Session, VaultStore } from "@orden/host-api";
+import { killSessionTmux } from "./terminal";
 
 export interface NodeSessionsOptions {
   vault: VaultStore;
@@ -32,5 +33,10 @@ export class NodeSessions implements SessionManager {
   // `claude -p`. Kept only to satisfy the interface; surfaces loudly if called.
   async prompt(_sessionId: string, _text: string): Promise<void> {
     throw new Error("NodeHost: chat-mode prompt() removed — sessions run as the interactive TUI");
+  }
+  // Stop the agent by killing its tmux session (the record is removed by the
+  // web store in parallel). Idempotent — killing an unknown session is a no-op.
+  async kill(sessionId: string): Promise<void> {
+    await killSessionTmux(sessionId);
   }
 }

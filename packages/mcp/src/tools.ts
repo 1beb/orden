@@ -121,6 +121,38 @@ async function appendToPage(vault: VaultStore, key: string, line: string): Promi
   await vault.set("pages", key, (cur ? cur.trimEnd() + "\n" : "") + line + "\n");
 }
 
+// The outliner nests bullets by indentation (2 spaces per level; see
+// @orden/outliner markdown.ts). Auto-written entries are filed as children of a
+// single top-level "Automatic Logging" bullet so they read plainly as a machine
+// log, separate from anything the user writes at the top level of the page.
+const AUTO_SECTION = "Automatic Logging";
+const INDENT = "  ";
+
+async function appendAutoLog(vault: VaultStore, key: string, entry: string): Promise<void> {
+  const cur = (await vault.get<string>("pages", key)) ?? "";
+  const child = `${INDENT}- ${entry}`;
+  const lines = cur.split("\n");
+  const head = lines.findIndex((l) => new RegExp(`^- ${AUTO_SECTION}\\s*$`).test(l));
+  if (head === -1) {
+    const body = cur.trimEnd();
+    await vault.set("pages", key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${child}\n`);
+    return;
+  }
+  // Insert after the section's last existing child (a deeper-indented line),
+  // before any later top-level content. Blank lines don't end the section.
+  let at = head + 1;
+  for (let i = head + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.trim() === "") continue;
+    if (l.startsWith(" ") || l.startsWith("\t")) at = i + 1;
+    else break;
+  }
+  lines.splice(at, 0, child);
+  let out = lines.join("\n");
+  if (!out.endsWith("\n")) out += "\n";
+  await vault.set("pages", key, out);
+}
+
 // Canonical project link target, resolving the id to its display name.
 async function projectLink(vault: VaultStore, projectId?: string): Promise<string> {
   if (!projectId) return "";
@@ -160,7 +192,7 @@ export async function cardMove(
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
   await vault.set("cards", card.id, { ...card, state });
-  if (note) await appendToPage(vault, cardLogKey(card.id), `- ${hhmm(new Date())} ${state}: ${note}`);
+  if (note) await appendAutoLog(vault, cardLogKey(card.id), `${hhmm(new Date())} ${state}: ${note}`);
   return text(`card "${card.title}" -> ${state}`);
 }
 
@@ -178,17 +210,17 @@ export async function cardComplete(
   const sum = summary?.trim();
 
   // Card log: a Completed line, with the summary when given.
-  await appendToPage(vault, cardLogKey(card.id), `- ${time} Completed${sum ? " — " + sum : ""}`);
+  await appendAutoLog(vault, cardLogKey(card.id), `${time} Completed${sum ? " — " + sum : ""}`);
 
-  // Journal: a single bullet on today's page linking back to the project (and
+  // Journal: a single entry on today's page linking back to the project (and
   // the plan doc, when one is associated).
   const link = await projectLink(vault, card.projectId);
   const plan =
     typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
-  const bullet =
-    [`- ${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
+  const entry =
+    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
     plan;
-  await appendToPage(vault, journalKey(now), bullet);
+  await appendAutoLog(vault, journalKey(now), entry);
 
   return text(`card "${card.title}" -> complete`);
 }

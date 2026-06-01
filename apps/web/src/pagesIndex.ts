@@ -1,4 +1,5 @@
 import { pagesIndex, backlinksTo, deletePage } from "./pages";
+import { confirmDialog } from "./modal";
 
 // Format an ISO timestamp as a short, locale-friendly date; "—" when unknown.
 function fmtDate(iso?: string): string {
@@ -69,10 +70,15 @@ export function renderPagesIndex(
       "border:0;background:none;cursor:pointer;color:var(--muted,#999);font-size:0.9em;padding:0 0.25em;line-height:1;opacity:0.6;";
     del.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (window.confirm(`Delete page "${p.name}"? This cannot be undone.`)) {
+      void confirmDialog({
+        title: "Delete page",
+        message: `Delete page "${p.name}"? This cannot be undone.`,
+        confirmLabel: "Delete page",
+      }).then((ok) => {
+        if (!ok) return;
         deletePage(p.name);
         renderPagesIndex(container, onOpen);
-      }
+      });
     });
     actionCell.append(del);
 

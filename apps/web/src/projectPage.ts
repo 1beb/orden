@@ -9,9 +9,22 @@ import {
   cardSessionIds,
   type Item,
 } from "./cards";
-import { getProject, listProjects, type Project } from "./projects";
+import {
+  getProject,
+  listProjects,
+  updateProject,
+  DEFAULT_PROJECT_ID,
+  type Project,
+} from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
-import { listSessions, setSessionProject, isSessionComplete, type Agent, type Session } from "./sessions";
+import {
+  sessionsForCard,
+  setSessionProject,
+  isSessionComplete,
+  listSessions,
+  type Agent,
+} from "./sessions";
+import { openDialog } from "./modal";
 import { makeOutlineEditor } from "./outlineEditor";
 import { openCardModal } from "./cardModal";
 
@@ -78,6 +91,13 @@ export function renderProjectPage(
   // the repo for now; per-project roots come later, at which point this should
   // be scoped per project rather than the whole repo.
   repoFiles: FileEntry[] = [],
+  // Called after an in-place edit (rename / re-path) so the caller can refresh
+  // the sidebar list and the view title to match.
+  onProjectChanged?: () => void,
+  // Remove the project. `mode` decides what happens to its cards/sessions:
+  // "reassign" moves them to the default project; "cascade" deletes them (and
+  // kills their agents). The caller owns the cross-store work and navigation.
+  onRemoveProject?: (id: string, mode: "reassign" | "cascade") => void,
 ): void {
   const project = getProject(projectId);
   // Tear down the previous render's notes editor before replacing the DOM.
@@ -97,38 +117,23 @@ export function renderProjectPage(
     return;
   }
 
-  const heading = document.createElement("h1");
-  heading.className = "project-title";
-  heading.textContent = project.name;
+  // Title row + a cog menu (Edit / Remove). The header manages its own meta
+  // subtitle and inline edit form; remove is delegated to the caller.
+  const header = projectHeader(project, onProjectChanged, onRemoveProject);
 
-  // Source subtitle: the path for local projects, the source kind for remote
-  // ones. Ephemeral projects (e.g. Homeroom) show no subtitle — "ephemeral" is
-  // an implementation detail, not something to surface.
-  const metaText =
-    project.source.kind === "local"
-      ? project.source.path
-      : project.source.kind === "ephemeral"
-        ? ""
-        : project.source.kind;
-  const meta = document.createElement("div");
-  meta.className = "project-meta";
-  meta.textContent = metaText;
-
-  const sessions = sessionsWidget(projectId, onOpenSession);
-  // Moving a card to another project also moves its linked session — refresh
-  // the Active sessions widget so the session leaves this page's list too.
-  const items = itemsWidget(projectId, onChange, sessions.refresh, onStartSession, onOpenSession);
+  // Items by state now folds the active sessions in: each row carries its
+  // linked session(s) as a leading brand-mark button (open directly), so there's
+  // no separate Active-sessions widget to keep in sync.
+  const items = itemsWidget(projectId, onChange, onStartSession, onOpenSession);
   // A single bar at the very top: type a title and either Add it, or hit a
   // Claude / opencode mark to add the item AND start a session on it at once.
-  const top = addBar(projectId, onChange, items.render, sessions.refresh, onStartSession);
+  const top = addBar(projectId, onChange, items.render, onStartSession);
   // onNewSession (a cardless project-scoped session) no longer has a launcher —
   // add+start covers session creation from the page now.
   void onNewSession;
   container.append(
-    heading,
-    ...(metaText ? [meta] : []),
+    header,
     top,
-    sessions.section,
     items.section,
     // File explorer — only for file-backed (local) projects. Ephemeral/ssh/s3
     // projects have no browsable local files, so the widget is omitted.
@@ -138,13 +143,226 @@ export function renderProjectPage(
   );
 }
 
+// --- Header: title + cog menu (edit / remove) -----------------------------
+
+// The source subtitle: the path for local projects, the source kind for remote
+// ones. Ephemeral projects (e.g. Homeroom) show none — "ephemeral" is an
+// implementation detail, not something to surface.
+function projectMetaText(project: Project): string {
+  if (project.source.kind === "local") return project.source.path;
+  if (project.source.kind === "ephemeral") return "";
+  return project.source.kind;
+}
+
+function projectHeader(
+  project: Project,
+  onProjectChanged?: () => void,
+  onRemoveProject?: (id: string, mode: "reassign" | "cascade") => void,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "project-header";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "project-title-row";
+
+  const heading = document.createElement("h1");
+  heading.className = "project-title";
+  heading.textContent = project.name;
+
+  const meta = document.createElement("div");
+  meta.className = "project-meta";
+  meta.textContent = projectMetaText(project);
+  const syncMeta = (): void => {
+    meta.textContent = projectMetaText(project);
+    meta.hidden = !meta.textContent;
+  };
+  syncMeta();
+
+  // Cog + dropdown menu (Edit / Remove). The menu closes on outside click.
+  const cog = document.createElement("button");
+  cog.type = "button";
+  cog.className = "project-cog";
+  cog.title = "Project settings";
+  cog.setAttribute("aria-label", "Project settings");
+  cog.textContent = "⚙";
+
+  const menu = document.createElement("div");
+  menu.className = "project-menu";
+  menu.hidden = true;
+
+  const closeMenu = (): void => {
+    menu.hidden = true;
+    document.removeEventListener("click", onDocClick, true);
+  };
+  const onDocClick = (e: MouseEvent): void => {
+    if (!wrap.contains(e.target as Node)) closeMenu();
+  };
+  cog.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (menu.hidden) {
+      menu.hidden = false;
+      document.addEventListener("click", onDocClick, true);
+    } else {
+      closeMenu();
+    }
+  });
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "project-menu__item";
+  editBtn.textContent = "Edit details";
+
+  // The inline edit form, hidden until "Edit details" is chosen.
+  const form = editForm(project, meta, heading, syncMeta, onProjectChanged);
+
+  editBtn.addEventListener("click", () => {
+    closeMenu();
+    titleRow.hidden = true;
+    meta.hidden = true;
+    form.hidden = false;
+    form.focus();
+  });
+  menu.append(editBtn);
+
+  // Homeroom is the catch-all default and can't be removed.
+  if (project.id !== DEFAULT_PROJECT_ID && onRemoveProject) {
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "project-menu__item project-menu__item--danger";
+    removeBtn.textContent = "Remove project";
+    removeBtn.addEventListener("click", () => {
+      closeMenu();
+      void confirmRemoveProject(project, onRemoveProject);
+    });
+    menu.append(removeBtn);
+  }
+
+  const cogWrap = document.createElement("div");
+  cogWrap.className = "project-cog-wrap";
+  cogWrap.append(cog, menu);
+  titleRow.append(heading, cogWrap);
+  wrap.append(titleRow, meta, form);
+  // Show/hide the form's restore of the title row on cancel/save.
+  form.addEventListener("project-edit-done", () => {
+    titleRow.hidden = false;
+    syncMeta();
+    form.hidden = true;
+  });
+  return wrap;
+}
+
+// Inline name (+ path, for local projects) editor. Emits a "project-edit-done"
+// event on its own element when the user saves or cancels, so the header can
+// restore the title row. Saving persists via updateProject and notifies the
+// caller to refresh the sidebar/title.
+function editForm(
+  project: Project,
+  _meta: HTMLElement,
+  heading: HTMLElement,
+  syncMeta: () => void,
+  onProjectChanged?: () => void,
+): HTMLElement {
+  const form = document.createElement("form");
+  form.className = "project-edit";
+  form.hidden = true;
+
+  const nameInput = document.createElement("input");
+  nameInput.className = "project-edit__input";
+  nameInput.placeholder = "Project name";
+  nameInput.value = project.name;
+
+  const pathInput = document.createElement("input");
+  pathInput.className = "project-edit__input";
+  pathInput.placeholder = "Folder path";
+  const isLocal = project.source.kind === "local";
+  if (isLocal) pathInput.value = (project.source as { path: string }).path;
+
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.className = "project-edit__save";
+  save.textContent = "Save";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "project-edit__cancel";
+  cancel.textContent = "Cancel";
+
+  const done = (): void => {
+    form.dispatchEvent(new CustomEvent("project-edit-done"));
+  };
+  cancel.addEventListener("click", () => {
+    nameInput.value = project.name;
+    if (isLocal) pathInput.value = (project.source as { path: string }).path;
+    done();
+  });
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) return; // a project must keep a name
+    updateProject(project.id, { name, path: isLocal ? pathInput.value : undefined });
+    heading.textContent = project.name;
+    syncMeta();
+    onProjectChanged?.();
+    done();
+  });
+
+  form.append(nameInput, ...(isLocal ? [pathInput] : []), save, cancel);
+  // Focusing the form focuses the name field (header calls form.focus()).
+  form.addEventListener("focus", () => nameInput.focus());
+  Object.defineProperty(form, "focus", { value: () => nameInput.focus() });
+  return form;
+}
+
+// The remove confirmation flow. Counts the project's cards/sessions, offers
+// "move to Homeroom" vs "delete everything", and double-confirms a cascade
+// before delegating the actual removal to the caller.
+async function confirmRemoveProject(
+  project: Project,
+  onRemoveProject: (id: string, mode: "reassign" | "cascade") => void,
+): Promise<void> {
+  const cardCount = itemsByProject(project.id).length;
+  const sessCount = listSessions(true).filter((s) => s.projectId === project.id).length;
+
+  // Nothing to move or destroy — a single plain confirm is enough.
+  if (cardCount === 0 && sessCount === 0) {
+    const ok = await openDialog({
+      title: `Remove "${project.name}"?`,
+      message: "This project is empty. Remove it?",
+      actions: [{ id: "reassign", label: "Remove project", danger: true }],
+    });
+    if (ok === "reassign") onRemoveProject(project.id, "reassign");
+    return;
+  }
+
+  const counts = `${cardCount} card${cardCount === 1 ? "" : "s"} and ${sessCount} session${sessCount === 1 ? "" : "s"}`;
+  const choice = await openDialog({
+    title: `Remove "${project.name}"`,
+    message: `This project has ${counts}. What should happen to them?`,
+    actions: [
+      { id: "reassign", label: "Move to Homeroom & remove" },
+      { id: "cascade", label: "Delete everything", danger: true },
+    ],
+  });
+  if (!choice) return;
+
+  if (choice === "cascade") {
+    // Double-ask: a cascade is irreversible and kills running agents.
+    const sure = await openDialog({
+      title: "Permanently delete everything?",
+      message: `This deletes ${counts} and stops their running agents. This cannot be undone.`,
+      actions: [{ id: "confirm", label: "Delete everything", danger: true }],
+    });
+    if (sure !== "confirm") return;
+  }
+  onRemoveProject(project.id, choice as "reassign" | "cascade");
+}
+
 // --- Top bar: add an item, or add + start a session on it -----------------
 
 function addBar(
   projectId: string,
   onChange: () => void,
   refreshItems: () => void,
-  refreshSessions: () => void,
   onStartSession?: (item: Item, agent: Agent) => void,
 ): HTMLElement {
   const row = document.createElement("div");
@@ -181,7 +399,7 @@ function addBar(
         const item = create();
         if (!item) return;
         onStartSession(item, agent);
-        refreshSessions();
+        refreshItems(); // show the new item's open button
       }),
     );
   }
@@ -233,58 +451,44 @@ function widget(title: string): { section: HTMLElement; body: HTMLElement } {
   return { section, body };
 }
 
-// --- 1. Active sessions ---------------------------------------------------
+// --- Items by state (issue tracker + active sessions, combined) -----------
 
-function sessionsWidget(
-  projectId: string,
+// A leading control for an item row. If the item has linked session(s), render
+// one brand-mark button per session that opens it directly (the active-session
+// affordance, folded onto the row). Otherwise render the Claude/opencode
+// launcher to start a session on it.
+function rowLeader(
+  item: Item,
+  onStartSession?: (item: Item, agent: Agent) => void,
   onOpenSession?: (id: string) => void,
-): { section: HTMLElement; refresh: () => void } {
-  const { section, body } = widget("Active sessions");
-
-  const refresh = (): void => {
-    body.replaceChildren();
-    const sessions = listSessions().filter(
-      (s: Session) => s.projectId === projectId && !isSessionComplete(s),
-    );
-    if (sessions.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "project-widget-empty";
-      empty.textContent = "No active sessions for this project.";
-      body.append(empty);
-    } else {
-      const list = document.createElement("div");
-      list.className = "project-sess-list";
-      for (const s of sessions) {
-        const row = document.createElement("button");
-        row.className = "project-sess-row";
-        row.type = "button";
-        const mark = document.createElement("span");
-        mark.className = "project-sess-mark";
-        mark.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
-        mark.title = s.agent;
-        const title = document.createElement("span");
-        title.className = "project-sess-title";
-        title.textContent = s.title;
-        row.append(mark, title);
-        if (onOpenSession) row.addEventListener("click", () => onOpenSession(s.id));
-        list.append(row);
-      }
-      body.append(list);
+): HTMLElement {
+  const lead = document.createElement("span");
+  lead.className = "issue-row-lead";
+  const sessions = sessionsForCard(item);
+  if (sessions.length > 0) {
+    for (const s of sessions) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "issue-sess-open";
+      if (isSessionComplete(s)) b.classList.add("is-complete");
+      b.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
+      b.title = `Open ${s.agent} session: ${s.title}`;
+      b.setAttribute("aria-label", b.title);
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onOpenSession?.(s.id);
+      });
+      lead.append(b);
     }
-  };
-
-  refresh();
-  return { section, refresh };
+  } else if (onStartSession) {
+    lead.append(agentLauncher((agent) => onStartSession(item, agent)));
+  }
+  return lead;
 }
-
-// --- 2. Items by state (the existing issue tracker) -----------------------
 
 function itemsWidget(
   projectId: string,
   onChange: () => void,
-  // Refresh the Active sessions widget when a card (and its linked session)
-  // moves to another project, so the session leaves this page's list.
-  refreshSessions: () => void,
   onStartSession?: (item: Item, agent: Agent) => void,
   onOpenSession?: (id: string) => void,
 ): { section: HTMLElement; render: () => void } {
@@ -317,9 +521,12 @@ function itemsWidget(
       for (const item of group) {
         const row = document.createElement("div");
         row.className = "issue-row";
+        // Leading control: open the linked session(s) directly, or — if none —
+        // launch one. This is what folds Active sessions into the row.
+        const lead = rowLeader(item, onStartSession, onOpenSession);
         // Click the title to open the card's detail modal (same modal the
-        // kanban board opens). Mutations there refresh this list + the sessions
-        // widget; onStart/onOpen fall back to no-ops if the page didn't wire them.
+        // kanban board opens). Mutations there refresh this list;
+        // onStart/onOpen fall back to no-ops if the page didn't wire them.
         const title = document.createElement("button");
         title.type = "button";
         title.className = "issue-title";
@@ -331,7 +538,6 @@ function itemsWidget(
             onChange: () => {
               onChange();
               render();
-              refreshSessions();
             },
           });
         });
@@ -363,17 +569,12 @@ function itemsWidget(
         projSel.addEventListener("change", () => {
           setItemProject(item.id, projSel.value);
           // Move the linked sessions too, so they follow the card off this page
-          // instead of stranding under its old project's "Active sessions".
+          // instead of stranding under its old project.
           for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
           onChange();
           render();
-          refreshSessions();
         });
-        row.append(title, select, projSel);
-        // No AI conversation yet → start one (Claude / opencode) from the row.
-        if (cardSessionIds(item).length === 0 && onStartSession) {
-          row.append(agentLauncher((agent) => onStartSession(item, agent)));
-        }
+        row.append(lead, title, select, projSel);
         details.append(row);
       }
       list.append(details);

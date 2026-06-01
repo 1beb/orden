@@ -6,6 +6,7 @@ import {
   hydrateProjects,
   listProjects,
   removeProject,
+  updateProject,
 } from "../src/projects";
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -38,6 +39,26 @@ describe("projects registry (host-backed)", () => {
     removeProject(p.id);
     expect(getProject(p.id)).toBeUndefined();
     expect(listProjects().map((x) => x.id)).not.toContain(p.id);
+  });
+
+  it("updateProject renames and re-paths a local project", () => {
+    const p = addProject("Old", { kind: "local", path: "/tmp/old" });
+    updateProject(p.id, { name: "  New  ", path: "  /tmp/new  " });
+    const got = getProject(p.id)!;
+    expect(got.name).toBe("New");
+    expect(got.source).toEqual({ kind: "local", path: "/tmp/new" });
+  });
+
+  it("updateProject ignores an empty name and ignores path for non-local sources", () => {
+    const p = addProject("Keep", { kind: "ephemeral" });
+    updateProject(p.id, { name: "   ", path: "/tmp/x" });
+    const got = getProject(p.id)!;
+    expect(got.name).toBe("Keep");
+    expect(got.source).toEqual({ kind: "ephemeral" });
+  });
+
+  it("updateProject on a missing id is a no-op", () => {
+    expect(() => updateProject("nope", { name: "x" })).not.toThrow();
   });
 
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {

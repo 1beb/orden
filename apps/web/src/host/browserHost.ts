@@ -132,6 +132,11 @@ class LocalSessions implements SessionManager {
   async prompt(_sessionId: string, _text: string): Promise<void> {
     throw new Error("BrowserHost: sessions require a host");
   }
+
+  // No real agents in the browser, so there's nothing to stop.
+  async kill(_sessionId: string): Promise<void> {
+    /* no-op */
+  }
 }
 
 class LocalLocks implements LockService {

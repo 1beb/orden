@@ -6,6 +6,7 @@ import {
   getPageMarkdown,
   hydratePages,
   pageNames,
+  pagesIndex,
   setPageMarkdown,
 } from "../src/pages";
 
@@ -64,6 +65,25 @@ describe("pages store (host-backed)", () => {
     deletePage("doomed");
     expect(getPageMarkdown("doomed")).toBe("");
     expect(pageNames()).not.toContain("doomed");
+  });
+
+  it("pagesIndex omits internal card:/notes: pages but keeps wiki + journal pages", () => {
+    setPageMarkdown("DesignNotes", "- a wiki page");
+    setPageMarkdown("2026-05-24", "- a journal page");
+    setPageMarkdown("card:item_abc_1", "- a card narrative");
+    setPageMarkdown("notes:proj_x", "- project notes");
+
+    const names = pagesIndex().map((p) => p.name);
+    expect(names).toContain("DesignNotes");
+    expect(names).toContain("2026-05-24");
+    expect(names).not.toContain("card:item_abc_1");
+    expect(names).not.toContain("notes:proj_x");
+  });
+
+  it("internal card:/notes: pages stay readable and backlinkable though hidden from the index", () => {
+    setPageMarkdown("card:item_abc_1", "- see [[Topic]]");
+    expect(getPageMarkdown("card:item_abc_1")).toBe("- see [[Topic]]");
+    expect(backlinksTo("Topic").length).toBeGreaterThanOrEqual(1);
   });
 
   it("deletePage resolves case-insensitively and persists across re-hydrate", async () => {

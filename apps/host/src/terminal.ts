@@ -24,6 +24,18 @@ import {
 
 const exec = promisify(execFile);
 
+// The tmux session name a given orden session's agent runs under. One place so
+// launch, reattach, and kill all agree on the convention.
+export function tmuxNameFor(sessionId: string): string {
+  return `orden-${sessionId}`;
+}
+
+// Permanently stop a session's agent by killing its tmux session. Idempotent:
+// a missing session just makes tmux exit non-zero, which we swallow.
+export async function killSessionTmux(sessionId: string): Promise<void> {
+  await exec("tmux", ["kill-session", "-t", tmuxNameFor(sessionId)]).catch(() => {});
+}
+
 interface SessionRecord {
   id: string;
   title?: string;
@@ -164,7 +176,7 @@ export async function launchDetached(
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
     const cmd = await buildCommand(host, rec, sessionId);
-    const tmuxName = `orden-${sessionId}`;
+    const tmuxName = tmuxNameFor(sessionId);
     // Mirror handle()'s tmux invocation, but detached (-d) and via plain spawn
     // (no pty needed to merely create). `cmd` is a single shell string and is
     // passed as the trailing positional arg, exactly as handle() does.
@@ -229,7 +241,7 @@ async function handle(
       : new Set<string>();
 
   const cmd = await buildCommand(host, rec, sessionId);
-  const tmuxName = `orden-${sessionId}`;
+  const tmuxName = tmuxNameFor(sessionId);
   const term = ptySpawn(
     "tmux",
     // attach-or-create: the command only runs when the session is first created.

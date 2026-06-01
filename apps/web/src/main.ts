@@ -10,9 +10,25 @@ import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
-import { listProjects, addProject, getProject, hydrateProjects } from "./projects";
+import {
+  listProjects,
+  addProject,
+  getProject,
+  hydrateProjects,
+  removeProject,
+  ensureDefaultProject,
+} from "./projects";
 import { hydratePages } from "./pages";
-import { hydrateCards, listItems, getItem, cardSessionIds, type Item } from "./cards";
+import {
+  hydrateCards,
+  listItems,
+  getItem,
+  cardSessionIds,
+  itemsByProject,
+  setItemProject,
+  removeItem,
+  type Item,
+} from "./cards";
 import {
   hydrateSessions,
   reapDeadSessions,
@@ -21,6 +37,7 @@ import {
   createSession,
   archiveSession,
   deleteSession,
+  setSessionProject,
   isAbandoned,
   isSessionComplete,
   markSessionTouched,
@@ -49,8 +66,8 @@ import {
   hydrateSettings,
   loadSettings,
   saveSettings,
-  MIN_PANEL_WIDTH,
-  MAX_PANEL_WIDTH,
+  MIN_PANEL_PCT,
+  MAX_PANEL_PCT,
   type StartupView,
 } from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
@@ -701,7 +718,41 @@ function renderProject(projectId: string): void {
     startProjectSession,
     (path) => void openRepoFile(path),
     repoFiles,
+    onProjectChanged,
+    removeProjectWithItems,
   );
+}
+
+// A project was renamed / re-pathed in place: refresh the sidebar list and the
+// view title so they match. (The page itself updated its own header in place.)
+function onProjectChanged(): void {
+  renderProjects();
+  if (currentProjectId) {
+    projectTitle = getProject(currentProjectId)?.name ?? "Project";
+    if (viewStore.get() === "project") viewTitle.textContent = projectTitle;
+  }
+}
+
+// Remove a project, deciding what happens to its cards/sessions. "reassign"
+// moves them to the default (Homeroom) project so nothing is orphaned;
+// "cascade" deletes the cards and sessions (deleteSession also kills the
+// agent). Then drop the project and navigate off its now-dead page.
+function removeProjectWithItems(id: string, mode: "reassign" | "cascade"): void {
+  const cards = itemsByProject(id);
+  const sessions = listSessions(true).filter((s) => s.projectId === id);
+  if (mode === "reassign") {
+    const home = ensureDefaultProject().id;
+    for (const s of sessions) setSessionProject(s.id, home);
+    for (const c of cards) setItemProject(c.id, home);
+  } else {
+    for (const s of sessions) deleteSession(s.id);
+    for (const c of cards) removeItem(c.id);
+  }
+  removeProject(id);
+  if (currentProjectId === id) currentProjectId = null;
+  renderProjects();
+  refreshBoard();
+  viewStore.set("kanban");
 }
 
 // Re-render the project page on a remote change, but never while the user is
@@ -759,26 +810,34 @@ accentInput.addEventListener("input", () => {
   void saveSettings({ accent: accentInput.value });
 });
 
-// Session panel width: drive --session-width (px) on :root; #app's --right
-// falls back to the responsive clamp when this is unset. Apply now, then wire
-// the slider — live preview on input, persist on the same event.
-function applyPanelWidth(width: number): void {
-  document.documentElement.style.setProperty("--session-width", `${width}px`);
-}
-applyPanelWidth(settings.sessionPanelWidth);
-
+// Session panel width: a % of viewport width driving --session-width (vw) on
+// :root; #app's --right falls back to the responsive clamp when this is unset.
+// The width tracks the viewport live (vw), so it stays at the chosen fraction
+// on resize. Apply now, then wire the slider — live preview + persist on input.
 const panelWidthInput = document.querySelector<HTMLInputElement>("#panel-width")!;
 const panelWidthValue = document.querySelector<HTMLElement>("#panel-width-value")!;
-panelWidthInput.min = String(MIN_PANEL_WIDTH);
-panelWidthInput.max = String(MAX_PANEL_WIDTH);
-panelWidthInput.value = String(settings.sessionPanelWidth);
-panelWidthValue.textContent = `${settings.sessionPanelWidth}px`;
+function applyPanelWidth(pct: number): void {
+  document.documentElement.style.setProperty("--session-width", `${pct}vw`);
+}
+function showPanelWidth(pct: number): void {
+  const px = Math.round((pct / 100) * window.innerWidth);
+  panelWidthValue.textContent = `${pct}% · ${px}px`;
+}
+applyPanelWidth(settings.sessionPanelPct);
+
+panelWidthInput.min = String(MIN_PANEL_PCT);
+panelWidthInput.max = String(MAX_PANEL_PCT);
+panelWidthInput.value = String(settings.sessionPanelPct);
+showPanelWidth(settings.sessionPanelPct);
 panelWidthInput.addEventListener("input", () => {
-  const width = Number(panelWidthInput.value);
-  panelWidthValue.textContent = `${width}px`;
-  applyPanelWidth(width);
-  void saveSettings({ sessionPanelWidth: width });
+  const pct = Number(panelWidthInput.value);
+  showPanelWidth(pct);
+  applyPanelWidth(pct);
+  void saveSettings({ sessionPanelPct: pct });
 });
+// The px half of the readout depends on viewport width; refresh it on resize so
+// it's accurate whenever the popover is open.
+window.addEventListener("resize", () => showPanelWidth(Number(panelWidthInput.value)));
 
 // Font family + size: apply the saved choice now, then wire the selectors.
 applyFont(settings.fontFamily, settings.fontSize);

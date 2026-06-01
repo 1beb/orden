@@ -70,6 +70,20 @@ describe("sessions store (host-backed)", () => {
     expect(cardSessionIds(stillThere!)).toEqual([]);
   });
 
+  it("deleteSession also asks the host to kill the session's agent", async () => {
+    const killed: string[] = [];
+    const h = new BrowserHost();
+    h.sessions.kill = async (id: string) => {
+      killed.push(id);
+    };
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    const s = createSession({ title: "Reap me", agent: "claude" });
+    deleteSession(s.id);
+    expect(killed).toContain(s.id);
+  });
+
   it("ensureSummary seeds from the title once a card is complete; no-op otherwise", () => {
     const s = createSession({ title: "Wrap up", agent: "claude" });
     ensureSummary(s, "in-progress");

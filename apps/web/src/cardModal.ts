@@ -13,6 +13,7 @@ import {
   type Item,
 } from "./cards";
 import { listProjects } from "./projects";
+import { confirmDialog } from "./modal";
 import { agentLauncher, markFor } from "./agentMarks";
 import {
   sessionsForCard,
@@ -232,10 +233,17 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
     del.className = "card-modal__delete";
     del.textContent = "Delete card";
     del.addEventListener("click", () => {
-      if (!confirm(`Delete "${item.title}" and its ${sessionsForCard(item).length} session(s)?`)) return;
-      for (const s of sessionsForCard(item)) deleteSession(s.id);
-      removeItem(item.id);
-      close();
+      const n = sessionsForCard(item).length;
+      void confirmDialog({
+        title: "Delete card",
+        message: `Delete "${item.title}"${n ? ` and its ${n} session(s)` : ""}? This cannot be undone.`,
+        confirmLabel: "Delete card",
+      }).then((ok) => {
+        if (!ok) return;
+        for (const s of sessionsForCard(item)) deleteSession(s.id);
+        removeItem(item.id);
+        close();
+      });
     });
     footer.append(del);
     bodyEl.append(footer);

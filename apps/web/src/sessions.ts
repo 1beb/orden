@@ -178,7 +178,12 @@ export function archiveSession(id: string): void {
  */
 export function deleteSession(id: string): void {
   cache = cache.filter((s) => s.id !== id);
-  if (host) void host.vault.delete("sessions", id);
+  if (host) {
+    // Reap the running agent too (kills its tmux/pty), then drop the record.
+    // Fire-and-forget like the vault write; kill is idempotent on the host.
+    void host.sessions.kill(id);
+    void host.vault.delete("sessions", id);
+  }
   const cardId = linkedCardId(id);
   if (cardId) removeItemSession(cardId, id);
 }

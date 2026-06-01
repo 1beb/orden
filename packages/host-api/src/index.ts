@@ -75,6 +75,13 @@ export interface SessionManager {
    * the vault (ns "sessions"), so they stream to clients via the change feed.
    */
   prompt(sessionId: string, text: string): Promise<void>;
+  /**
+   * Permanently stop a session's running agent (kills the underlying tmux/pty).
+   * Idempotent: killing an already-dead or unknown session is a no-op. The web
+   * store calls this from deleteSession so removing a session also reaps its
+   * agent process; the browser host has no real agents and no-ops.
+   */
+  kill(sessionId: string): Promise<void>;
 }
 
 export interface LockService {
