@@ -36,6 +36,9 @@ export function migrateLegacyDoc(input: LegacyDocInput): AnnotationBundle {
     creator: { kind: "human", id: "me" },
     target: { source, selector: anchorToSelectors(r.anchor) },
     body: { text: r.body },
+    // Straight-through assignment depends on OrdenStatus/OrdenAudience being
+    // supersets of the legacy AnnotationStatus/FeedbackTarget unions. If either
+    // side drifts, tsc will flag it here — map explicitly at that point.
     "orden:status": r.status,
     "orden:audience": r.target,
     "orden:thread": r.thread.map((t) => ({ author: t.author, body: t.body, createdAt: t.createdAt })),
