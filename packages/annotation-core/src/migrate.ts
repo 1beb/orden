@@ -24,10 +24,15 @@ function anchorToSelectors(a: Annotation["anchor"]): Selector[] {
 }
 
 export function migrateLegacyDoc(input: LegacyDocInput): AnnotationBundle {
+  // `source` is deliberately reference-shared across every annotation in the
+  // bundle (and is the same object returned as bundle.source): one source,
+  // many annotations. Treat it as immutable; don't mutate target.source in place.
   const source: Source = { kind: "file", vaultPath: input.vaultPath, contentHash: input.contentHash };
   const annotations: OrdenAnnotation[] = input.records.map((r) => ({
     id: r.id,
     created: r.createdAt,
+    // Synthetic placeholder: the legacy Annotation has no creator identity.
+    // Phase 2 wires the real id via host.identity.me() at migration time.
     creator: { kind: "human", id: "me" },
     target: { source, selector: anchorToSelectors(r.anchor) },
     body: { text: r.body },
