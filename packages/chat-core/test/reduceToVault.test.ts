@@ -108,3 +108,49 @@ describe("VaultReducer: tool event", () => {
     expect(msg!.parts[0].type).toBe("tool");
   });
 });
+
+describe("VaultReducer: tool-result event", () => {
+  async function withRunningTool() {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "tool", messageId: "m1", toolId: "t1", name: "edit", input: {} });
+    return { vault, r };
+  }
+
+  it("flips a successful tool to done with output", async () => {
+    const { vault, r } = await withRunningTool();
+    await r.apply({ kind: "tool-result", toolId: "t1", output: "ok", ok: true });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const part = msg!.parts[0];
+    expect(part.type).toBe("tool");
+    if (part.type === "tool") {
+      expect(part.state).toBe("done");
+      expect(part.output).toBe("ok");
+    }
+  });
+
+  it("flips a failed tool to error with output", async () => {
+    const { vault, r } = await withRunningTool();
+    await r.apply({ kind: "tool-result", toolId: "t1", output: "boom", ok: false });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const part = msg!.parts[0];
+    if (part.type === "tool") {
+      expect(part.state).toBe("error");
+      expect(part.output).toBe("boom");
+    }
+  });
+
+  it("ignores a tool-result with no matching tool part (no throw)", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "hi" });
+    await expect(
+      r.apply({ kind: "tool-result", toolId: "ghost", output: "x", ok: true }),
+    ).resolves.toBeUndefined();
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg!.parts).toEqual([{ type: "text", text: "hi" }]);
+  });
+});

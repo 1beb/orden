@@ -33,6 +33,9 @@ export class VaultReducer {
       case "tool":
         await this.onTool(ev);
         return;
+      case "tool-result":
+        await this.onToolResult(ev);
+        return;
     }
   }
 
@@ -79,6 +82,24 @@ export class VaultReducer {
       state: "running",
     };
     msg.parts.push(part);
+    await this.flush();
+  }
+
+  private async onToolResult(ev: {
+    toolId: string;
+    output: string;
+    ok: boolean;
+  }): Promise<void> {
+    // Out-of-order safety: no open message means nothing to attach to.
+    if (!this.current) return;
+    const part = this.current.msg.parts.find(
+      (p): p is Extract<ChatPart, { type: "tool" }> =>
+        p.type === "tool" && p.toolId === ev.toolId,
+    );
+    // No matching tool part: ignore rather than throw.
+    if (!part) return;
+    part.state = ev.ok ? "done" : "error";
+    part.output = ev.output;
     await this.flush();
   }
 
