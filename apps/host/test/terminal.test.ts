@@ -46,19 +46,29 @@ function parseSettings(arg: string): {
 }
 
 describe("settingsArg", () => {
-  test("injects the four kanban state hooks, port-templated", () => {
+  test("injects the kanban state + subagent-tracking hooks, port-templated", () => {
     delete process.env.ORDEN_PORT;
     const arg = settingsArg();
     expect(arg.startsWith("--settings ")).toBe(true);
     const s = parseSettings(arg);
-    // The state edges that drive the automatic working/waiting cycle.
+    // The state edges that drive the automatic working/waiting cycle, plus the
+    // SubagentStart/Stop pair that gates Stop on in-flight background work.
     expect(Object.keys(s.hooks).sort()).toEqual(
-      ["Notification", "PostToolUse", "Stop", "UserPromptSubmit"].sort(),
+      [
+        "Notification",
+        "PostToolUse",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "UserPromptSubmit",
+      ].sort(),
     );
     const cmdOf = (e: string) => s.hooks[e][0].hooks[0].command;
     expect(cmdOf("UserPromptSubmit")).toContain("/hooks/session-state?state=in-progress");
     expect(cmdOf("PostToolUse")).toContain("/hooks/session-state?state=in-progress");
     expect(cmdOf("Stop")).toContain("/hooks/session-state?state=blocked");
+    expect(cmdOf("SubagentStart")).toContain("/hooks/session-subagent?delta=start");
+    expect(cmdOf("SubagentStop")).toContain("/hooks/session-subagent?delta=stop");
     expect(cmdOf("Notification")).toContain("/hooks/notification");
     expect(cmdOf("Stop")).toContain("http://127.0.0.1:4319/");
   });

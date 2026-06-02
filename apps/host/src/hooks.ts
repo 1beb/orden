@@ -3,6 +3,28 @@
 //   - UserPromptSubmit  -> state "in-progress" (Claude is working/thinking)
 //   - PostToolUse       -> state "in-progress" (a tool ran => still working)
 //   - Stop              -> state "blocked"     (Claude finished, awaiting you)
+//   - SubagentStart/Stop -> count in-flight subagents (NOT a card state on its own)
+//
+// SUBAGENT GATING. A "subagent workflow" (the Task tool, and especially a
+// BACKGROUND workflow) hands control back to the main agent immediately, so the
+// main agent's turn ends — firing Stop — while the spawned subagents keep
+// working. A naive Stop->blocked therefore parks the card at blocked the instant
+// a subagent workflow is triggered, even though work is plainly ongoing. Both
+// SubagentStart and SubagentStop fire carrying the PARENT session_id (verified),
+// so we count in-flight subagents per session and GATE Stop on that depth: a
+// Stop with subagents still running is a background turn-end, not a wait-on-you,
+// so the card stays in-progress.
+//
+// DEFERRED BLOCK. In the background case the main agent's Stop fires WHILE
+// subagents are still running, and NO further Stop follows once they finish (the
+// turn already ended). So a gated Stop must not be discarded — it is REMEMBERED
+// (pendingBlock) and applied the moment the last subagent stops (depth hits 0).
+// Without this the card is trapped at in-progress forever. In the foreground
+// case SubagentStop precedes the main Stop, so nothing is pending when depth hits
+// 0 (settle is a no-op) and the trailing Stop blocks normally. UserPromptSubmit
+// resets both the counter and any pending block — a fresh user turn means prior
+// subagents are done and the old deferred Stop is moot — which also bounds a
+// missed SubagentStop to a single turn.
 //
 // PostToolUse is the RECOVERY edge. Without it the cycle is asymmetric: only
 // UserPromptSubmit restores in-progress, but a turn can be parked at blocked
@@ -38,6 +60,53 @@ import { sessionForConversation, cardForSession } from "@orden/mcp";
 // excluded — it comes solely from the `card_complete` MCP tool.
 const ALLOWED = new Set(["in-progress", "blocked", "planning"]);
 
+// Per-claude-session count of in-flight subagents (keyed by the same id the
+// state hooks carry — payload.session_id == session.conversationId). A long-
+// lived module Map is fine: the host is one process, and a restart resets the
+// counts to 0, which self-heals (worst case a single stale gate is lost).
+const subagentDepth = new Map<string, number>();
+// Sessions whose main-agent Stop fired while subagents were still in flight: the
+// blocked is owed and applied when depth returns to 0 (see DEFERRED BLOCK above).
+const pendingBlock = new Set<string>();
+
+export function noteSubagentStart(claudeSessionId: string): void {
+  subagentDepth.set(claudeSessionId, (subagentDepth.get(claudeSessionId) ?? 0) + 1);
+}
+export function noteSubagentStop(claudeSessionId: string): void {
+  const next = (subagentDepth.get(claudeSessionId) ?? 0) - 1;
+  if (next > 0) subagentDepth.set(claudeSessionId, next);
+  else subagentDepth.delete(claudeSessionId); // floor at 0; never negative
+}
+export function resetSubagents(claudeSessionId: string): void {
+  subagentDepth.delete(claudeSessionId);
+  pendingBlock.delete(claudeSessionId);
+}
+function subagentsActive(claudeSessionId: string): boolean {
+  return (subagentDepth.get(claudeSessionId) ?? 0) > 0;
+}
+
+// Stop edge: blocked the card ONLY when no subagent is in flight. While a
+// background subagent workflow runs, the main agent's Stop is a turn-end, not a
+// wait-on-you, so the card must stay in-progress — but the blocked is OWED, so we
+// remember it and settle it when the last subagent stops.
+export async function applyStop(host: Host, claudeSessionId: string): Promise<void> {
+  if (subagentsActive(claudeSessionId)) {
+    pendingBlock.add(claudeSessionId); // background turn-end; settle when depth hits 0
+    return;
+  }
+  await applyState(host, claudeSessionId, "blocked");
+}
+
+// Called after each SubagentStop: once the last subagent finishes, apply any
+// blocked that was deferred while it ran. A no-op unless a Stop is owed AND no
+// subagents remain (foreground subagents leave nothing pending — their Stop
+// comes later and blocks directly).
+export async function settleSubagents(host: Host, claudeSessionId: string): Promise<void> {
+  if (subagentsActive(claudeSessionId)) return;
+  if (!pendingBlock.delete(claudeSessionId)) return;
+  await applyState(host, claudeSessionId, "blocked");
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -56,13 +125,29 @@ export async function handleHookRequest(
   try {
     const url = new URL(req.url ?? "", "http://localhost");
     const body = await readBody(req);
-    let payload: { session_id?: string; notification_type?: string } = {};
+    let payload: { session_id?: string; notification_type?: string; hook_event_name?: string } = {};
     try {
       payload = JSON.parse(body || "{}");
     } catch {
       /* malformed payload — no-op */
     }
     const sessionId = payload.session_id;
+
+    // SubagentStart/SubagentStop only adjust the in-flight counter; they are not
+    // a card state on their own (a launch implies in-progress, which the start
+    // edge also writes). Both carry the parent session_id.
+    if (url.pathname.endsWith("/session-subagent")) {
+      const delta = url.searchParams.get("delta");
+      if (sessionId && delta === "start") {
+        noteSubagentStart(sessionId);
+        await applyState(host, sessionId, "in-progress"); // launching => working
+      } else if (sessionId && delta === "stop") {
+        noteSubagentStop(sessionId);
+        await settleSubagents(host, sessionId); // apply a Stop deferred during the run
+      }
+      ok();
+      return;
+    }
 
     // Notification hook: Claude pauses mid-turn waiting on the user (Stop does NOT
     // fire here). Treat the "waiting" notification types as blocked; ignore the
@@ -83,7 +168,17 @@ export async function handleHookRequest(
       res.writeHead(400, { "content-type": "application/json" }).end('{"error":"bad state"}');
       return;
     }
-    if (sessionId) await applyState(host, sessionId, state);
+    if (sessionId) {
+      if (state === "blocked") {
+        // Stop edge — gated on in-flight subagents (see applyStop).
+        await applyStop(host, sessionId);
+      } else {
+        // A fresh user turn (UserPromptSubmit) clears any stale subagent depth so
+        // a missed SubagentStop can't gate Stop forever.
+        if (payload.hook_event_name === "UserPromptSubmit") resetSubagents(sessionId);
+        await applyState(host, sessionId, state);
+      }
+    }
     ok();
   } catch {
     ok(); // never surface an error to Claude — a failing hook must not block it

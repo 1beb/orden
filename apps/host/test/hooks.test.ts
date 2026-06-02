@@ -1,6 +1,13 @@
 import { describe, test, expect } from "vitest";
 import type { Host, VaultStore } from "@orden/host-api";
-import { applyState } from "../src/hooks";
+import {
+  applyState,
+  applyStop,
+  noteSubagentStart,
+  noteSubagentStop,
+  resetSubagents,
+  settleSubagents,
+} from "../src/hooks";
 
 // Minimal in-memory vault (mirrors packages/mcp/test/fakeVault) so we can drive
 // applyState without disk. Only get/set/list/delete are exercised by the helpers.
@@ -93,5 +100,128 @@ describe("applyState (hooks → card state)", () => {
     await applyState(hostWith(vault), "uuid-1", "in-progress");
     const card = await vault.get<{ state: string }>("cards", "c1");
     expect(card?.state).toBe("complete");
+  });
+});
+
+// A "subagent workflow" (the Task tool / background workflows) hands control back
+// to the main agent immediately: the main agent's turn ends (Stop fires) while
+// the spawned subagents keep working. SubagentStart/SubagentStop both fire
+// carrying the PARENT session_id, so the host counts in-flight subagents and
+// gates Stop on that depth — a Stop with subagents still running is a background
+// turn-end, not a wait-on-you, so the card stays in-progress.
+describe("applyStop (subagent-aware Stop gating)", () => {
+  const cardState = (v: VaultStore) => v.get<{ state: string }>("cards", "c1");
+  const seed = (conv: string) =>
+    fakeVault({
+      sessions: { s1: { id: "s1", conversationId: conv } },
+      cards: { c1: { id: "c1", title: "T", state: "in-progress", sessionIds: ["s1"] } },
+    });
+
+  test("with no subagents in flight, Stop blocks the card (unchanged behavior)", async () => {
+    const vault = seed("c-none");
+    await applyStop(hostWith(vault), "c-none");
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("Stop while a subagent is in flight leaves the card in-progress", async () => {
+    const vault = seed("c-bg");
+    noteSubagentStart("c-bg");
+    await applyStop(hostWith(vault), "c-bg");
+    expect((await cardState(vault))?.state).toBe("in-progress");
+    resetSubagents("c-bg");
+  });
+
+  test("Stop after the subagent finishes blocks the card", async () => {
+    const vault = seed("c-seq");
+    noteSubagentStart("c-seq");
+    noteSubagentStop("c-seq");
+    await applyStop(hostWith(vault), "c-seq");
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("parallel subagents: Stop stays gated until the LAST one stops", async () => {
+    const vault = seed("c-par");
+    noteSubagentStart("c-par");
+    noteSubagentStart("c-par");
+    noteSubagentStop("c-par");
+    await applyStop(hostWith(vault), "c-par"); // one still running
+    expect((await cardState(vault))?.state).toBe("in-progress");
+    noteSubagentStop("c-par");
+    await applyStop(hostWith(vault), "c-par"); // all done
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("noteSubagentStop never drives depth negative", async () => {
+    const vault = seed("c-floor");
+    noteSubagentStop("c-floor"); // stray stop with no matching start
+    await applyStop(hostWith(vault), "c-floor");
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("resetSubagents clears stale depth from a missed SubagentStop", async () => {
+    const vault = seed("c-reset");
+    noteSubagentStart("c-reset"); // leak: subagent start with no stop
+    resetSubagents("c-reset"); // UserPromptSubmit starts a fresh turn
+    await applyStop(hostWith(vault), "c-reset");
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+});
+
+// The trap: a BACKGROUND subagent workflow ends the main turn (Stop) WHILE the
+// subagent runs, and no Stop follows once it finishes. The deferred block must
+// fire when the last subagent stops, or the card is stuck at in-progress forever.
+describe("deferred block (background subagent turn-end)", () => {
+  const cardState = (v: VaultStore) => v.get<{ state: string }>("cards", "c1");
+  const seed = (conv: string) =>
+    fakeVault({
+      sessions: { s1: { id: "s1", conversationId: conv } },
+      cards: { c1: { id: "c1", title: "T", state: "in-progress", sessionIds: ["s1"] } },
+    });
+
+  test("background: gated Stop is applied when the subagent finishes", async () => {
+    const vault = seed("c-defer");
+    const h = hostWith(vault);
+    noteSubagentStart("c-defer"); // workflow launched
+    await applyStop(h, "c-defer"); // main turn ends mid-flight -> deferred
+    expect((await cardState(vault))?.state).toBe("in-progress"); // not blocked yet
+    noteSubagentStop("c-defer");
+    await settleSubagents(h, "c-defer"); // last subagent done -> owed block fires
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("foreground: SubagentStop with no prior Stop does NOT block (main still working)", async () => {
+    const vault = seed("c-fg");
+    const h = hostWith(vault);
+    noteSubagentStart("c-fg");
+    noteSubagentStop("c-fg");
+    await settleSubagents(h, "c-fg"); // nothing owed
+    expect((await cardState(vault))?.state).toBe("in-progress");
+    await applyStop(h, "c-fg"); // the real trailing Stop
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("parallel background: deferred block waits for the LAST subagent", async () => {
+    const vault = seed("c-pardefer");
+    const h = hostWith(vault);
+    noteSubagentStart("c-pardefer");
+    noteSubagentStart("c-pardefer");
+    await applyStop(h, "c-pardefer"); // deferred (depth 2)
+    noteSubagentStop("c-pardefer");
+    await settleSubagents(h, "c-pardefer"); // depth 1 — still owed
+    expect((await cardState(vault))?.state).toBe("in-progress");
+    noteSubagentStop("c-pardefer");
+    await settleSubagents(h, "c-pardefer"); // depth 0 — fire
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("a new user turn cancels a deferred block", async () => {
+    const vault = seed("c-cancel");
+    const h = hostWith(vault);
+    noteSubagentStart("c-cancel");
+    await applyStop(h, "c-cancel"); // deferred
+    resetSubagents("c-cancel"); // UserPromptSubmit: fresh turn
+    noteSubagentStop("c-cancel");
+    await settleSubagents(h, "c-cancel"); // nothing owed — old Stop is moot
+    expect((await cardState(vault))?.state).toBe("in-progress");
   });
 });

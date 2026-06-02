@@ -79,7 +79,12 @@ export function mcpConfigArg(convId: string): string {
 //   UserPromptSubmit / PostToolUse -> in-progress  (Claude is working; PostToolUse
 //     is the recovery edge that un-blocks a card after a mid-turn permission or
 //     AskUserQuestion pause, which is otherwise never followed by a prompt submit)
-//   Stop                           -> blocked      (turn over, awaiting you)
+//   Stop                           -> blocked      (turn over, awaiting you —
+//     but the host GATES this on in-flight subagents: a Stop while a background
+//     subagent workflow is still running is a turn-end, not a wait, so the card
+//     stays in-progress)
+//   SubagentStart / SubagentStop   -> /session-subagent (count in-flight
+//     subagents per session; both carry the parent session_id)
 //   Notification                   -> /notification (the host blocks only the
 //     waiting types: permission / idle / elicitation)
 // No ORDEN_MANAGED gate is needed here: unlike the ambient file (which applied to
@@ -96,6 +101,10 @@ export function settingsArg(): string {
       UserPromptSubmit: hook(post("session-state?state=in-progress")),
       PostToolUse: hook(post("session-state?state=in-progress")),
       Stop: hook(post("session-state?state=blocked")),
+      // Count in-flight subagents so a background "subagent workflow" turn-end
+      // (Stop) doesn't park the card at blocked while subagents keep working.
+      SubagentStart: hook(post("session-subagent?delta=start")),
+      SubagentStop: hook(post("session-subagent?delta=stop")),
       Notification: hook(post("notification")),
     },
   };
