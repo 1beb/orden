@@ -55,7 +55,12 @@ export function createChatBackend(deps: {
       for await (const ev of l.driver.events) {
         await l.reducer.apply(ev);
       }
-    })();
+    })().catch((err) => {
+      // A pump failure silently ends the session's event stream; surface it
+      // rather than letting it die as an unhandled rejection. Task 10 (host
+      // wiring) can route this to a real logger / session-error state.
+      console.error(`chat engine: pump failed for session ${sessionId}:`, err);
+    });
   }
 
   return {
