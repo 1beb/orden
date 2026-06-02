@@ -1,3 +1,7 @@
+export * from "@orden/chat-core";
+
+import type { ChatBackend } from "@orden/chat-core";
+
 export interface HostCapabilities {
   remoteProjects: boolean;
   spawnSessions: boolean;
@@ -5,8 +9,9 @@ export interface HostCapabilities {
   /**
    * Absolute path the host's single FileSource is rooted at, if any. The web
    * uses it to scope repo files to the one project whose path matches this root
-   * (see isHostFilesRoot), instead of showing them under every project. Absent
-   * when the host exposes no files (e.g. the in-browser host).
+   * (see isHostFilesRoot), instead of showing them under every project, and to
+   * root chat/agent sessions in the repo. Absent when the host exposes no files
+   * (e.g. the in-browser host).
    */
   filesRoot?: string;
 }
@@ -134,5 +139,6 @@ export interface Host {
   files: FileSource;
   sessions: SessionManager;
   locks: LockService;
+  chat?: ChatBackend;
   capabilities(): HostCapabilities;
 }

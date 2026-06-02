@@ -19,6 +19,11 @@ import type {
   SessionState,
   AnnotationSendInput,
   AnnotationSendResult,
+  ChatBackend,
+  ChatSession,
+  ChatMessage,
+  ModelOption,
+  SlashCommand,
 } from "@orden/host-api";
 
 import { listProjects, addProject, removeProject } from "../projects";
@@ -146,6 +151,43 @@ class LocalSessions implements SessionManager {
   }
 }
 
+class LocalChat implements ChatBackend {
+  // Chat requires a host process (real claude/opencode adapters). The browser
+  // backend has none, so reads return empty and live actions throw — mirroring
+  // how LocalSessions stubs the agent surface.
+  async listSessions(): Promise<ChatSession[]> {
+    return [];
+  }
+
+  async createSession(): Promise<ChatSession> {
+    throw new Error("browser host has no chat backend");
+  }
+
+  async getMessages(): Promise<ChatMessage[]> {
+    return [];
+  }
+
+  async send(): Promise<void> {
+    throw new Error("browser host has no chat backend");
+  }
+
+  async respondPermission(): Promise<void> {
+    throw new Error("browser host has no chat backend");
+  }
+
+  async setModel(): Promise<void> {
+    throw new Error("browser host has no chat backend");
+  }
+
+  async listModels(): Promise<ModelOption[]> {
+    return [];
+  }
+
+  async listCommands(): Promise<SlashCommand[]> {
+    return [];
+  }
+}
+
 class LocalLocks implements LockService {
   // Single-user, in-memory no-op: nothing ever contends.
   async acquire(_resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }> {
@@ -172,6 +214,7 @@ export class BrowserHost implements Host {
   readonly files: FileSource = new LocalFiles();
   readonly sessions: SessionManager = new LocalSessions();
   readonly locks: LockService = new LocalLocks();
+  readonly chat: ChatBackend = new LocalChat();
 
   capabilities(): HostCapabilities {
     return {

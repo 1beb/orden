@@ -103,3 +103,64 @@ describe("sessionsPanel new-session agent buttons", () => {
     expect(d.container.querySelector(".sess-list")).not.toBeNull();
   });
 });
+
+describe("sessionsPanel Terminal/Chat tabs", () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  function openDeps(over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {}) {
+    const s = makeSession({ id: "s1" });
+    const termMounts: string[] = [];
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {};
+      },
+      ...over,
+    });
+    return { deps: base, termMounts, session: s };
+  }
+
+  it("hides the Chat tab when no mountChat dep is provided", () => {
+    const { deps: d } = openDeps();
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+    expect(d.container.querySelector(".chat-tab")).toBeNull();
+    expect(d.container.querySelector(".term-tab")).not.toBeNull();
+  });
+
+  it("shows the Chat tab and mounts Terminal first (active by default)", () => {
+    const { deps: d, termMounts } = openDeps({ mountChat: () => () => {} });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+    expect(d.container.querySelector(".chat-tab")).not.toBeNull();
+    // Terminal is the default active tab and is mounted on open.
+    expect(termMounts).toEqual(["s1"]);
+    expect(d.container.querySelector<HTMLElement>(".term-tab")?.classList.contains("active")).toBe(
+      true,
+    );
+  });
+
+  it("clicking the Chat tab invokes the injected mountChat with the session", () => {
+    const chatMounts: Session[] = [];
+    const { deps: d } = openDeps({
+      mountChat: (_c: HTMLElement, session: Session) => {
+        chatMounts.push(session);
+        return () => {};
+      },
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    d.container.querySelector<HTMLButtonElement>(".chat-tab")!.click();
+
+    expect(chatMounts.map((s) => s.id)).toEqual(["s1"]);
+    expect(d.container.querySelector<HTMLElement>(".chat-tab")?.classList.contains("active")).toBe(
+      true,
+    );
+  });
+});

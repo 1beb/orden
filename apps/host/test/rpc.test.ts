@@ -37,6 +37,14 @@ describe("Host RPC", () => {
     expect(client.capabilities()).toEqual(server.capabilities());
   });
 
+  test("chat is exposed: the client proxy forwards chat.listModels", async () => {
+    // Proves "chat" is in CAPABILITIES — the client proxy only forwards names it
+    // knows. listModels is static on the real claude adapter (spawns nothing).
+    const models = await client.chat!.listModels("claude");
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.every((m) => m.harness === "claude")).toBe(true);
+  });
+
   test("a method that throws on the host rejects on the client with its message", async () => {
     await expect(
       client.sessions.spawn("p1", { title: "x", agent: "claude" }),

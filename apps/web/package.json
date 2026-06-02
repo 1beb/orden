@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@orden/annotation-core": "workspace:*",
+    "@orden/chat-ui": "workspace:*",
     "@orden/host": "workspace:*",
     "@orden/host-api": "workspace:*",
     "@orden/outliner": "workspace:*",

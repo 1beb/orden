@@ -21,16 +21,28 @@ import type {
   FileEntry,
   Session,
   SessionState,
+  ChatBackend,
+  HarnessAdapter,
 } from "@orden/host-api";
+import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
 import { NodeSessions } from "./nodeSessions";
+import { makeClaudeAdapter } from "./chat/adapters/claude";
+import { makeOpencodeAdapter } from "./chat/adapters/opencode";
 
 export interface NodeHostOptions {
   /** Directory the vault persists into. */
   vaultRoot: string;
   /** Directory whose markdown files are exposed via `files`. Omit to stub. */
   filesRoot?: string;
+  /**
+   * Harness adapters the chat backend registers. Injectable so tests can supply
+   * a fake adapter instead of spawning a real claude/opencode process. Defaults
+   * to the real claude + opencode adapters, which are cheap to construct (they
+   * only spawn a process on driver `open()`).
+   */
+  chatAdapters?: HarnessAdapter[];
 }
 
 class NodeIdentity implements Identity {
@@ -117,6 +129,7 @@ export class NodeHost implements Host {
   readonly files: FileSource;
   readonly sessions: SessionManager;
   readonly locks: LockService = new NoopLocks();
+  readonly chat: ChatBackend;
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
@@ -141,6 +154,14 @@ export class NodeHost implements Host {
       vault: this.vault,
       defaultCwd: opts.filesRoot ?? process.cwd(),
     });
+    // Native multi-turn chat. Writes go through the emitting vault (ns
+    // `chat:<id>`) so transcript + meta stream live to the UI like sessions do.
+    // The engine has no teardown: chat drivers live for the host process
+    // lifetime; per-session kill is deferred (future work).
+    const registry = new AdapterRegistry();
+    const adapters = opts.chatAdapters ?? [makeClaudeAdapter(), makeOpencodeAdapter()];
+    for (const adapter of adapters) registry.register(adapter);
+    this.chat = createChatBackend({ vault: this.vault, registry });
   }
 
   /** Subscribe to vault writes (from any bus). Returns an unsubscribe fn. */
@@ -154,7 +175,7 @@ export class NodeHost implements Host {
       remoteProjects: false, // H4
       spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
-      filesRoot: this.filesRoot,
+      filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
     };
   }
 }

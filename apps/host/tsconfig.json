@@ -10,7 +10,9 @@
     "types": ["node"],
     "paths": {
       "@orden/host-api": ["../../packages/host-api/src/index.ts"],
-      "@orden/mcp": ["../../packages/mcp/src/index.ts"]
+      "@orden/mcp": ["../../packages/mcp/src/index.ts"],
+      "@orden/chat-core/testing": ["../../packages/chat-core/src/testing/adapterContract.ts"],
+      "@orden/chat-core": ["../../packages/chat-core/src/index.ts"]
     }
   },
   "include": ["src", "test"]

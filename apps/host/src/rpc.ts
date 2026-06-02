@@ -30,6 +30,7 @@ const CAPABILITIES = [
   "files",
   "sessions",
   "locks",
+  "chat",
 ] as const;
 
 export async function dispatch(host: Host, req: RpcRequest): Promise<RpcResponse> {

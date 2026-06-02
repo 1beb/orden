@@ -13,6 +13,12 @@ export interface SessionsPanelDeps {
   projectName: (projectId: string) => string;
   /** Mount the agent TUI into container; returns a dispose fn. */
   mountTerminal: (container: HTMLElement, sessionId: string) => () => void;
+  /**
+   * Mount the native Chat view into container; returns a dispose fn. Optional —
+   * when absent (or the host has no chat backend) the Chat tab is hidden and the
+   * detail view shows only the Terminal.
+   */
+  mountChat?: (container: HTMLElement, session: Session) => () => void;
   /** True if a session is done (its linked card reached Complete) — furled below. */
   isComplete: (id: string) => boolean;
   /** Archive a session (move it to Done / out of the active list). */
@@ -72,8 +78,15 @@ function agentBadge(agent: Agent): HTMLElement {
 
 export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   let currentId: string | null = deps.initialOpenId ?? null;
-  let disposeTerm: (() => void) | null = null;
-  let termSessionId: string | null = null;
+  // The detail view embeds one of two tabs (Terminal / Chat). We keep the active
+  // tab's mount alive across refreshes (don't tear down the live pty/agent on a
+  // re-render). `mountedTab`/`mountedSessionId` track what's currently embedded.
+  let disposeTab: (() => void) | null = null;
+  let mountedSessionId: string | null = null;
+  let mountedTab: "terminal" | "chat" | null = null;
+  // Which tab the user last chose, persisted across detail re-renders. Terminal
+  // is the default.
+  let activeTab: "terminal" | "chat" = "terminal";
   // Completed sessions live in a furled bar pinned to the panel bottom; unfurled
   // they expand inline into the scroll list. Default furled.
   let completedOpen = false;
@@ -84,22 +97,23 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     deps.persistOpen?.(id);
   }
 
-  function teardownTerm(): void {
-    if (disposeTerm) {
+  function teardownTab(): void {
+    if (disposeTab) {
       try {
-        disposeTerm();
+        disposeTab();
       } catch {
         /* ignore */
       }
-      disposeTerm = null;
-      termSessionId = null;
+      disposeTab = null;
+      mountedSessionId = null;
+      mountedTab = null;
     }
   }
 
   // Start a fresh Untitled session with the chosen agent (it titles itself after
   // the first turn). Drops the session we're leaving if it was never touched.
   function startNewSession(agent: Agent): void {
-    teardownTerm();
+    teardownTab();
     const leaving = currentId;
     const s = deps.create({ title: "Untitled", agent });
     setCurrent(s.id);
@@ -231,7 +245,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   }
 
   function renderDetail(s: Session): void {
-    teardownTerm();
+    teardownTab();
     const c = deps.container;
     c.replaceChildren();
 
@@ -249,7 +263,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     complete.title = "Mark session complete";
     complete.setAttribute("aria-label", "Mark session complete");
     complete.addEventListener("click", () => {
-      teardownTerm();
+      teardownTab();
       deps.archive(s.id);
       setCurrent(null);
       render();
@@ -257,31 +271,74 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     head.append(back, title, complete, newButtons());
     c.append(head);
     back.addEventListener("click", () => {
-      teardownTerm();
+      teardownTab();
       const left = currentId;
       setCurrent(null);
       if (left) deps.cleanup(left); // drop it if it was never touched
       render();
     });
 
-    // Embed the real agent TUI.
-    const termHost = el("div", "sess-terminal");
-    c.append(termHost);
-    disposeTerm = deps.mountTerminal(termHost, s.id);
-    termSessionId = s.id;
+    // Terminal | Chat tab toggle. The Chat tab only appears when a mountChat dep
+    // is provided (the host has a chat backend). Terminal is active by default.
+    const chatAvailable = !!deps.mountChat;
+    const tabs = el("div", "sess-tabs");
+    const termTab = button("Terminal", "sess-tab term-tab");
+    const chatTab = button("Chat", "sess-tab chat-tab");
+    tabs.append(termTab);
+    if (chatAvailable) tabs.append(chatTab);
+    c.append(tabs);
+
+    // The body host is reused across tab switches: switching tears down the
+    // current mount and mounts the other into the same element.
+    const body = el("div", "sess-detail-body");
+    c.append(body);
+
+    function syncTabButtons(): void {
+      termTab.classList.toggle("active", activeTab === "terminal");
+      chatTab.classList.toggle("active", activeTab === "chat");
+    }
+
+    // Mount the active tab into the body host, tearing down whatever was there.
+    function mountActive(): void {
+      teardownTab();
+      body.replaceChildren();
+      if (activeTab === "chat" && deps.mountChat) {
+        disposeTab = deps.mountChat(body, s);
+        mountedTab = "chat";
+      } else {
+        disposeTab = deps.mountTerminal(body, s.id);
+        mountedTab = "terminal";
+      }
+      mountedSessionId = s.id;
+      syncTabButtons();
+    }
+
+    function switchTo(tab: "terminal" | "chat"): void {
+      if (activeTab === tab && mountedSessionId === s.id) return;
+      activeTab = tab;
+      mountActive();
+    }
+    termTab.addEventListener("click", () => switchTo("terminal"));
+    chatTab.addEventListener("click", () => switchTo("chat"));
+
+    // Chat may have been the active tab on a prior detail render but is no longer
+    // available (no mountChat); fall back to Terminal.
+    if (activeTab === "chat" && !chatAvailable) activeTab = "terminal";
+    mountActive();
   }
 
   function render(): void {
     const s = currentId ? deps.get(currentId) : undefined;
     if (s) {
-      // keep a live terminal mounted across refreshes (don't tear down the pty)
-      if (disposeTerm && termSessionId === s.id) return;
+      // keep the active tab's mount alive across refreshes (don't tear down the
+      // live pty/agent) when it's already showing this session's chosen tab.
+      if (disposeTab && mountedSessionId === s.id && mountedTab === activeTab) return;
       renderDetail(s);
     } else {
       // A restored id whose session is gone (deleted/cleaned) — fall back to the
       // list and forget it, so we don't keep trying to reopen a dead session.
       if (currentId !== null) setCurrent(null);
-      teardownTerm();
+      teardownTab();
       renderList();
     }
   }
