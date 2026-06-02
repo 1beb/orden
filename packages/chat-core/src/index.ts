@@ -83,6 +83,8 @@ export interface HarnessDriver {
   setModel(model: string): Promise<void>;
   listCommands(): Promise<SlashCommand[]>;
   // The driver invokes cb when the harness asks to use a tool; cb resolves allow/deny.
+  // Intentionally a plain boolean, not PermissionDecision: the engine owns the
+  // `remember` policy and only relays a yes/no to the driver.
   onPermission(
     cb: (req: { toolName: string; input: unknown; title: string }) => Promise<{ allow: boolean }>,
   ): void;
@@ -90,6 +92,9 @@ export interface HarnessDriver {
 }
 
 // A pluggable harness. Adding a harness = implementing this + registering it.
+// `harness` is the ChatHarness union (not `string`) so the registry and sessions
+// stay type-safe; adding a harness widens the union here — a deliberate one-line
+// edit, kept narrow on purpose rather than opening it to arbitrary strings.
 export interface HarnessAdapter {
   harness: ChatHarness;
   listModels(): Promise<ModelOption[]>;
