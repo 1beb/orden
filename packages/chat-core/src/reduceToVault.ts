@@ -1,5 +1,8 @@
 import type { ChatVault, DriverEvent, ChatSession, ChatMessage, ChatPart } from "./index";
 
+// Width-4 zero-pad so `msg:NNNN` keys sort chronologically by lexical order.
+// Caps clean lexical ordering at 9999 messages/session; past that, readers must
+// sort numerically on the parsed suffix (the chatStore in Task 12 does so).
 const PAD = 4;
 const pad = (n: number) => String(n).padStart(PAD, "0");
 
@@ -145,10 +148,10 @@ export class VaultReducer {
   }
 
   private async onSession(ev: { sessionId: string; slashCommands: string[] }): Promise<void> {
-    const existing = await this.vault.get<ChatSession & { slashCommands?: string[] }>(
-      this.ns,
-      "meta",
-    );
+    const existing = await this.vault.get<ChatSession>(this.ns, "meta");
+    // The engine (Task 5) writes full meta before any driver event, so `existing`
+    // is the normal path. The placeholder below only guards a stray session event
+    // with no prior meta; its harness is a throwaway the engine's meta overwrites.
     const base: ChatSession = existing ?? {
       id: ev.sessionId,
       title: "",
@@ -156,7 +159,7 @@ export class VaultReducer {
       cwd: "",
       createdAt: 0,
     };
-    const merged = { ...base, id: ev.sessionId, slashCommands: ev.slashCommands };
+    const merged: ChatSession = { ...base, id: ev.sessionId, slashCommands: ev.slashCommands };
     await this.vault.set(this.ns, "meta", merged);
   }
 }

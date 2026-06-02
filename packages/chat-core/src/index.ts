@@ -7,6 +7,8 @@ export interface ChatSession {
   cwd: string;
   model?: string;
   createdAt: number;
+  /** Slash commands the harness advertised for this session (from the init event). */
+  slashCommands?: string[];
 }
 
 export type ChatPart =
