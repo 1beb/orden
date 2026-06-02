@@ -127,12 +127,68 @@ async function appendToPage(vault: VaultStore, key: string, line: string): Promi
 // log, separate from anything the user writes at the top level of the page.
 const AUTO_SECTION = "Automatic Logging";
 const INDENT = "  ";
+// The section bullet may carry a trailing Logseq-style property when the user
+// collapses it in the outliner (`- Automatic Logging collapsed:: true`); the
+// head match must tolerate that or every later write spawns a duplicate section.
+// Either bullet marker is accepted (`- ` or `* `): the outliner parser treats
+// both as bullets, so legacy/external pages may carry a `* Automatic Logging`
+// section that must be recognized as the same one, not duplicated.
+const AUTO_SECTION_RE = new RegExp(`^[-*] ${AUTO_SECTION}(?:\\s+\\w+:: .*)?\\s*$`);
+
+// A section is a header line plus the indented lines that immediately follow it
+// (its children); a top-level non-section line ends it.
+function findAutoSections(lines: string[]): Array<{ header: number; children: number[] }> {
+  const secs: Array<{ header: number; children: number[] }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!AUTO_SECTION_RE.test(lines[i])) continue;
+    const children: number[] = [];
+    let j = i + 1;
+    for (; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.trim() === "") continue;
+      if (l.startsWith(" ") || l.startsWith("\t")) children.push(j);
+      else break;
+    }
+    secs.push({ header: i, children });
+    i = children.length ? children[children.length - 1] : i;
+  }
+  return secs;
+}
+
+// Heal pages damaged before the collapsed-section fix: fold every duplicate
+// "Automatic Logging" section into the first, keeping the first header (and its
+// collapsed:: marker) in place. Children are re-emitted in document order, which
+// is chronological — sections were created over time and children appended in
+// order — so this is correct even for multi-day card logs where the bare HH:MM
+// prefixes can't be sorted across a midnight boundary. A no-op below 2 sections.
+function mergeAutoSections(cur: string): string {
+  if (!cur) return cur;
+  const lines = cur.split("\n");
+  const secs = findAutoSections(lines);
+  if (secs.length < 2) return cur;
+  const childIdx = secs.flatMap((s) => s.children);
+  const childLines = childIdx.map((i) => lines[i]);
+  const drop = new Set<number>(childIdx);
+  secs.forEach((s, k) => {
+    if (k > 0) drop.add(s.header);
+  });
+  const firstHeader = secs[0].header;
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (drop.has(i)) continue;
+    out.push(lines[i]);
+    if (i === firstHeader) out.push(...childLines);
+  }
+  let s = out.join("\n");
+  if (!s.endsWith("\n")) s += "\n";
+  return s;
+}
 
 async function appendAutoLog(vault: VaultStore, key: string, entry: string): Promise<void> {
-  const cur = (await vault.get<string>("pages", key)) ?? "";
+  const cur = mergeAutoSections((await vault.get<string>("pages", key)) ?? "");
   const child = `${INDENT}- ${entry}`;
   const lines = cur.split("\n");
-  const head = lines.findIndex((l) => new RegExp(`^- ${AUTO_SECTION}\\s*$`).test(l));
+  const head = lines.findIndex((l) => AUTO_SECTION_RE.test(l));
   if (head === -1) {
     const body = cur.trimEnd();
     await vault.set("pages", key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${child}\n`);
@@ -203,9 +259,9 @@ export async function cardComplete(
 ): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
-  await vault.set("cards", card.id, { ...card, state: "complete" });
-
   const now = new Date();
+  await vault.set("cards", card.id, { ...card, state: "complete", completedAt: now.getTime() });
+
   const time = hhmm(now);
   const sum = summary?.trim();
 

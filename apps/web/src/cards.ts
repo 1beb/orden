@@ -15,6 +15,8 @@ export interface Item {
   notes: string;
   sessionIds: string[]; // linked AI sessions (0+)
   dueDate?: string; // ISO yyyy-mm-dd, optional
+  completedAt?: number; // epoch ms the card last entered "complete"; drives the 1h fall-off
+
   /** @deprecated legacy single-session field; migrated into sessionIds at boot. */
   sessionId?: string;
 }
@@ -105,7 +107,18 @@ function persist(id: string): void {
 }
 
 export function setItemState(id: string, state: CardState): void {
-  cache = cache.map((i) => (i.id === id ? { ...i, state } : i));
+  cache = cache.map((i) => {
+    if (i.id !== id) return i;
+    const next: Item = { ...i, state };
+    // Stamp completedAt on the transition INTO complete (preserve it on a
+    // re-set so the fade clock isn't reset); clear it when leaving complete.
+    if (state === "complete") {
+      if (i.state !== "complete") next.completedAt = Date.now();
+    } else {
+      delete next.completedAt;
+    }
+    return next;
+  });
   persist(id);
 }
 

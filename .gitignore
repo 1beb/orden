@@ -2,3 +2,7 @@
 node_modules/
 dist/
 .claude/worktrees/
+.codegraph/
+nav-check.png
+orden-after-fix.png
+topbar.png

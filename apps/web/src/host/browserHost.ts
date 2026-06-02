@@ -17,6 +17,8 @@ import type {
   FileEntry,
   Session,
   SessionState,
+  AnnotationSendInput,
+  AnnotationSendResult,
 } from "@orden/host-api";
 
 import { listProjects, addProject, removeProject } from "../projects";
@@ -136,6 +138,11 @@ class LocalSessions implements SessionManager {
   // No real agents in the browser, so there's nothing to stop.
   async kill(_sessionId: string): Promise<void> {
     /* no-op */
+  }
+
+  // No agents in the browser — nothing to deliver to.
+  async annotationSend(_input: AnnotationSendInput): Promise<AnnotationSendResult> {
+    return { ok: false, reason: "no session linked to this plan" };
   }
 }
 

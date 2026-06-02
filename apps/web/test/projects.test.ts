@@ -4,6 +4,7 @@ import {
   addProject,
   getProject,
   hydrateProjects,
+  isHostFilesRoot,
   listProjects,
   removeProject,
   updateProject,
@@ -66,5 +67,34 @@ describe("projects registry (host-backed)", () => {
     await settle();
     await hydrateProjects(new BrowserHost());
     expect(getProject(p.id)?.name).toBe("Durable");
+  });
+});
+
+describe("isHostFilesRoot", () => {
+  it("matches a local project whose path equals the host files root", () => {
+    const p = addProject("Repo", { kind: "local", path: "/home/b/projects/orden" });
+    expect(isHostFilesRoot(p, "/home/b/projects/orden")).toBe(true);
+  });
+
+  it("ignores a trailing slash on either side", () => {
+    const p = addProject("Repo", { kind: "local", path: "/home/b/projects/orden/" });
+    expect(isHostFilesRoot(p, "/home/b/projects/orden")).toBe(true);
+    const q = addProject("Repo2", { kind: "local", path: "/home/b/projects/orden" });
+    expect(isHostFilesRoot(q, "/home/b/projects/orden/")).toBe(true);
+  });
+
+  it("does not match a local project with a different path (the leak)", () => {
+    const p = addProject("Other", { kind: "local", path: "/home/b/projects/ygqc" });
+    expect(isHostFilesRoot(p, "/home/b/projects/orden")).toBe(false);
+  });
+
+  it("never matches a non-local project", () => {
+    const p = addProject("Ephemeral", { kind: "ephemeral" });
+    expect(isHostFilesRoot(p, "/home/b/projects/orden")).toBe(false);
+  });
+
+  it("never matches when the host exposes no files root", () => {
+    const p = addProject("Repo", { kind: "local", path: "/home/b/projects/orden" });
+    expect(isHostFilesRoot(p, undefined)).toBe(false);
   });
 });

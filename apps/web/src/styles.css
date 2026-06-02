@@ -1615,13 +1615,13 @@ li.sess-done-head {
   padding: 8px 0 96px;
 }
 .journal-day {
-  padding-bottom: 14px;
-  margin-bottom: 4px;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
   border-bottom: 1px solid var(--line);
 }
 .journal-day-head {
   max-width: 720px;
-  margin: 18px auto 6px;
+  margin: 12px auto 6px;
   font-size: 15px;
   font-weight: 700;
   color: var(--muted);
@@ -2167,6 +2167,33 @@ li.sess-done-head {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
+/* Foldable widget: the head doubles as the <summary> toggle. Swap the default
+   disclosure marker for a triangle that rotates open, and make the whole head
+   clickable. Folded by default, the body simply isn't rendered by <details>. */
+.project-widget-head--summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.project-widget-head--summary::-webkit-details-marker {
+  display: none;
+}
+.project-widget-head--summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.1s ease;
+}
+.project-widget--foldable[open] > .project-widget-head--summary::before {
+  transform: rotate(90deg);
+}
+.project-widget--foldable:not([open]) > .project-widget-head--summary {
+  margin-bottom: 0;
+  border-bottom: none;
+}
 .project-widget-empty {
   font-size: 13px;
   color: var(--muted);
@@ -2182,6 +2209,64 @@ li.sess-done-head {
 }
 
 /* File explorer widget (file-backed project pages) */
+.project-file-search {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+}
+.project-file-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.project-file-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.project-file-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.project-file-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+.project-file-chip:hover {
+  color: var(--ink);
+}
+.project-file-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.project-file-ext {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  margin-left: auto;
+}
 .project-file-list {
   display: flex;
   flex-direction: column;
@@ -2218,6 +2303,139 @@ li.sess-done-head {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* File explorer tree: nested <details> per folder. Each nesting level indents
+   its contents; folder headers carry a disclosure triangle + descendant count. */
+.project-tree-dir {
+  border: none;
+}
+.project-tree-dir-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink);
+  user-select: none;
+}
+.project-tree-dir-head::-webkit-details-marker {
+  display: none;
+}
+.project-tree-dir-head::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform 0.1s ease;
+}
+.project-tree-dir[open] > .project-tree-dir-head::before {
+  transform: rotate(90deg);
+}
+.project-tree-dir-head:hover {
+  background: var(--accent-soft);
+}
+.project-tree-dir-name {
+  font-weight: 600;
+}
+.project-tree-dir-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+/* Indent a folder's contents one step in from its header. */
+.project-tree-dir > .project-file-row,
+.project-tree-dir > .project-tree-dir {
+  margin-left: 14px;
+}
+
+/* Read-only code viewer (non-markdown files): monospace, highlight.js colours,
+   and a fixed line-number gutter. #view-code fills the center like other views. */
+#view-code {
+  overflow: auto;
+  padding: 0;
+}
+.code-view {
+  margin: 0;
+  background: var(--panel-bg);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+.code-view code.hljs {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+.code-line {
+  display: flex;
+  align-items: baseline;
+  white-space: pre;
+}
+.code-line:hover {
+  background: var(--accent-soft);
+}
+.code-gutter {
+  flex: 0 0 auto;
+  width: 3.5em;
+  padding: 0 12px 0 14px;
+  text-align: right;
+  color: var(--muted);
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  user-select: none;
+  position: sticky;
+  left: 0;
+}
+.code-src {
+  padding: 0 16px;
+  white-space: pre;
+}
+
+/* Image viewer: center the image, contain it within the view, transparent
+   checker-free background so PNG alpha reads against the panel. */
+#view-image {
+  overflow: auto;
+  padding: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.image-view {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Rendered-HTML viewer: a sandboxed iframe filling the center view. */
+#view-html {
+  overflow: hidden;
+  padding: 0;
+}
+.html-view {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/* Topbar Rendered/Code toggle, shown only when viewing an HTML file. */
+.html-toggle {
+  flex: none;
+  margin-left: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.html-toggle:hover {
+  border-color: var(--accent);
+}
+
 /* notes widget: the embedded outliner. Reuse .journal-editor styling but drop
    its auto-centering / huge min-height so it sits naturally in the column. */
 .project-notes {

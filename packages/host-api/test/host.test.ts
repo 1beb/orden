@@ -61,6 +61,7 @@ class NoopHost implements Host {
     transition: async (_sessionId: string, _to: SessionState) => {},
     prompt: async (_sessionId: string, _text: string) => {},
     kill: async (_sessionId: string) => {},
+    annotationSend: async () => ({ ok: false as const, reason: "no agents" }),
   };
 
   locks: LockService = {

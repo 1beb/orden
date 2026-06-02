@@ -77,4 +77,29 @@ describe("sessionsPanel new-session agent buttons", () => {
 
     expect(created).toEqual([{ title: "Untitled", agent: "claude" }]);
   });
+
+  it("mark-complete in the detail header archives the open session and returns to the list", () => {
+    const archived: string[] = [];
+    const s = makeSession({ id: "s1", title: "Real session" });
+    const { deps: d } = deps({
+      get: (id) => (id === "s1" ? s : undefined),
+      list: () => [s],
+      isComplete: () => false,
+      initialOpenId: "s1",
+      archive: (id) => archived.push(id),
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    // Detail view is open (terminal mounted); the complete button lives beside
+    // the new-session buttons in the header.
+    const complete = d.container.querySelector<HTMLButtonElement>(".sess-complete");
+    expect(complete).not.toBeNull();
+    complete!.click();
+
+    expect(archived).toEqual(["s1"]);
+    // Back to the list: the session row is shown, not the terminal detail.
+    expect(d.container.querySelector(".sess-terminal")).toBeNull();
+    expect(d.container.querySelector(".sess-list")).not.toBeNull();
+  });
 });

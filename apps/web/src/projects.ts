@@ -81,3 +81,14 @@ export function removeProject(id: string): void {
   cache = cache.filter((p) => p.id !== id);
   if (host) void host.vault.delete("projects", id);
 }
+
+// The host's FileSource is single-rooted at one directory (the host's
+// `filesRoot`). Until per-project roots land, that root maps to exactly one
+// project: the local project whose path equals it. This predicate identifies
+// that project so the project page shows repo files ONLY there — every other
+// project gets an empty list instead of the host root's files leaking in.
+export function isHostFilesRoot(project: Project, hostFilesRoot: string | undefined): boolean {
+  if (!hostFilesRoot || project.source.kind !== "local") return false;
+  const norm = (p: string): string => p.replace(/\/+$/, "");
+  return norm(project.source.path) === norm(hostFilesRoot);
+}

@@ -18,5 +18,13 @@ export {
   panelOpen,
 } from "./tools";
 export type { ToolResult } from "./tools";
-export { sessionForConversation, cardForSession, findCard } from "./sessionLink";
-export type { SessionRec, CardRec, FindResult } from "./sessionLink";
+export {
+  sessionForConversation,
+  cardForSession,
+  findCard,
+  sessionForPlanDoc,
+  cardSessionIds,
+} from "./sessionLink";
+export type { SessionRec, CardRec, FindResult, PlanDocSessions } from "./sessionLink";
+export { renderSingle, renderBatch } from "./annotationMessage";
+export type { DeliverableAnnotation } from "./annotationMessage";

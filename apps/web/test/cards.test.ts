@@ -69,6 +69,23 @@ describe("cards store (host-backed)", () => {
     expect(cardSessionIds(listItems().find((x) => x.id === i.id)!)).toEqual(["sess_b"]);
   });
 
+  it("stamps completedAt entering complete, preserves it on re-set, clears it on leaving", () => {
+    const i = addItem("p1", "x");
+    expect(listItems().find((x) => x.id === i.id)?.completedAt).toBeUndefined();
+
+    setItemState(i.id, "complete");
+    const stamped = listItems().find((x) => x.id === i.id)?.completedAt;
+    expect(typeof stamped).toBe("number");
+
+    // Re-setting to complete keeps the original stamp (fade clock unchanged).
+    setItemState(i.id, "complete");
+    expect(listItems().find((x) => x.id === i.id)?.completedAt).toBe(stamped);
+
+    // Leaving complete clears the stamp.
+    setItemState(i.id, "in-progress");
+    expect(listItems().find((x) => x.id === i.id)?.completedAt).toBeUndefined();
+  });
+
   it("setItemDueDate sets and clears a due date", () => {
     const i = addItem("p1", "x");
     setItemDueDate(i.id, "2026-06-01");

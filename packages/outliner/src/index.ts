@@ -19,7 +19,9 @@ export { journalKey, createJournalPage, createPage } from "./page";
 export {
   LIFECYCLE_ORDER,
   NEEDS_ACTION_STATES,
+  COMPLETE_TTL_MS,
   isNeedsAction,
+  isExpiredComplete,
   buildBoard,
   needsActionCount,
 } from "./kanban";

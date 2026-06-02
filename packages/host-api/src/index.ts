@@ -2,6 +2,13 @@ export interface HostCapabilities {
   remoteProjects: boolean;
   spawnSessions: boolean;
   persistentVault: boolean;
+  /**
+   * Absolute path the host's single FileSource is rooted at, if any. The web
+   * uses it to scope repo files to the one project whose path matches this root
+   * (see isHostFilesRoot), instead of showing them under every project. Absent
+   * when the host exposes no files (e.g. the in-browser host).
+   */
+  filesRoot?: string;
 }
 
 export interface Identity {
@@ -82,7 +89,36 @@ export interface SessionManager {
    * agent process; the browser host has no real agents and no-ops.
    */
   kill(sessionId: string): Promise<void>;
+  /**
+   * Deliver one or more plan-doc annotations to the agent working that plan.
+   * The host resolves the card whose planDoc matches, picks a target session
+   * (a live one, else the most recent), renders the message, and types it into
+   * the live TUI pane (queued for the agent's next turn) or relaunches a dead
+   * session with the text queued. Returns a not-linked result rather than
+   * throwing when no session backs the plan. The browser host has no agents and
+   * always reports not-linked.
+   */
+  annotationSend(input: AnnotationSendInput): Promise<AnnotationSendResult>;
 }
+
+export interface AnnotationRef {
+  id: string;
+  planDoc: string;
+  /** The selector's exact text, when the annotation targets a text range. */
+  quote?: string;
+  note: string;
+  /** The block the annotation anchors to, for position/region selectors. */
+  blockId?: string;
+}
+
+export interface AnnotationSendInput {
+  planDoc: string;
+  annotations: AnnotationRef[];
+}
+
+export type AnnotationSendResult =
+  | { ok: false; reason: string }
+  | { ok: true; target: string; delivered: "queued" | "relaunched" | "failed"; count: number };
 
 export interface LockService {
   acquire(resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }>;

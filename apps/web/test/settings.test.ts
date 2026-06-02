@@ -10,6 +10,8 @@ const DEFAULTS = {
   showArchived: false,
   sessionAutoLaunch: true,
   sessionPanelPct: 33,
+  completeFadeHours: 1,
+  htmlRender: true,
 };
 
 describe("settings store (host-backed)", () => {
@@ -57,7 +59,33 @@ describe("settings store (host-backed)", () => {
       showArchived: false,
       sessionAutoLaunch: true,
       sessionPanelPct: 33,
+      completeFadeHours: 1,
+      htmlRender: true,
     });
+  });
+
+  it("round-trips the html-render preference", async () => {
+    await saveSettings({ htmlRender: false });
+    expect(loadSettings().htmlRender).toBe(false);
+  });
+
+  it("rejects a non-boolean stored html-render value, falling back to the default", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", { htmlRender: "yes" });
+    await hydrateSettings(h);
+    expect(loadSettings().htmlRender).toBe(true);
+  });
+
+  it("round-trips the completed-card fade hours", async () => {
+    await saveSettings({ completeFadeHours: 8 });
+    expect(loadSettings().completeFadeHours).toBe(8);
+  });
+
+  it("rejects a fade-hours value outside the allowed set, falling back to default", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", { completeFadeHours: 3 });
+    await hydrateSettings(h);
+    expect(loadSettings().completeFadeHours).toBe(1);
   });
 
   it("round-trips the session panel width percent", async () => {

@@ -44,6 +44,7 @@
         <header id="topbar">
           <button id="toggle-left" class="pane-toggle" title="Toggle navigation (⌘\\)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
           <span class="doc-title" id="view-title">Churn model — review</span>
+          <button id="html-view-toggle" class="html-toggle" type="button" hidden></button>
           <form id="omnisearch-form" class="omnisearch" role="search">
             <span class="omnisearch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg></span>
             <input
@@ -90,6 +91,9 @@
             </aside>
           </section>
 
+          <section id="view-code" class="view"></section>
+          <section id="view-image" class="view"></section>
+          <section id="view-html" class="view"></section>
           <section id="view-journal" class="view"></section>
           <section id="view-pages" class="view"></section>
           <section id="view-project" class="view"></section>
@@ -137,10 +141,18 @@
         </select>
         <div class="settings-label">Accent color</div>
         <input type="color" id="accent-color" class="settings-color" />
+        <div class="settings-label">Completed tasks fade after</div>
+        <select id="complete-fade" class="settings-select">
+          <option value="1">1 hour</option>
+          <option value="4">4 hours</option>
+          <option value="8">8 hours</option>
+          <option value="24">24 hours</option>
+        </select>
         <div class="settings-label">Session panel width <span id="panel-width-value" class="settings-value"></span></div>
         <input type="range" id="panel-width" class="settings-range" min="15" max="50" step="1" />
         <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
         <label class="settings-opt"><input type="checkbox" id="session-autolaunch" /> Launch new sessions immediately</label>
+        <label class="settings-opt"><input type="checkbox" id="html-render" /> Render HTML files (off = show source)</label>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

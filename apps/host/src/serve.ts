@@ -15,8 +15,10 @@ import { NodeHost } from "./nodeHost";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss, launchDetached } from "./terminal";
 import { reconcileUntitledSessions } from "./sessionTitles";
+import { reapCompletedCard } from "./cardReaper";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
+import { handleRepoFileRequest } from "./repoFileRoute";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
 const repoRoot = resolve(here, "../../..");
@@ -51,6 +53,17 @@ async function maybeLaunch(host: NodeHost, defaultCwd: string, sessionId: string
 host.onChange((change) => {
   if (change.ns !== "sessions") return;
   void maybeLaunch(host, filesRoot, change.key);
+});
+
+// Reap-on-complete reactor: when a card reaches Done (agent's card_complete, or
+// a user drag in the web UI), exit any agent sessions still running for it.
+const reapedCards = new Set<string>();
+host.onChange((change) => {
+  if (change.ns !== "cards") return;
+  void reapCompletedCard(host, change.key, reapedCards).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: reapCompletedCard failed for ${change.key}:`, err);
+  });
 });
 
 const MIME: Record<string, string> = {
@@ -117,6 +130,10 @@ function makeServer() {
     }
     if (req.url && req.url.startsWith("/hooks/")) {
       void handleHookRequest(host, req, res);
+      return;
+    }
+    if (req.url && req.url.startsWith("/repo-file/")) {
+      void handleRepoFileRequest(filesRoot, req, res);
       return;
     }
     void serveStatic(req, res);

@@ -6,8 +6,16 @@
 // transcript. This class therefore only satisfies the SessionManager interface;
 // the chat-style prompt() path (which used `claude -p`) has been removed.
 
-import type { SessionManager, Session, VaultStore } from "@orden/host-api";
+import type {
+  SessionManager,
+  Session,
+  VaultStore,
+  Host,
+  AnnotationSendInput,
+  AnnotationSendResult,
+} from "@orden/host-api";
 import { killSessionTmux } from "./terminal";
+import { annotationSend, defaultPaneOps } from "./annotationDelivery";
 
 export interface NodeSessionsOptions {
   vault: VaultStore;
@@ -15,7 +23,12 @@ export interface NodeSessionsOptions {
 }
 
 export class NodeSessions implements SessionManager {
-  constructor(_opts: NodeSessionsOptions) {}
+  private readonly vault: VaultStore;
+  private readonly defaultCwd: string;
+  constructor(opts: NodeSessionsOptions) {
+    this.vault = opts.vault;
+    this.defaultCwd = opts.defaultCwd;
+  }
 
   async list(): Promise<Session[]> {
     return []; // the web reads sessions via its own vault-backed store
@@ -38,5 +51,12 @@ export class NodeSessions implements SessionManager {
   // web store in parallel). Idempotent — killing an unknown session is a no-op.
   async kill(sessionId: string): Promise<void> {
     await killSessionTmux(sessionId);
+  }
+  // Deliver plan-doc annotations to the agent working that plan. Both the
+  // resolver and the tmux/launch ops only touch host.vault, so a vault-only
+  // host shape is all the delivery layer needs here.
+  async annotationSend(input: AnnotationSendInput): Promise<AnnotationSendResult> {
+    const host = { vault: this.vault } as unknown as Host;
+    return annotationSend(host, input, defaultPaneOps(host, this.defaultCwd));
   }
 }

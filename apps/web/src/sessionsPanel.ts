@@ -242,7 +242,19 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const title = el("span", "sess-title");
     title.textContent = s.title;
     // No agent badge in the detail view — you already know which agent you're in.
-    head.append(back, title, newButtons());
+    // Mark-complete sits beside the new-session buttons: finish the open session
+    // (flips its linked card to Complete, furls it below) and drop back to the
+    // list. Only meaningful here, where "the session" is unambiguously this one.
+    const complete = iconButton(ICON.check, "sess-icon sess-complete");
+    complete.title = "Mark session complete";
+    complete.setAttribute("aria-label", "Mark session complete");
+    complete.addEventListener("click", () => {
+      teardownTerm();
+      deps.archive(s.id);
+      setCurrent(null);
+      render();
+    });
+    head.append(back, title, complete, newButtons());
     c.append(head);
     back.addEventListener("click", () => {
       teardownTerm();

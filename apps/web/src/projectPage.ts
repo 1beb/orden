@@ -1,4 +1,7 @@
-import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
+import {
+  isExpiredComplete,
+  type CardState,
+} from "@orden/outliner";
 import type { EditorView } from "prosemirror-view";
 import type { FileEntry } from "@orden/host-api";
 import {
@@ -17,6 +20,7 @@ import {
   type Project,
 } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
+import { loadSettings } from "./settings";
 import {
   sessionsForCard,
   setSessionProject,
@@ -27,8 +31,12 @@ import {
 import { openDialog } from "./modal";
 import { makeOutlineEditor } from "./outlineEditor";
 import { openCardModal } from "./cardModal";
+import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
-const STATES: CardState[] = [...LIFECYCLE_ORDER];
+// The project page surfaces what needs attention first, so it uses its own
+// group order (blocked → in-progress → planning → complete) rather than the
+// board's lifecycle order.
+const STATES: CardState[] = ["blocked", "in-progress", "planning", "complete"];
 
 // The currently-mounted notes editor (one project page is shown at a time).
 // Torn down whenever the page re-renders so detached EditorViews don't leak.
@@ -37,6 +45,10 @@ let notesView: EditorView | null = null;
 // The container the page is mounted in, captured each render so focus guards
 // can scope themselves to "is the user typing somewhere on this page".
 let pageContainer: HTMLElement | null = null;
+
+// One-shot timer that re-renders the items list the moment the soonest completed
+// item crosses its TTL and falls off. Module-scoped so it survives re-renders.
+let dropTimer: ReturnType<typeof setTimeout> | undefined;
 
 // True while the user is typing in the embedded notes outline. Callers should
 // skip re-rendering the project page on remote changes when this is set, or
@@ -135,10 +147,10 @@ export function renderProjectPage(
     header,
     top,
     items.section,
-    // File explorer — only for file-backed (local) projects. Ephemeral/ssh/s3
-    // projects have no browsable local files, so the widget is omitted.
-    ...(project.source.kind === "local" ? [filesWidget(repoFiles, onOpenFile)] : []),
     notesWidget(project),
+    // File explorer last (below notes) — only for file-backed (local) projects.
+    // Ephemeral/ssh/s3 projects have no browsable local files, so it's omitted.
+    ...(project.source.kind === "local" ? [filesWidget(projectId, repoFiles, onOpenFile)] : []),
     activityWidget(),
   );
 }
@@ -408,8 +420,89 @@ function addBar(
 
 // --- Files (file-backed projects only) ------------------------------------
 
-function filesWidget(repoFiles: FileEntry[], onOpenFile?: (path: string) => void): HTMLElement {
-  const { section, body } = widget("Files");
+// The file explorer lists every repo file, filtered along two axes: a coarse
+// category (Docs / Code / Config / Other) chosen by chip, and a fine extension
+// chosen by dropdown. Categories group related extensions so the common case
+// ("show me the docs") is one click; the dropdown narrows to a single type.
+type FileCategory = "docs" | "code" | "config" | "other";
+
+const CATEGORY_LABELS: Record<FileCategory, string> = {
+  docs: "Docs",
+  code: "Code",
+  config: "Config",
+  other: "Other",
+};
+const CATEGORY_ORDER: FileCategory[] = ["docs", "code", "config", "other"];
+
+// Extension → category. Anything unmapped falls to "Other", so the list never
+// hides a file just because its type is unrecognized.
+const EXT_CATEGORY: Record<string, FileCategory> = {
+  md: "docs", markdown: "docs", mdx: "docs", txt: "docs", rst: "docs", adoc: "docs",
+  // HTML is often prose-with-markup, so it lives with Docs for now (it's still
+  // rendered as code when opened — see the document view's code/markdown split).
+  html: "docs", htm: "docs",
+  ts: "code", tsx: "code", js: "code", jsx: "code", mjs: "code", cjs: "code",
+  py: "code", rs: "code", go: "code", rb: "code", java: "code", c: "code", h: "code",
+  cpp: "code", hpp: "code", cs: "code", sh: "code", sql: "code", vue: "code",
+  svelte: "code", css: "code", scss: "code", less: "code",
+  json: "config", yaml: "config", yml: "config", toml: "config", ini: "config",
+  env: "config", lock: "config", xml: "config", conf: "config", cfg: "config",
+};
+
+// Lowercased extension after the final dot in the filename, or "" when none.
+function extOf(path: string): string {
+  const name = path.split("/").pop() ?? path;
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+function categoryOf(path: string): FileCategory {
+  return EXT_CATEGORY[extOf(path)] ?? "other";
+}
+
+// Total files beneath a tree node (the count shown on a folder's summary row).
+function countFiles(node: FileTreeNode): number {
+  if (!node.isDir) return 1;
+  return node.children.reduce((n, c) => n + countFiles(c), 0);
+}
+
+// Filter selection, kept module-scoped so it survives the project page's
+// frequent full re-renders (a card transition rebuilds the whole page). Reset
+// when the page switches to a different project.
+let fileFilter: {
+  projectId: string;
+  category: FileCategory | "all";
+  ext: string;
+  query: string;
+} = {
+  projectId: "",
+  category: "all",
+  ext: "all",
+  query: "",
+};
+
+// Which folder paths the user has explicitly unfurled, persisted across the
+// page's frequent full re-renders (like fileFilter). The tree starts fully
+// furled, so this begins empty and is reset when the page switches projects.
+// While a filter is active every folder renders open regardless of this set.
+let expandedDirs = new Set<string>();
+
+// Whether the whole Files widget is unfolded. Furled by default so the section
+// stays out of the way until wanted; persisted (like expandedDirs) so a card
+// transition's full re-render doesn't snap it shut while the user is in it.
+let filesSectionOpen = false;
+
+function filesWidget(
+  projectId: string,
+  repoFiles: FileEntry[],
+  onOpenFile?: (path: string) => void,
+): HTMLElement {
+  const { section, body } = widget("Files", {
+    collapsible: true,
+    open: filesSectionOpen,
+    onToggle: (open) => {
+      filesSectionOpen = open;
+    },
+  });
   if (repoFiles.length === 0) {
     const empty = document.createElement("p");
     empty.className = "project-widget-empty";
@@ -417,29 +510,196 @@ function filesWidget(repoFiles: FileEntry[], onOpenFile?: (path: string) => void
     body.append(empty);
     return section;
   }
+
+  // A fresh project starts unfiltered and fully furled; the same project keeps
+  // the prior filter choice and unfurled folders.
+  if (fileFilter.projectId !== projectId) {
+    fileFilter = { projectId, category: "all", ext: "all", query: "" };
+    expandedDirs = new Set();
+    filesSectionOpen = false;
+  }
+
+  // Per-category counts drive the chip labels (and let us hide empty chips).
+  const categoryCounts = new Map<FileCategory, number>();
+  for (const f of repoFiles) {
+    const c = categoryOf(f.path);
+    categoryCounts.set(c, (categoryCounts.get(c) ?? 0) + 1);
+  }
+
+  const filters = document.createElement("div");
+  filters.className = "project-file-filters";
+  const chips = document.createElement("div");
+  chips.className = "project-file-chips";
+  const extSel = document.createElement("select");
+  extSel.className = "project-file-ext";
+  extSel.title = "File type";
+  filters.append(chips, extSel);
+
   const list = document.createElement("div");
   list.className = "project-file-list";
-  for (const f of repoFiles) {
-    const row = document.createElement("button");
-    row.className = "project-file-row";
-    row.type = "button";
-    const name = document.createElement("span");
-    name.className = "project-file-name";
-    name.textContent = f.path.split("/").pop() ?? f.path;
-    const meta = document.createElement("span");
-    meta.className = "project-file-meta";
-    meta.textContent = f.path.includes("/") ? f.path.replace(/\/[^/]+$/, "") : "/";
-    row.append(name, meta);
-    if (onOpenFile) row.addEventListener("click", () => onOpenFile(f.path));
-    list.append(row);
-  }
-  body.append(list);
+
+  // Free-text search over the file paths. Typing narrows the tree live (and
+  // auto-unfurls it, like a category chip). The value is seeded from the
+  // persisted query so a full page re-render restores what was typed.
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "project-file-search";
+  search.placeholder = "Search files…";
+  search.value = fileFilter.query;
+  search.addEventListener("input", () => {
+    fileFilter.query = search.value;
+    renderTree();
+  });
+
+  // The files visible under the current category (ext filter not yet applied) —
+  // used both to populate the extension dropdown and to render the rows.
+  const inCategory = (): FileEntry[] =>
+    fileFilter.category === "all"
+      ? repoFiles
+      : repoFiles.filter((f) => categoryOf(f.path) === fileFilter.category);
+
+  const renderChips = (): void => {
+    chips.replaceChildren();
+    const mkChip = (cat: FileCategory | "all", label: string, count: number): void => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "project-file-chip";
+      if (fileFilter.category === cat) b.classList.add("is-active");
+      b.textContent = `${label} ${count}`;
+      b.addEventListener("click", () => {
+        fileFilter = { projectId, category: cat, ext: "all", query: fileFilter.query };
+        renderChips();
+        renderExtOptions();
+        renderTree();
+      });
+      chips.append(b);
+    };
+    mkChip("all", "All", repoFiles.length);
+    for (const cat of CATEGORY_ORDER) {
+      const n = categoryCounts.get(cat) ?? 0;
+      if (n > 0) mkChip(cat, CATEGORY_LABELS[cat], n);
+    }
+  };
+
+  const renderExtOptions = (): void => {
+    extSel.replaceChildren();
+    const counts = new Map<string, number>();
+    for (const f of inCategory()) {
+      const e = extOf(f.path) || "(none)";
+      counts.set(e, (counts.get(e) ?? 0) + 1);
+    }
+    const all = document.createElement("option");
+    all.value = "all";
+    all.textContent = "All types";
+    extSel.append(all);
+    for (const e of [...counts.keys()].sort()) {
+      const opt = document.createElement("option");
+      opt.value = e;
+      opt.textContent = `${e === "(none)" ? "(no ext)" : "." + e} (${counts.get(e)})`;
+      extSel.append(opt);
+    }
+    // Keep the prior ext selection if it still exists under the new category.
+    extSel.value = counts.has(fileFilter.ext) || fileFilter.ext === "all" ? fileFilter.ext : "all";
+    fileFilter.ext = extSel.value;
+  };
+  extSel.addEventListener("change", () => {
+    fileFilter.ext = extSel.value;
+    renderTree();
+  });
+
+  // Auto-unfurl when a real category chip (Docs/Code/Config/Other) is active or
+  // a search is in progress — both are "show me these files" gestures, so the
+  // matches need to be visible. "All" with an empty search and the extension
+  // dropdown leave folder state alone, so the tree returns to its furled resting
+  // state and only the user's explicitly-opened folders show.
+  const filterActive = (): boolean =>
+    fileFilter.category !== "all" || fileFilter.query.trim() !== "";
+
+  // Render one tree node: a file as an open-on-click row, a folder as a nested
+  // <details> whose open state persists in expandedDirs (or is forced open while
+  // a filter is active).
+  const renderNode = (node: FileTreeNode): HTMLElement => {
+    if (!node.isDir) {
+      const row = document.createElement("button");
+      row.className = "project-file-row";
+      row.type = "button";
+      const name = document.createElement("span");
+      name.className = "project-file-name";
+      name.textContent = node.name;
+      row.append(name);
+      if (onOpenFile) row.addEventListener("click", () => onOpenFile(node.path));
+      return row;
+    }
+    const details = document.createElement("details");
+    details.className = "project-tree-dir";
+    details.open = filterActive() || expandedDirs.has(node.path);
+    const summary = document.createElement("summary");
+    summary.className = "project-tree-dir-head";
+    const label = document.createElement("span");
+    label.className = "project-tree-dir-name";
+    label.textContent = node.name;
+    const count = document.createElement("span");
+    count.className = "project-tree-dir-count";
+    count.textContent = String(countFiles(node));
+    summary.append(label, count);
+    details.append(summary);
+    details.addEventListener("toggle", () => {
+      if (details.open) expandedDirs.add(node.path);
+      else expandedDirs.delete(node.path);
+    });
+    for (const child of node.children) details.append(renderNode(child));
+    return details;
+  };
+
+  const renderTree = (): void => {
+    list.replaceChildren();
+    const files = inCategory().filter(
+      (f) =>
+        (fileFilter.ext === "all" || (extOf(f.path) || "(none)") === fileFilter.ext) &&
+        matchesSearch(f.path, fileFilter.query),
+    );
+    if (files.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "project-widget-empty";
+      empty.textContent = fileFilter.query.trim()
+        ? "No files match your search."
+        : "No files of this type.";
+      list.append(empty);
+      return;
+    }
+    const tree = buildFileTree(files.map((f) => f.path));
+    for (const node of tree) list.append(renderNode(node));
+  };
+
+  renderChips();
+  renderExtOptions();
+  renderTree();
+  body.append(search, filters, list);
   return section;
 }
 
 // --- Widget shell ---------------------------------------------------------
 
-function widget(title: string): { section: HTMLElement; body: HTMLElement } {
+function widget(
+  title: string,
+  // When collapsible, the whole widget renders as a <details> whose body folds
+  // away. `open` seeds the initial state and `onToggle` reports user changes so
+  // the caller can persist them across the page's frequent re-renders.
+  opts?: { collapsible?: boolean; open?: boolean; onToggle?: (open: boolean) => void },
+): { section: HTMLElement; body: HTMLElement } {
+  if (opts?.collapsible) {
+    const section = document.createElement("details");
+    section.className = "project-widget project-widget--foldable";
+    section.open = opts.open ?? false;
+    const head = document.createElement("summary");
+    head.className = "project-widget-head project-widget-head--summary";
+    head.textContent = title;
+    const body = document.createElement("div");
+    body.className = "project-widget-body";
+    section.append(head, body);
+    if (opts.onToggle) section.addEventListener("toggle", () => opts.onToggle!(section.open));
+    return { section, body };
+  }
   const section = document.createElement("section");
   section.className = "project-widget";
   const head = document.createElement("h2");
@@ -498,7 +758,24 @@ function itemsWidget(
   list.className = "issue-list";
 
   const render = (): void => {
-    const items = itemsByProject(projectId);
+    const nowMs = Date.now();
+    const ttlMs = loadSettings().completeFadeHours * 60 * 60 * 1000;
+    const allItems = itemsByProject(projectId);
+    // Completed items fall off the list after the configured dwell time,
+    // mirroring the board's Complete column.
+    const items = allItems.filter((i) => !isExpiredComplete(i, nowMs, ttlMs));
+    // Re-render at the soonest moment a still-visible completed item crosses its
+    // TTL, so an idle page drops it without waiting for the next interaction.
+    if (dropTimer) clearTimeout(dropTimer);
+    let soonestDrop = Infinity;
+    for (const i of allItems) {
+      if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
+      const dropAt = i.completedAt + ttlMs;
+      if (dropAt > nowMs && dropAt < soonestDrop) soonestDrop = dropAt;
+    }
+    if (soonestDrop !== Infinity) {
+      dropTimer = setTimeout(render, soonestDrop - nowMs + 50);
+    }
     list.replaceChildren();
     if (items.length === 0) {
       const empty = document.createElement("p");

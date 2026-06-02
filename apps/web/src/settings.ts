@@ -16,6 +16,8 @@ export interface Settings {
   showArchived: boolean; // include archived (Done) sessions in the list
   sessionAutoLaunch: boolean; // auto-spawn the agent TUI when a session is created
   sessionPanelPct: number; // session panel width as a % of viewport width
+  completeFadeHours: number; // hours a card sits in Complete before it dims (one of FADE_HOURS_OPTIONS)
+  htmlRender: boolean; // open .html files rendered (true) or as source code (false)
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
@@ -26,6 +28,8 @@ export const MIN_PANEL_PCT = 15;
 export const MAX_PANEL_PCT = 50;
 export const DEFAULT_ACCENT = "#6d28d9";
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+// Allowed dwell times before a completed card fades, in hours.
+export const FADE_HOURS_OPTIONS: readonly number[] = [1, 4, 8, 24];
 const DEFAULT_SETTINGS: Settings = {
   startup: "last",
   fontFamily: DEFAULT_FONT_ID,
@@ -34,6 +38,8 @@ const DEFAULT_SETTINGS: Settings = {
   showArchived: false,
   sessionAutoLaunch: true,
   sessionPanelPct: 33,
+  completeFadeHours: 1,
+  htmlRender: true,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -68,6 +74,12 @@ function coerce(stored: unknown): Settings {
       typeof pct === "number" && pct >= MIN_PANEL_PCT && pct <= MAX_PANEL_PCT
         ? pct
         : DEFAULT_SETTINGS.sessionPanelPct,
+    completeFadeHours:
+      typeof s.completeFadeHours === "number" && FADE_HOURS_OPTIONS.includes(s.completeFadeHours)
+        ? s.completeFadeHours
+        : DEFAULT_SETTINGS.completeFadeHours,
+    htmlRender:
+      typeof s.htmlRender === "boolean" ? s.htmlRender : DEFAULT_SETTINGS.htmlRender,
   };
 }
 

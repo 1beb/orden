@@ -1,6 +1,6 @@
-// FileSource over the real filesystem, rooted at a directory. Lists markdown
-// files (repo-relative, skipping heavy dirs) and reads/writes them. projectId
-// is ignored for now (single root); multi-project mapping comes with H2.2.
+// FileSource over the real filesystem, rooted at a directory. Lists every file
+// (repo-relative, skipping heavy/dot dirs) and reads/writes them. projectId is
+// ignored for now (single root); multi-project mapping comes with H2.2.
 
 import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
@@ -15,9 +15,14 @@ const SKIP_DIRS = new Set([
   ".playwright-mcp",
 ]);
 
-function titleOf(content: string, path: string): string {
-  const heading = content.match(/^#\s+(.+)$/m);
-  if (heading) return heading[1].trim();
+// A markdown file's title is its first H1, if any; everything else (and any
+// headingless markdown) falls back to the bare filename. Only markdown content
+// is inspected, so listing never reads a binary just to label it.
+function titleOf(path: string, content?: string): string {
+  if (content !== undefined) {
+    const heading = content.match(/^#\s+(.+)$/m);
+    if (heading) return heading[1].trim();
+  }
   return path.split("/").pop() ?? path;
 }
 
@@ -39,7 +44,7 @@ export class FsFiles implements FileSource {
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
         await this.walk(join(dir, e.name), out);
-      } else if (e.isFile() && e.name.endsWith(".md")) {
+      } else if (e.isFile() && !e.name.startsWith(".")) {
         out.push(join(dir, e.name));
       }
     }
@@ -51,8 +56,10 @@ export class FsFiles implements FileSource {
     const entries = await Promise.all(
       abs.map(async (file) => {
         const path = relative(this.root, file).split(sep).join("/");
-        const content = await readFile(file, "utf8");
-        return { path, title: titleOf(content, path) };
+        // Only markdown earns a content read (for its H1 title); other files are
+        // labeled by filename, so we never slurp a binary just to list it.
+        const content = file.endsWith(".md") ? await readFile(file, "utf8") : undefined;
+        return { path, title: titleOf(path, content) };
       }),
     );
     return entries.sort((a, b) => a.path.localeCompare(b.path));
@@ -68,7 +75,7 @@ export class FsFiles implements FileSource {
     await writeFile(full, content, "utf8");
   }
 
-  // Watch the root for .md changes (recursive) and report repo-relative paths.
+  // Watch the root for file changes (recursive) and report repo-relative paths.
   // Coalesces bursts per-path (editors write in several syscalls). The returned
   // FSWatcher is unref'd so it never keeps the process alive on its own.
   watch(onChange: (path: string) => void): FSWatcher {
@@ -76,7 +83,6 @@ export class FsFiles implements FileSource {
     const watcher = watch(this.root, { recursive: true }, (_event, filename) => {
       if (!filename) return;
       const rel = filename.toString().split(sep).join("/");
-      if (!rel.endsWith(".md")) return;
       if (rel.split("/").some((seg) => SKIP_DIRS.has(seg) || seg.startsWith("."))) return;
       const prev = timers.get(rel);
       if (prev) clearTimeout(prev);
@@ -87,6 +93,14 @@ export class FsFiles implements FileSource {
           onChange(rel);
         }, 120).unref(),
       );
+    });
+    // Node's recursive watcher walks the whole tree to arm itself, including
+    // node_modules; a build artifact dir (e.g. node-gyp's node_gyp_bins) that
+    // vanishes mid-scandir emits a transient ENOENT. Without a handler that
+    // 'error' event is unhandled and crashes the host. Swallow it so the
+    // watcher (and process) survive churn under node_modules.
+    watcher.on("error", (err) => {
+      console.warn(`[fsFiles] watch error (ignored): ${(err as Error).message}`);
     });
     watcher.unref();
     return watcher;

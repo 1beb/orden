@@ -1,11 +1,23 @@
-import { LIFECYCLE_ORDER, isNeedsAction, type CardState } from "@orden/outliner";
+import {
+  LIFECYCLE_ORDER,
+  isNeedsAction,
+  isExpiredComplete,
+  type CardState,
+} from "@orden/outliner";
 import { listItems, setItemState, setItemProject, cardSessionIds, type Item } from "./cards";
 import { listProjects } from "./projects";
 import { agentLauncher } from "./agentMarks";
 import { setSessionProject, type Agent } from "./sessions";
 import { openCardModal } from "./cardModal";
+import { loadSettings } from "./settings";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
+
+// A one-shot timer that re-renders the board the moment the soonest completed
+// card crosses its TTL and falls off the Complete column (the board otherwise
+// only redraws on a mutation, so a card finished while the board sits open
+// would linger). Module-scoped so it survives the full re-render each call performs.
+let fadeTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Capitalized column titles; the stored state stays lowercase.
 const STATE_LABELS: Record<CardState, string> = {
@@ -53,6 +65,14 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   const needs = allItems.filter((i) => isNeedsAction(i.state)).length;
 
   const rerender = (): number => renderKanban(container, deps);
+
+  const nowMs = Date.now();
+  // Configurable dwell time before a completed card falls off the board.
+  const ttlMs = loadSettings().completeFadeHours * 60 * 60 * 1000;
+  if (fadeTimer !== undefined) {
+    clearTimeout(fadeTimer);
+    fadeTimer = undefined;
+  }
 
   container.replaceChildren();
   container.classList.add("orden-board");
@@ -123,7 +143,11 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   const columns = document.createElement("div");
   columns.className = "orden-board__columns";
   for (const state of STATES) {
-    const colItems = items.filter((i) => i.state === state);
+    // Completed cards fall off the board after the configured dwell time, so
+    // the Complete column shows only recently-finished work.
+    const colItems = items.filter(
+      (i) => i.state === state && !isExpiredComplete(i, nowMs, ttlMs),
+    );
     const col = document.createElement("div");
     col.className = "orden-column";
     col.dataset.state = state;
@@ -239,6 +263,19 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     columns.append(col);
   }
   container.append(columns);
+
+  // Schedule a single re-render at the soonest moment a still-visible completed
+  // card will cross its TTL and fall off. Each render reschedules for the next.
+  let soonestFade = Infinity;
+  for (const i of items) {
+    if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
+    const fadeAt = i.completedAt + ttlMs;
+    if (fadeAt > nowMs && fadeAt < soonestFade) soonestFade = fadeAt;
+  }
+  if (soonestFade !== Infinity) {
+    fadeTimer = setTimeout(rerender, soonestFade - nowMs + 50);
+  }
+
   return needs;
 }
 

@@ -10,6 +10,9 @@ let files: FsFiles;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "orden-fs-"));
   await writeFile(join(root, "readme.md"), "# Readme\n\nhello");
+  await writeFile(join(root, "main.ts"), "export const x = 1;");
+  await writeFile(join(root, "data.json"), '{"a":1}');
+  await writeFile(join(root, ".env"), "SECRET=1"); // dotfiles are skipped
   await mkdir(join(root, "docs"), { recursive: true });
   await writeFile(join(root, "docs", "plan.md"), "- no heading here");
   await mkdir(join(root, "node_modules", "pkg"), { recursive: true });
@@ -21,17 +24,24 @@ afterEach(async () => {
 });
 
 describe("FsFiles", () => {
-  test("lists markdown files (repo-relative), excluding node_modules", async () => {
+  test("lists all files (repo-relative), excluding node_modules and dotfiles", async () => {
     const list = await files.list("repo");
     const paths = list.map((f) => f.path).sort();
-    expect(paths).toEqual(["docs/plan.md", "readme.md"]);
+    expect(paths).toEqual(["data.json", "docs/plan.md", "main.ts", "readme.md"]);
   });
 
-  test("titles come from the first heading, else the filename", async () => {
+  test("markdown titles come from the first heading, else the filename", async () => {
     const list = await files.list("repo");
     const byPath = Object.fromEntries(list.map((f) => [f.path, f.title]));
     expect(byPath["readme.md"]).toBe("Readme");
     expect(byPath["docs/plan.md"]).toBe("plan.md");
+  });
+
+  test("non-markdown files are titled by filename (content not read)", async () => {
+    const list = await files.list("repo");
+    const byPath = Object.fromEntries(list.map((f) => [f.path, f.title]));
+    expect(byPath["main.ts"]).toBe("main.ts");
+    expect(byPath["data.json"]).toBe("data.json");
   });
 
   test("read returns file contents by repo-relative path", async () => {

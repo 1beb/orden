@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { fromMarkdown, toMarkdown } from "@orden/outliner";
 import { fakeVault } from "./fakeVault";
 import {
   resolveProject,
@@ -113,6 +114,51 @@ describe("cardMove", () => {
     expect((log!.match(/^- Automatic Logging$/gm) ?? []).length).toBe(1);
     expect(log).toMatch(/  - \d\d:\d\d in-progress: starting\n  - \d\d:\d\d blocked: stuck\n$/);
   });
+  it("keeps one section after the outliner collapses it between writes", async () => {
+    const v = seed();
+    await cardMove(v, "c1", "in-progress", "starting");
+    // Simulate the journal/outliner round-trip that collapses the log section:
+    // the bullet comes back as "- Automatic Logging collapsed:: true".
+    const root = fromMarkdown((await v.get<string>("pages", "card:c1"))!);
+    for (const b of root.children) if (b.text === "Automatic Logging") b.collapsed = true;
+    await v.set("pages", "card:c1", toMarkdown(root));
+    await cardMove(v, "c1", "blocked", "stuck");
+    const log = await v.get<string>("pages", "card:c1");
+    expect((log!.match(/^- Automatic Logging\b/gm) ?? []).length).toBe(1);
+  });
+  it("heals a page already split into two sections, folding into one in order", async () => {
+    const v = seed();
+    // A page damaged before the fix: two separate Automatic Logging sections.
+    await v.set(
+      "pages",
+      "card:c1",
+      "- Automatic Logging collapsed:: true\n  - 09:00 in-progress: starting\n" +
+        "- Automatic Logging\n  - 11:00 blocked: stuck\n",
+    );
+    await cardMove(v, "c1", "in-progress", "back on it");
+    const log = await v.get<string>("pages", "card:c1");
+    expect((log!.match(/^- Automatic Logging\b/gm) ?? []).length).toBe(1);
+    // First header (with its collapsed marker) survives; children stay in order,
+    // new entry appended last.
+    expect(log).toMatch(
+      /^- Automatic Logging collapsed:: true\n  - 09:00 in-progress: starting\n  - 11:00 blocked: stuck\n  - \d\d:\d\d in-progress: back on it\n$/,
+    );
+  });
+  it("reuses an existing section written with * bullets instead of -", async () => {
+    const v = seed();
+    // Legacy/external content can use the `*` bullet marker (the outliner parser
+    // accepts both). The auto-log code must recognize it as the same section and
+    // not spawn a parallel `- Automatic Logging`.
+    await v.set(
+      "pages",
+      "card:c1",
+      "* Automatic Logging\n  * 09:00 in-progress: starting\n",
+    );
+    await cardMove(v, "c1", "blocked", "stuck");
+    const log = await v.get<string>("pages", "card:c1");
+    expect((log!.match(/^[-*] Automatic Logging\b/gm) ?? []).length).toBe(1);
+    expect(log).toMatch(/  - \d\d:\d\d blocked: stuck\n$/);
+  });
   it("does not write a log line when no note is given", async () => {
     const v = seed();
     await cardMove(v, "c1", "blocked");
@@ -131,6 +177,7 @@ describe("cardComplete", () => {
     expect(out(await cardComplete(v, "c2"))).toBe('card "Write docs" -> complete');
     const card = await v.get<Record<string, unknown>>("cards", "c2");
     expect(card?.state).toBe("complete");
+    expect(typeof card?.completedAt).toBe("number");
   });
   it("appends a Completed line with the summary under Automatic Logging", async () => {
     const v = seed();

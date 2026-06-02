@@ -21,11 +21,17 @@ export interface CardRec {
   notes?: string;
   /** Associated planning doc, a docs/plans/*.md repo path. */
   planDoc?: string;
+  /** Epoch ms the card last entered "complete"; drives the kanban fade. */
+  completedAt?: number;
   [k: string]: unknown;
 }
 
-const links = (c: CardRec): string[] =>
+/** A card's linked session ids, tolerant of the legacy single-sessionId shape. */
+export const cardSessionIds = (c: CardRec): string[] =>
   Array.isArray(c.sessionIds) ? c.sessionIds : c.sessionId ? [c.sessionId] : [];
+
+// Internal alias kept so existing call sites read naturally.
+const links = cardSessionIds;
 
 export async function sessionForConversation(
   vault: VaultStore,
@@ -52,6 +58,48 @@ export async function cardForSession(
 export interface FindResult {
   card: CardRec | null;
   candidates: string[];
+}
+
+export interface PlanDocSessions {
+  card: CardRec | null;
+  sessionIds: string[];
+  /** Near-miss planDoc paths, offered when no card matches exactly. */
+  candidates: string[];
+}
+
+/**
+ * Resolve the card associated with a planning doc (exact `planDoc` match) and
+ * its linked session ids. This is a PURE vault read — it makes no liveness
+ * decision (the resolver has no tmux visibility); the host picks a target. When
+ * no card matches, `candidates` lists other cards' planDoc paths that share the
+ * requested path's basename stem, as a cheap "did you mean" hint.
+ */
+export async function sessionForPlanDoc(
+  vault: VaultStore,
+  planDocPath: string,
+): Promise<PlanDocSessions> {
+  const ids = await vault.list("cards");
+  const cards = (await Promise.all(ids.map((id) => vault.get<CardRec>("cards", id)))).filter(
+    (c): c is CardRec => !!c,
+  );
+  const match = cards.find((c) => c.planDoc === planDocPath);
+  if (match) return { card: match, sessionIds: links(match), candidates: [] };
+
+  // No exact match: surface other plan docs whose filename shares a stem with
+  // the requested one (split on non-alphanumerics, ignore the .md extension).
+  const stems = (p: string): string[] =>
+    (p.split("/").pop() ?? p)
+      .replace(/\.md$/, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
+  const want = new Set(stems(planDocPath));
+  const candidates = cards
+    .map((c) => c.planDoc)
+    .filter((p): p is string => typeof p === "string" && p.length > 0)
+    .filter((p) => stems(p).some((s) => want.has(s)))
+    .slice(0, 5);
+  return { card: null, sessionIds: [], candidates };
 }
 
 export async function findCard(vault: VaultStore, target: string): Promise<FindResult> {

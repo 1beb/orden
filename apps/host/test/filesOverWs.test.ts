@@ -22,6 +22,7 @@ beforeEach(async () => {
   vaultRoot = await mkdtemp(join(tmpdir(), "orden-vault-"));
   filesRoot = await mkdtemp(join(tmpdir(), "orden-files-"));
   await writeFile(join(filesRoot, "readme.md"), "# Readme\n\nhi");
+  await writeFile(join(filesRoot, "main.ts"), "export const x = 1;");
   await mkdir(join(filesRoot, "docs"), { recursive: true });
   await writeFile(join(filesRoot, "docs", "plan.md"), "# The Plan");
   server = await startHostServer(new NodeHost({ vaultRoot, filesRoot }), { port: 0 });
@@ -36,9 +37,9 @@ afterEach(async () => {
 });
 
 describe("files over ws (web boot path)", () => {
-  test("files.list returns the host's markdown files across the wire", async () => {
+  test("files.list returns all the host's files across the wire", async () => {
     const list = await client.files.list("repo");
-    expect(list.map((f) => f.path).sort()).toEqual(["docs/plan.md", "readme.md"]);
+    expect(list.map((f) => f.path).sort()).toEqual(["docs/plan.md", "main.ts", "readme.md"]);
     expect(list.find((f) => f.path === "docs/plan.md")?.title).toBe("The Plan");
   });
 

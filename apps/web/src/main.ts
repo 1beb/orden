@@ -14,6 +14,7 @@ import {
   listProjects,
   addProject,
   getProject,
+  isHostFilesRoot,
   hydrateProjects,
   removeProject,
   ensureDefaultProject,
@@ -48,6 +49,9 @@ import { mountTerminal } from "./terminalView";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
+import { renderCodeView } from "./codeView";
+import { viewerFor } from "./codeHighlight";
+import { renderImageView, renderHtmlView } from "./richView";
 import {
   hydrateRecentFiles,
   recordRecentFile,
@@ -603,6 +607,9 @@ function seedSampleAnnotations(): void {
 const viewTitle = document.querySelector<HTMLElement>("#view-title")!;
 const viewEls: Record<View, HTMLElement> = {
   review: document.querySelector<HTMLElement>("#main")!,
+  code: document.querySelector<HTMLElement>("#view-code")!,
+  image: document.querySelector<HTMLElement>("#view-image")!,
+  html: document.querySelector<HTMLElement>("#view-html")!,
   journal: document.querySelector<HTMLElement>("#view-journal")!,
   pages: document.querySelector<HTMLElement>("#view-pages")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
@@ -689,6 +696,9 @@ viewStore.subscribe((v) => {
   }
   const titles: Record<View, string> = {
     review: currentDocTitle,
+    code: currentDocTitle,
+    image: currentDocTitle,
+    html: currentDocTitle,
     journal: journalTitle,
     pages: "Pages",
     project: projectTitle,
@@ -709,6 +719,12 @@ function openPage(name: string): void {
 }
 
 function renderProject(projectId: string): void {
+  // The host serves files from a single root, which maps to exactly one project
+  // (per-project roots come later). Show repo files ONLY on that project; every
+  // other project gets an empty list so the host root's files don't leak in.
+  const project = getProject(projectId);
+  const files =
+    project && isHostFilesRoot(project, host.capabilities().filesRoot) ? repoFiles : [];
   renderProjectPage(
     viewEls.project,
     projectId,
@@ -717,7 +733,7 @@ function renderProject(projectId: string): void {
     openSessionInPanel,
     startProjectSession,
     (path) => void openRepoFile(path),
-    repoFiles,
+    files,
     onProjectChanged,
     removeProjectWithItems,
   );
@@ -862,6 +878,16 @@ sizeSelect.addEventListener("change", () => {
   applyFont(loadSettings().fontFamily, size);
   void saveSettings({ fontSize: size });
 });
+
+// Completed-card fade dwell time: how long a card sits in Complete before it
+// drops off the board/lists. Persist on change, then re-render the board so the
+// new threshold takes effect immediately.
+const fadeSelect = document.querySelector<HTMLSelectElement>("#complete-fade")!;
+fadeSelect.value = String(settings.completeFadeHours);
+fadeSelect.addEventListener("change", () => {
+  void saveSettings({ completeFadeHours: Number(fadeSelect.value) });
+  refreshBoard();
+});
 settingsCog.addEventListener("click", (e) => {
   e.stopPropagation();
   settingsPopover.hidden = !settingsPopover.hidden;
@@ -932,17 +958,67 @@ function setActiveFile(path: string | null): void {
   });
 }
 
-// Open a repo doc in the review view. The single funnel for every entry point
-// (FILES nav, project file explorer, boot default-open) so each records a recent.
+// Per-file, session-only override of the HTML render/source choice, keyed by
+// repo path. The topbar toggle sets it; it is NOT persisted (the setting is the
+// durable default). Effective choice = override if present, else the setting.
+const htmlRenderOverride = new Map<string, boolean>();
+function effectiveHtmlRender(path: string): boolean {
+  return htmlRenderOverride.get(path) ?? loadSettings().htmlRender;
+}
+
+// Show/configure the topbar Rendered/Code toggle, but only for HTML files. The
+// label names the action (what a click does), not the current state.
+const htmlToggle = document.querySelector<HTMLButtonElement>("#html-view-toggle")!;
+function updateHtmlToggle(path: string | null): void {
+  const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
+  const isHtml = ext === "html" || ext === "htm";
+  htmlToggle.hidden = !isHtml;
+  if (!isHtml || !path) return;
+  htmlToggle.textContent = effectiveHtmlRender(path) ? "View source" : "View rendered";
+}
+
+// Open a repo file in the right viewer for its type. The single funnel for every
+// entry point (FILES nav, project file explorer, boot default-open) so each
+// records a recent. Markdown → prose/annotation editor; images → image viewer;
+// HTML → rendered (sandboxed iframe) or source per the effective flag; all else
+// → read-only code viewer.
 async function openRepoFile(path: string): Promise<void> {
   const title = repoFiles.find((f) => f.path === path)?.title ?? (path.split("/").pop() ?? path);
-  const markdown = await host.files.read("repo", path);
-  loadReviewDoc({ key: `review:${path}`, title, markdown });
+  const kind = viewerFor(path, effectiveHtmlRender(path));
+  currentDocKey = `review:${path}`;
+  currentDocTitle = title;
+
+  if (kind === "prose") {
+    // markdown read happens inside loadReviewDoc's funnel
+    const content = await host.files.read("repo", path);
+    loadReviewDoc({ key: `review:${path}`, title, markdown: content });
+    viewStore.set("review");
+  } else {
+    void host.vault.set("ui", "last-doc", currentDocKey);
+    if (kind === "image") {
+      renderImageView(viewEls.image, { title, path }); // bytes load via /repo-file/
+    } else if (kind === "html") {
+      renderHtmlView(viewEls.html, { title, content: await host.files.read("repo", path) });
+    } else {
+      renderCodeView(viewEls.code, { title, path, content: await host.files.read("repo", path) });
+    }
+    viewTitle.textContent = title;
+    viewStore.set(kind as View);
+  }
+  updateHtmlToggle(path);
   setActiveFile(path);
-  viewStore.set("review");
   recordRecentFile(path);
   renderRecentFiles();
 }
+
+// Topbar toggle: flip this file's render/source choice for the session, then
+// re-open so it routes through the new viewer.
+htmlToggle.addEventListener("click", () => {
+  const path = currentDocKey.startsWith("review:") ? currentDocKey.slice("review:".length) : null;
+  if (!path) return;
+  htmlRenderOverride.set(path, !effectiveHtmlRender(path));
+  void openRepoFile(path);
+});
 
 // FILES nav: the top few most-recently-opened repo files (not the whole repo).
 function renderRecentFiles(): void {
@@ -1079,22 +1155,26 @@ const sessionsPanel = mountSessionsPanel({
       viewStore.get() === "project" && currentProjectId ? currentProjectId : undefined;
     const s = createSession({ ...opts, projectId });
     refreshBoard(); // the new linked planning card shows on the board
+    refreshProject(); // …and on the project page, if that's the active view
     return s;
   },
   mountTerminal: (container, id) => mountTerminal(container, id, () => markSessionTouched(id)),
   archive: (id) => {
     archiveSession(id);
     refreshBoard(); // its card moved to Done
+    refreshProject(); // reflect the move on the project page too (was board-only)
   },
   remove: (id) => {
     deleteSession(id);
     refreshBoard(); // its card is gone too
+    refreshProject();
   },
   cleanup: (id) => {
     const s = getSession(id);
     if (s && isAbandoned(s)) {
       deleteSession(id);
       refreshBoard();
+      refreshProject();
     }
   },
   close: () => app.classList.add("right-closed"),
@@ -1117,6 +1197,25 @@ if (autoLaunchCb) {
   autoLaunchCb.checked = loadSettings().sessionAutoLaunch;
   autoLaunchCb.addEventListener("change", () => {
     void saveSettings({ sessionAutoLaunch: autoLaunchCb.checked });
+  });
+}
+
+// HTML render default: when on, .html files open rendered; off shows source.
+// This is the default only — a per-file topbar toggle can override it for the
+// session. Changing it re-opens the current file if it's HTML, so the change is
+// visible immediately.
+const htmlRenderCb = document.querySelector<HTMLInputElement>("#html-render");
+if (htmlRenderCb) {
+  htmlRenderCb.checked = loadSettings().htmlRender;
+  htmlRenderCb.addEventListener("change", async () => {
+    await saveSettings({ htmlRender: htmlRenderCb.checked });
+    const path = currentDocKey.startsWith("review:")
+      ? currentDocKey.slice("review:".length)
+      : null;
+    const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
+    if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
+      void openRepoFile(path);
+    }
   });
 }
 
@@ -1162,12 +1261,24 @@ onVaultChange((ns, key) => {
     const v = viewStore.get();
     switch (ns) {
       case "files": {
-        // A repo .md changed on disk. If it's the doc we're showing and the user
-        // isn't actively typing in it, re-read and reload so external edits (by
-        // an agent, git, or a collaborator) appear live in the main panel.
-        if (currentDocKey === `review:${key}` && !view.hasFocus()) {
-          const markdown = await host.files.read("repo", key);
-          loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
+        // A repo file changed on disk. If it's the one we're showing, re-read and
+        // re-render so external edits (by an agent, git, or a collaborator) appear
+        // live. Non-prose viewers always re-render; the markdown editor reload is
+        // guarded so it never clobbers what the user is actively typing.
+        if (currentDocKey === `review:${key}`) {
+          const kind = viewerFor(key, effectiveHtmlRender(key));
+          if (kind === "image") {
+            renderImageView(viewEls.image, { title: currentDocTitle, path: key });
+          } else if (kind === "html") {
+            const content = await host.files.read("repo", key);
+            renderHtmlView(viewEls.html, { title: currentDocTitle, content });
+          } else if (kind === "code") {
+            const content = await host.files.read("repo", key);
+            renderCodeView(viewEls.code, { title: currentDocTitle, path: key, content });
+          } else if (!view.hasFocus()) {
+            const markdown = await host.files.read("repo", key);
+            loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
+          }
         }
         break;
       }

@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   LIFECYCLE_ORDER,
+  COMPLETE_TTL_MS,
   buildBoard,
   needsActionCount,
   isNeedsAction,
+  isExpiredComplete,
 } from "../src/kanban";
 import type { Card } from "../src/types";
 
@@ -69,5 +71,35 @@ describe("needs-action badge", () => {
     expect(
       needsActionCount([{ id: "x", title: "x", state: "planning" }]),
     ).toBe(0);
+  });
+});
+
+describe("isExpiredComplete", () => {
+  const now = 1_000 * COMPLETE_TTL_MS; // an arbitrary "now" well past the TTL
+
+  it("is false for non-complete cards regardless of age", () => {
+    expect(isExpiredComplete({ state: "blocked" }, now)).toBe(false);
+    expect(isExpiredComplete({ state: "planning", completedAt: 0 }, now)).toBe(
+      false,
+    );
+  });
+
+  it("is false for a complete card still within its TTL", () => {
+    expect(
+      isExpiredComplete({ state: "complete", completedAt: now - 1 }, now),
+    ).toBe(false);
+  });
+
+  it("is true once a complete card crosses its TTL", () => {
+    expect(
+      isExpiredComplete(
+        { state: "complete", completedAt: now - COMPLETE_TTL_MS },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("treats a complete card with no completedAt as already expired", () => {
+    expect(isExpiredComplete({ state: "complete" }, now)).toBe(true);
   });
 });
