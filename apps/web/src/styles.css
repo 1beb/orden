@@ -151,11 +151,16 @@ body {
   overflow: hidden;
 }
 
+/* The center area is a flex row: the active .view fills the remaining space and
+   #panel (the persistent outline + annotations) sits beside it, present across
+   every viewer (review/code/image/html/journal/kanban/...). */
 #view-area {
   flex: 1;
   min-width: 0;
   min-height: 0;
   position: relative;
+  display: flex;
+  flex-direction: row;
 }
 
 .view {
@@ -165,26 +170,31 @@ body {
   min-height: 0;
 }
 
+/* The active view flexes to fill the space left of #panel. */
 .view.active {
   display: block;
+  flex: 1;
 }
 
+/* #main (the review view) now holds only the editor; lay it out as a row so the
+   editor fills its share next to the persistent panel. */
 #main {
-  grid-template-columns: minmax(0, 1fr) 320px;
   min-width: 0;
   min-height: 0;
 }
 
-/* both panels hidden: reclaim the right column for the document */
-#main.panels-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+#main.view.active {
+  display: flex;
+  flex-direction: row;
 }
-#main.panels-collapsed #panel {
-  display: none;
+#main #doc-pane {
+  flex: 1;
+  min-width: 0;
 }
 
-#main.view.active {
-  display: grid;
+/* both panel sections hidden: drop the panel so the active view reclaims it */
+#view-area.panels-collapsed #panel {
+  display: none;
 }
 
 /* left navigation rail */
@@ -1172,6 +1182,7 @@ li.sess-done-head {
 
 /* side panel */
 #panel {
+  flex: 0 0 320px;
   border-left: 1px solid var(--line);
   background: var(--panel-bg);
   display: flex;
@@ -1655,8 +1666,10 @@ li.sess-done-head {
     transition: none;
   }
 
-  #main {
-    grid-template-columns: 1fr;
+  /* #panel becomes a fixed bottom sheet (below), so the active view takes the
+     full width — no side column to reserve. */
+  #main.view.active {
+    display: block;
   }
 
   /* left drawer holds nav + the outline */

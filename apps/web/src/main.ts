@@ -242,12 +242,15 @@ wireFurl(annotationsBlock, "#annotations-toggle", ".block-label");
 // Hide/show whole panel sections (outline, annotations). When hidden, a
 // "Show X" button surfaces above the settings cog. Works in every layout. When
 // both are hidden, the right column collapses so the document reclaims it.
-const mainSection = document.querySelector<HTMLElement>("#main")!;
+// #panel is a persistent sibling of the views inside #view-area; the collapse
+// (both sections hidden) is driven by a class on #view-area so it hides the
+// panel across every viewer, not just the review view.
+const viewArea = document.querySelector<HTMLElement>("#view-area")!;
 function syncPanelColumn(): void {
   const bothHidden =
     docmap.classList.contains("section-hidden") &&
     annotationsBlock.classList.contains("section-hidden");
-  mainSection.classList.toggle("panels-collapsed", bothHidden);
+  viewArea.classList.toggle("panels-collapsed", bothHidden);
 }
 function wireHideShow(
   section: HTMLElement,

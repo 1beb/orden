@@ -63,32 +63,6 @@
             <main id="doc-pane">
               <div id="editor"></div>
             </main>
-            <aside id="panel">
-              <section id="docmap" class="panel-block">
-                <header class="block-head">
-                  <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
-                  <span class="block-label">Outline</span>
-                  <button id="hide-outline" class="block-hide" title="Hide outline">Hide</button>
-                </header>
-                <ul id="docmap-list"></ul>
-              </section>
-              <section class="panel-block annotations-block">
-                <header>
-                  <span class="ann-head-left">
-                    <button id="annotations-toggle" class="block-toggle" title="Collapse annotations">▾</button>
-                    <span class="block-label">Annotations</span>
-                    <button id="hide-annotations" class="block-hide" title="Hide annotations">Hide</button>
-                  </span>
-                  <div class="panel-actions">
-                    <button id="primary-action" class="panel-send" data-kind="approve">
-                      Approve
-                    </button>
-                    <button id="copy-feedback" class="panel-copy">Copy</button>
-                  </div>
-                </header>
-                <ul id="annotation-list"></ul>
-              </section>
-            </aside>
           </section>
 
           <section id="view-code" class="view"></section>
@@ -98,6 +72,33 @@
           <section id="view-pages" class="view"></section>
           <section id="view-project" class="view"></section>
           <section id="view-kanban" class="view"></section>
+
+          <aside id="panel">
+            <section id="docmap" class="panel-block">
+              <header class="block-head">
+                <button id="docmap-toggle" class="block-toggle" title="Collapse outline">▾</button>
+                <span class="block-label">Outline</span>
+                <button id="hide-outline" class="block-hide" title="Hide outline">Hide</button>
+              </header>
+              <ul id="docmap-list"></ul>
+            </section>
+            <section class="panel-block annotations-block">
+              <header>
+                <span class="ann-head-left">
+                  <button id="annotations-toggle" class="block-toggle" title="Collapse annotations">▾</button>
+                  <span class="block-label">Annotations</span>
+                  <button id="hide-annotations" class="block-hide" title="Hide annotations">Hide</button>
+                </span>
+                <div class="panel-actions">
+                  <button id="primary-action" class="panel-send" data-kind="approve">
+                    Approve
+                  </button>
+                  <button id="copy-feedback" class="panel-copy">Copy</button>
+                </div>
+              </header>
+              <ul id="annotation-list"></ul>
+            </section>
+          </aside>
         </div>
       </section>
 
