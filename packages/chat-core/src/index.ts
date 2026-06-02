@@ -18,6 +18,7 @@ export interface ChatSession {
 
 export type ChatPart =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string; tokens?: number }
   | {
       type: "tool";
       toolId: string;

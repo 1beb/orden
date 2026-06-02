@@ -18,6 +18,13 @@ import { parseClaudeTranscript } from "./claudeTranscript";
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
+// Only the most recent WINDOW messages are written to the vault on load. Parsing
+// the whole JSONL is cheap; writing every message (and firing the change feed +
+// a web fetch for each) is what made first load slow on a long transcript. The
+// user looks at the tail, so we write the tail; older history (scroll-up
+// pagination) is a follow-up. Appended turns extend past the window naturally.
+const WINDOW = 200;
+
 export class TranscriptMirror {
   private watcher: FSWatcher | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -69,7 +76,10 @@ export class TranscriptMirror {
       return; // file not there yet
     }
     const messages = parseClaudeTranscript(raw);
-    for (let i = 0; i < messages.length; i++) {
+    // Absolute seq (index in the full transcript) so appended turns get stable,
+    // ever-increasing keys; only write the last WINDOW so first load is bounded.
+    const start = Math.max(0, messages.length - WINDOW);
+    for (let i = start; i < messages.length; i++) {
       const key = `msg:${pad(i)}`;
       const json = JSON.stringify(messages[i]);
       if (this.written.get(key) === json) continue; // unchanged — skip the write

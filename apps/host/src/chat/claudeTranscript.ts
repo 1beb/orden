@@ -15,6 +15,7 @@ import type { ChatMessage, ChatPart } from "@orden/chat-core";
 interface RawBlock {
   type?: string;
   text?: string;
+  thinking?: string;
   id?: string;
   name?: string;
   input?: unknown;
@@ -27,7 +28,12 @@ interface RawEntry {
   type?: string;
   isSidechain?: boolean;
   uuid?: string;
-  message?: { id?: string; role?: string; content?: unknown };
+  message?: {
+    id?: string;
+    role?: string;
+    content?: unknown;
+    usage?: { output_tokens?: number };
+  };
 }
 
 // Claude injects synthetic "user" entries into the transcript that aren't things
@@ -87,10 +93,14 @@ export function parseClaudeTranscript(raw: string): ChatMessage[] {
     if (!msg) continue;
 
     if (e.type === "assistant" && Array.isArray(msg.content)) {
+      const tokens = msg.usage?.output_tokens;
       const parts: ChatPart[] = [];
       for (const block of msg.content as RawBlock[]) {
         if (block?.type === "text" && typeof block.text === "string") {
           parts.push({ type: "text", text: block.text });
+        } else if (block?.type === "thinking") {
+          const text = block.thinking ?? block.text ?? "";
+          parts.push({ type: "thinking", text, ...(tokens != null ? { tokens } : {}) });
         } else if (block?.type === "tool_use") {
           parts.push({
             type: "tool",
@@ -100,7 +110,6 @@ export function parseClaudeTranscript(raw: string): ChatMessage[] {
             state: "running",
           });
         }
-        // "thinking" and any other block types are intentionally skipped.
       }
       if (parts.length === 0) continue;
       const mi = messages.length;

@@ -46,22 +46,24 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
   const permArea = el("div", "chat-permissions");
   const composer = el("div", "chat-composer");
 
-  const modelSelect = el("select", "chat-model-select");
-  modelSelect.setAttribute("aria-label", "Model");
-
-  // Wrap input + palette so the dropdown can anchor over the input.
+  // Composer layout: a big message box on top, then a bottom bar with the model
+  // picker bottom-left and Send bottom-right.
   const inputWrap = el("div", "chat-input-wrap");
   const input = el("textarea", "chat-input");
-  input.rows = 1;
+  input.rows = 3;
   input.setAttribute("aria-label", "Message");
   input.placeholder = "Message…";
   const palette = el("div", "chat-command-palette");
   palette.hidden = true;
   inputWrap.append(input, palette);
 
+  const bar = el("div", "chat-composer-bar");
+  const modelSelect = el("select", "chat-model-select");
+  modelSelect.setAttribute("aria-label", "Model");
   const sendBtn = button("Send", "chat-send");
+  bar.append(modelSelect, sendBtn);
 
-  composer.append(modelSelect, inputWrap, sendBtn);
+  composer.append(inputWrap, bar);
   root.append(list, permArea, composer);
   container.append(root);
 
@@ -151,9 +153,32 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
       modelSelect.hidden = true;
     });
 
-  // ---- Rendering: tool card ----
+  const asObj = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+
+  // ---- Rendering: thinking ----
+  function renderThinking(part: Extract<ChatPart, { type: "thinking" }>): HTMLElement {
+    const card = el("details", "chat-thinking");
+    card.open = true;
+    const summary = el("summary", "chat-thinking-header");
+    const label = el("span", "chat-thinking-label");
+    label.textContent = "✻ Thinking";
+    summary.append(label);
+    if (part.tokens != null) {
+      const meta = el("span", "chat-thinking-meta");
+      meta.textContent = `${part.tokens} tokens`;
+      summary.append(meta);
+    }
+    const body = el("div", "chat-thinking-body");
+    body.append(renderMarkdown(part.text));
+    card.append(summary, body);
+    return card;
+  }
+
+  // ---- Rendering: tool card (visible/expanded by default — don't hide) ----
   function renderToolPart(part: Extract<ChatPart, { type: "tool" }>): HTMLElement {
     const card = el("details", "chat-tool");
+    card.open = true;
     const summary = el("summary", "chat-tool-header");
     const nameEl = el("span", "chat-tool-name");
     nameEl.textContent = part.name;
@@ -162,16 +187,98 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     summary.append(nameEl, badge);
 
     const body = el("div", "chat-tool-body");
-    const inputPre = el("pre", "chat-tool-input");
-    inputPre.textContent = safeStringify(part.input);
-    body.append(inputPre);
-    if (part.output != null) {
+    renderToolInput(body, part);
+    if (part.output != null && part.output !== "") {
       const outPre = el("pre", "chat-tool-output");
       outPre.textContent = part.output;
       body.append(outPre);
     }
     card.append(summary, body);
     return card;
+  }
+
+  function renderToolInput(body: HTMLElement, part: Extract<ChatPart, { type: "tool" }>): void {
+    const input = asObj(part.input);
+    // Bash: show the command as `$ …` monospace, with its description below.
+    if (part.name === "Bash" && typeof input.command === "string") {
+      const pre = el("pre", "chat-tool-cmd");
+      pre.textContent = `$ ${input.command}`;
+      body.append(pre);
+      if (typeof input.description === "string" && input.description) {
+        const d = el("div", "chat-tool-desc");
+        d.textContent = input.description;
+        body.append(d);
+      }
+      return;
+    }
+    // TodoWrite / TaskCreate: show the task list / description, not raw JSON.
+    if (part.name === "TodoWrite" && Array.isArray(input.todos)) {
+      body.append(renderTodos(input.todos));
+      return;
+    }
+    if (part.name === "TaskCreate") {
+      const t = el("div", "chat-task");
+      const subj = el("div", "chat-task-subject");
+      subj.textContent = String(input.subject ?? "task");
+      t.append(subj);
+      if (typeof input.description === "string" && input.description) {
+        const d = el("div", "chat-task-desc");
+        d.textContent = input.description;
+        t.append(d);
+      }
+      body.append(t);
+      return;
+    }
+    // AskUserQuestion: render the question(s) + selectable options.
+    if (part.name === "AskUserQuestion" && Array.isArray(input.questions)) {
+      body.append(renderQuestions(input.questions));
+      return;
+    }
+    // Generic: pretty-printed JSON input.
+    const inputPre = el("pre", "chat-tool-input");
+    inputPre.textContent = safeStringify(part.input);
+    body.append(inputPre);
+  }
+
+  function renderTodos(todos: unknown[]): HTMLElement {
+    const ul = el("ul", "chat-todos");
+    for (const raw of todos) {
+      const t = asObj(raw);
+      const status = String(t.status ?? "pending");
+      const li = el("li", `chat-todo chat-todo-${status}`);
+      const mark = el("span", "chat-todo-mark");
+      mark.textContent = status === "completed" ? "✓" : status === "in_progress" ? "▸" : "○";
+      const txt = el("span", "chat-todo-text");
+      txt.textContent = String(t.content ?? t.activeForm ?? "");
+      li.append(mark, txt);
+      ul.append(li);
+    }
+    return ul;
+  }
+
+  function renderQuestions(questions: unknown[]): HTMLElement {
+    const wrap = el("div", "chat-questions");
+    for (const raw of questions) {
+      const q = asObj(raw);
+      const qEl = el("div", "chat-question");
+      const qText = el("div", "chat-question-text");
+      qText.textContent = String(q.question ?? q.header ?? "");
+      qEl.append(qText);
+      const optWrap = el("div", "chat-question-options");
+      const opts = Array.isArray(q.options) ? q.options : [];
+      for (const oraw of opts) {
+        const o = asObj(oraw);
+        const label = String(o.label ?? "");
+        const b = button(label, "chat-question-option");
+        if (typeof o.description === "string" && o.description) b.title = o.description;
+        // Live session: clicking sends the chosen label as the answer.
+        b.addEventListener("click", () => void client.send(sessionId, label));
+        optWrap.append(b);
+      }
+      qEl.append(optWrap);
+      wrap.append(qEl);
+    }
+    return wrap;
   }
 
   function renderMessage(msg: ChatMessage): HTMLElement {
@@ -181,6 +288,8 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
         const textWrap = el("div", "chat-text");
         textWrap.append(renderMarkdown(part.text));
         wrap.append(textWrap);
+      } else if (part.type === "thinking") {
+        wrap.append(renderThinking(part));
       } else {
         wrap.append(renderToolPart(part));
       }

@@ -77,7 +77,8 @@ describe("mountChatView", () => {
 
     // Output is present in the body (details/summary keeps it keyboard-clickable).
     expect(tool.querySelector(".chat-tool-output")?.textContent).toBe("file.txt");
-    expect(tool.querySelector(".chat-tool-input")?.textContent).toContain("ls");
+    // Bash renders its command as a `$ …` block, not raw JSON input.
+    expect(tool.querySelector(".chat-tool-cmd")?.textContent).toBe("$ ls");
 
     view.dispose();
   });

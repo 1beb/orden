@@ -14,8 +14,9 @@ describe("parseClaudeTranscript", () => {
         message: {
           id: "a1",
           role: "assistant",
+          usage: { output_tokens: 42 },
           content: [
-            { type: "thinking", thinking: "skip me" },
+            { type: "thinking", thinking: "let me think" },
             { type: "text", text: "Listing." },
             { type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } },
           ],
@@ -38,6 +39,7 @@ describe("parseClaudeTranscript", () => {
         id: "a1",
         role: "assistant",
         parts: [
+          { type: "thinking", text: "let me think", tokens: 42 },
           { type: "text", text: "Listing." },
           { type: "tool", toolId: "t1", name: "Bash", input: { command: "ls" }, state: "done", output: "a.ts\nb.ts" },
         ],

@@ -12,19 +12,8 @@
 import type { Host } from "@orden/host-api";
 import { createChatStore, mountChatView, type ChatClient } from "@orden/chat-ui";
 import { makeChatClient } from "./chatClient";
+import { renderMarkdown } from "./chatMarkdown";
 import type { Session } from "./sessions";
-
-// chat-ui carries no markdown library. We inject a minimal SAFE renderer: a
-// <div class="chat-md"> whose text is set via textContent (never innerHTML), with
-// white-space: pre-wrap so newlines survive. Richer markdown (links, code blocks)
-// is deferred to a later pass — swap this for a real renderer then.
-function renderMarkdown(text: string): Node {
-  const div = document.createElement("div");
-  div.className = "chat-md";
-  div.style.whiteSpace = "pre-wrap";
-  div.textContent = text;
-  return div;
-}
 
 // Build the mountChat fn bound to a host. Mirrors mountTerminal's shape:
 // (container, session) => disposeFn.
