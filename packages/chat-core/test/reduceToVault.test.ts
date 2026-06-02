@@ -39,3 +39,29 @@ describe("VaultReducer: session event", () => {
     expect((meta as unknown as { slashCommands: string[] }).slashCommands).toEqual(["/a", "/b"]);
   });
 });
+
+describe("VaultReducer: text event", () => {
+  it("starts an assistant message with a text part", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "hello" });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg).not.toBeNull();
+    expect(msg!.id).toBe("m1");
+    expect(msg!.role).toBe("assistant");
+    expect(msg!.parts).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("concatenates consecutive text deltas for the same message into one part", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "hel" });
+    await r.apply({ kind: "text", messageId: "m1", text: "lo" });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg!.parts).toEqual([{ type: "text", text: "hello" }]);
+    const keys = await vault.list(ns("s1"));
+    expect(keys.filter((k) => k.startsWith("msg:"))).toEqual(["msg:0000"]);
+  });
+});
