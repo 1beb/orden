@@ -12,8 +12,9 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { existsSync, statSync } from "node:fs";
 import { spawn as ptySpawn } from "node-pty";
-import type { Host } from "@orden/host-api";
+import type { Host, Project } from "@orden/host-api";
 import { readTranscriptTitle } from "./transcriptTitle";
 import { persistTitle, persistSummary } from "./sessionTitles";
 import {
@@ -109,6 +110,32 @@ export function settingsArg(): string {
     },
   };
   return `--settings ${shquote(JSON.stringify(settings))}`;
+}
+
+// Resolve the working directory a session's agent should launch in: the folder
+// its project is associated with. A `local` project runs in its OWN path; every
+// other source kind (ephemeral has no folder; ssh/s3 are remote, not a local
+// dir yet) falls back to the host's defaultCwd. A configured-but-missing local
+// path also falls back rather than failing the tmux `-c` launch. Used by both
+// launch paths (launchDetached + handle) so a session, its opencode session
+// discovery, and its title polling all agree on one cwd.
+export async function resolveSessionCwd(
+  host: Host,
+  projectId: string | undefined,
+  defaultCwd: string,
+): Promise<string> {
+  if (!projectId) return defaultCwd;
+  const project = await host.vault.get<Project>("projects", projectId);
+  if (!project || project.source.kind !== "local") return defaultCwd;
+  const path = project.source.path;
+  try {
+    if (existsSync(path) && statSync(path).isDirectory()) return path;
+  } catch {
+    /* fall through to the warn + default */
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`orden: project ${projectId} local path is not a directory, using ${defaultCwd}: ${path}`);
+  return defaultCwd;
 }
 
 async function markTouched(host: Host, sessionId: string): Promise<void> {
@@ -236,6 +263,7 @@ export async function launchDetached(
   try {
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
+    const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
     const cmd = await buildCommand(host, rec, sessionId);
     const tmuxName = tmuxNameFor(sessionId);
     // Mirror handle()'s tmux invocation, but detached (-d) and via plain spawn
@@ -246,13 +274,13 @@ export async function launchDetached(
         "tmux",
         [
           "new-session", "-d", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
-          "-c", defaultCwd, cmd,
+          "-c", cwd, cmd,
           ";", "set-option", "-g", "mouse", "on",
           ";", "set-option", "-g", "window-size", "latest",
           ";", "set-option", "-g", "aggressive-resize", "on",
         ],
         {
-          cwd: defaultCwd,
+          cwd,
           env: { ...process.env, ORDEN_MANAGED: "1" } as Record<string, string>,
           stdio: "ignore",
           detached: true,
@@ -293,12 +321,17 @@ async function handle(
     return;
   }
 
+  // Launch in the session's project directory (falls back to defaultCwd). Used
+  // for the tmux launch AND for opencode discovery / title polling below — they
+  // must all read the same cwd the agent actually runs in.
+  const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
+
   // For a first-open opencode session (no id yet) snapshot the session ids that
   // already exist in this cwd BEFORE launching, so post-launch discovery only picks
   // up the session opencode is about to create — not a pre-existing one.
   const preLaunch =
     rec.agent === "opencode" && !rec.conversationId
-      ? await existingOpencodeSessions(defaultCwd)
+      ? await existingOpencodeSessions(cwd)
       : new Set<string>();
 
   const cmd = await buildCommand(host, rec, sessionId);
@@ -322,7 +355,7 @@ async function handle(
       // survives a shared server. Without it the Claude hooks see no
       // ORDEN_MANAGED and never POST state, so the kanban card never moves.
       "new-session", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
-      "-x", String(cols), "-y", String(rows), "-c", defaultCwd, cmd,
+      "-x", String(cols), "-y", String(rows), "-c", cwd, cmd,
       ";", "set-option", "-g", "mouse", "on",
       ";", "set-option", "-g", "window-size", "latest",
       ";", "set-option", "-g", "aggressive-resize", "on",
@@ -333,7 +366,7 @@ async function handle(
     // case where this spawn starts the tmux server fresh; -e above is the real fix.)
     {
       name: "xterm-256color",
-      cwd: defaultCwd,
+      cwd,
       cols,
       rows,
       env: { ...process.env, ORDEN_MANAGED: "1" } as Record<string, string>,
@@ -365,7 +398,7 @@ async function handle(
       const done = await applyTranscriptTitle(
         host,
         sessionId,
-        defaultCwd,
+        cwd,
         rec.agent,
         convId,
         preLaunch,

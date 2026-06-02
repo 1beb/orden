@@ -1,6 +1,21 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { mcpConfigArg, settingsArg, launchDetached } from "../src/terminal";
-import type { Host } from "@orden/host-api";
+import { tmpdir } from "node:os";
+import { mcpConfigArg, settingsArg, launchDetached, resolveSessionCwd } from "../src/terminal";
+import type { Host, Project } from "@orden/host-api";
+
+// A host whose vault returns the given project records (ns "projects") and
+// nothing else — enough to drive resolveSessionCwd without real storage.
+function hostWithProjects(projects: Record<string, Project>): Host {
+  return {
+    vault: {
+      get: async (ns: string, key: string) =>
+        ns === "projects" ? (projects[key] ?? null) : null,
+      set: async () => {},
+      list: async () => [],
+      delete: async () => {},
+    },
+  } as unknown as Host;
+}
 
 const ORIGINAL_PORT = process.env.ORDEN_PORT;
 afterEach(() => {
@@ -77,6 +92,49 @@ describe("settingsArg", () => {
     process.env.ORDEN_PORT = "5555";
     const s = parseSettings(settingsArg());
     expect(s.hooks.PostToolUse[0].hooks[0].command).toContain("http://127.0.0.1:5555/");
+  });
+});
+
+describe("resolveSessionCwd", () => {
+  const DEFAULT = "/host/default";
+
+  test("uses a local project's own path", async () => {
+    const dir = tmpdir(); // a real directory, so the existence guard passes
+    const host = hostWithProjects({
+      p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } },
+    });
+    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(dir);
+  });
+
+  test("falls back to defaultCwd for an ephemeral project", async () => {
+    const host = hostWithProjects({
+      p1: { id: "p1", name: "Homeroom", source: { kind: "ephemeral" } },
+    });
+    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+  });
+
+  test("falls back to defaultCwd for an ssh project (no local folder yet)", async () => {
+    const host = hostWithProjects({
+      p1: { id: "p1", name: "Box", source: { kind: "ssh", host: "h", path: "/srv" } },
+    });
+    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+  });
+
+  test("falls back when the project is unknown or projectId is missing", async () => {
+    const host = hostWithProjects({});
+    expect(await resolveSessionCwd(host, "nope", DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, undefined, DEFAULT)).toBe(DEFAULT);
+  });
+
+  test("falls back when a local path does not exist", async () => {
+    const host = hostWithProjects({
+      p1: {
+        id: "p1",
+        name: "Gone",
+        source: { kind: "local", path: "/no/such/orden/dir/xyz" },
+      },
+    });
+    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
   });
 });
 
