@@ -36,7 +36,25 @@ export class VaultReducer {
       case "tool-result":
         await this.onToolResult(ev);
         return;
+      case "turn-end":
+        await this.onTurnEnd();
+        return;
     }
+  }
+
+  private async onTurnEnd(): Promise<void> {
+    if (!this.current) return;
+    // A turn that ended with an unresolved tool is an error.
+    let changed = false;
+    for (const p of this.current.msg.parts) {
+      if (p.type === "tool" && p.state === "running") {
+        p.state = "error";
+        changed = true;
+      }
+    }
+    if (changed) await this.flush();
+    // Close the message: the next text/tool starts a fresh msg:<seq>.
+    this.current = null;
   }
 
   // Ensure there is an open assistant message keyed by messageId, returning it.

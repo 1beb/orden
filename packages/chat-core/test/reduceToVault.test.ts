@@ -154,3 +154,54 @@ describe("VaultReducer: tool-result event", () => {
     expect(msg!.parts).toEqual([{ type: "text", text: "hi" }]);
   });
 });
+
+describe("VaultReducer: turn-end event", () => {
+  it("closes the current message so the next text starts a new one", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "first" });
+    await r.apply({ kind: "turn-end" });
+    await r.apply({ kind: "text", messageId: "m2", text: "second" });
+
+    const first = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const second = await vault.get<ChatMessage>(ns("s1"), "msg:0001");
+    expect(first!.id).toBe("m1");
+    expect(first!.parts).toEqual([{ type: "text", text: "first" }]);
+    expect(second!.id).toBe("m2");
+    expect(second!.parts).toEqual([{ type: "text", text: "second" }]);
+  });
+
+  it("flips a still-running tool to error defensively", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "tool", messageId: "m1", toolId: "t1", name: "edit", input: {} });
+    await r.apply({ kind: "turn-end" });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const part = msg!.parts[0];
+    if (part.type === "tool") {
+      expect(part.state).toBe("error");
+    }
+  });
+
+  it("leaves a resolved tool untouched on turn-end", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "tool", messageId: "m1", toolId: "t1", name: "edit", input: {} });
+    await r.apply({ kind: "tool-result", toolId: "t1", output: "ok", ok: true });
+    await r.apply({ kind: "turn-end" });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const part = msg!.parts[0];
+    if (part.type === "tool") {
+      expect(part.state).toBe("done");
+    }
+  });
+
+  it("is a no-op when no message is open", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await expect(r.apply({ kind: "turn-end" })).resolves.toBeUndefined();
+    expect(await vault.list(ns("s1"))).toEqual([]);
+  });
+});
