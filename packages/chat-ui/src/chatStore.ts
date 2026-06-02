@@ -14,6 +14,8 @@ export function createChatStore(sessionId: string): ChatStore {
   let msgs: ChatMessage[] = [];
   // Messages keyed by numeric seq so each msg:<seq> change upserts in place.
   const bySeq = new Map<number, ChatMessage>();
+  // Open permission requests keyed by permId; insertion order is request order.
+  const perms = new Map<string, PermissionRequest>();
 
   function rebuildMessages() {
     msgs = [...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m);
@@ -30,13 +32,19 @@ export function createChatStore(sessionId: string): ChatStore {
         if (Number.isNaN(seq)) return;
         bySeq.set(seq, value as ChatMessage);
         rebuildMessages();
+      } else if (key.startsWith("perm:")) {
+        const permId = key.slice("perm:".length);
+        if (value == null) perms.delete(permId);
+        else perms.set(permId, value as PermissionRequest);
       }
+      // The `meta` key (a ChatSession) is accepted but not surfaced here; it is
+      // not a message and needs no store state for the view.
     },
     messages() {
       return msgs;
     },
     pendingPermissions() {
-      return [];
+      return [...perms.values()];
     },
     onChange(cb) {
       subscribers.add(cb);

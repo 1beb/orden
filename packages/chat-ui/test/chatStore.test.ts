@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ChatMessage } from "@orden/chat-core";
+import type { ChatMessage, PermissionRequest } from "@orden/chat-core";
 import { createChatStore } from "../src/chatStore";
 
 const SID = "sess-1";
@@ -43,5 +43,49 @@ describe("chatStore applyChange msg", () => {
     store.applyChange(ns, "msg:10000", msg("big", "10000"));
     store.applyChange(ns, "msg:0002", msg("two", "2"));
     expect(store.messages().map((m) => m.id)).toEqual(["two", "nine", "ten", "big"]);
+  });
+});
+
+describe("chatStore applyChange perm", () => {
+  const ns = `chat:${SID}`;
+  function perm(id: string): PermissionRequest {
+    return { id, toolName: "Bash", input: { cmd: "ls" }, title: `Run ${id}` };
+  }
+
+  it("adds a pending permission, and removes it on null deletion", () => {
+    const store = createChatStore(SID);
+    store.applyChange(ns, "perm:p1", perm("p1"));
+    store.applyChange(ns, "perm:p2", perm("p2"));
+    expect(store.pendingPermissions().map((p) => p.id)).toEqual(["p1", "p2"]);
+    store.applyChange(ns, "perm:p1", null);
+    expect(store.pendingPermissions().map((p) => p.id)).toEqual(["p2"]);
+  });
+});
+
+describe("chatStore applyChange meta + other ns", () => {
+  const ns = `chat:${SID}`;
+  it("accepts the meta key without crashing or treating it as a message", () => {
+    const store = createChatStore(SID);
+    store.applyChange(ns, "meta", {
+      id: SID,
+      title: "T",
+      harness: "claude",
+      cwd: "/x",
+      createdAt: 1,
+    });
+    expect(store.messages()).toEqual([]);
+  });
+
+  it("ignores changes for a different session's ns", () => {
+    const store = createChatStore(SID);
+    store.applyChange("chat:other", "msg:0000", msg("x", "x"));
+    store.applyChange("chat:other", "perm:p", {
+      id: "p",
+      toolName: "Bash",
+      input: {},
+      title: "t",
+    });
+    expect(store.messages()).toEqual([]);
+    expect(store.pendingPermissions()).toEqual([]);
   });
 });
