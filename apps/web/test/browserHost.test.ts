@@ -75,6 +75,18 @@ describe("BrowserHost", () => {
     });
   });
 
+  describe("chat", () => {
+    it("lists no sessions (no host backend)", async () => {
+      expect(await browserHost.chat.listSessions()).toEqual([]);
+    });
+
+    it("cannot create a session", async () => {
+      await expect(
+        browserHost.chat.createSession({ harness: "claude", cwd: "/tmp" }),
+      ).rejects.toThrow(/no chat backend/);
+    });
+  });
+
   describe("locks", () => {
     it("acquire resolves ok for the single user", async () => {
       expect(await browserHost.locks.acquire("res")).toEqual({ ok: true });

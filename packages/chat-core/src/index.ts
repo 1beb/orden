@@ -1,3 +1,8 @@
+// The engine + registry are part of the package's public surface so hosts can
+// build a ChatBackend without reaching into internal module paths.
+export { createChatBackend } from "./engine";
+export { AdapterRegistry, defaultRegistry } from "./registry";
+
 export type ChatHarness = "claude" | "opencode";
 
 export interface ChatSession {
