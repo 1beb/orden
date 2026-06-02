@@ -9,12 +9,14 @@ export interface AnnotationBundle {
   annotations: OrdenAnnotation[];
 }
 
-// Helper: do two sources name the same thing? (identity, not bytes)
+// Helper: do two sources name the same thing? (identity, not bytes). Narrow on
+// the discriminant rather than casting so a future Source kind without a
+// vaultPath can't silently compare `undefined === undefined` and defeat the
+// collision guard.
 function sameSource(a: Source, b: Source): boolean {
-  if (a.kind !== b.kind) return false;
-  return a.kind === "web" && b.kind === "web"
-    ? a.url === b.url
-    : (a as { vaultPath: string }).vaultPath === (b as { vaultPath: string }).vaultPath;
+  if (a.kind === "web" && b.kind === "web") return a.url === b.url;
+  if (a.kind === "file" && b.kind === "file") return a.vaultPath === b.vaultPath;
+  return false;
 }
 
 // Source-keyed annotation store. Bundles live in vault ns `annotations`, key =
