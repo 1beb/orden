@@ -35,8 +35,9 @@ export function createChatMount(
     getMessages: (id) => host.chat!.getMessages(id),
     send: (id, text) => host.terminalChat!.send(id, text),
     respondPermission: async () => {},
+    // The terminal owns its model; setModel is display-only here for now.
     setModel: async () => {},
-    listModels: async () => [],
+    listModels: (harness) => host.chat!.listModels(harness),
     listCommands: async () => [],
   };
 

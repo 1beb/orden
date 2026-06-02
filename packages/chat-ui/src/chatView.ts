@@ -156,29 +156,30 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
   const asObj = (v: unknown): Record<string, unknown> =>
     v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 
-  // ---- Rendering: thinking ----
+  // ---- Rendering: thinking (not collapsible — always shown) ----
   function renderThinking(part: Extract<ChatPart, { type: "thinking" }>): HTMLElement {
-    const card = el("details", "chat-thinking");
-    card.open = true;
-    const summary = el("summary", "chat-thinking-header");
+    const card = el("div", "chat-thinking");
+    const header = el("div", "chat-thinking-header");
     const label = el("span", "chat-thinking-label");
     label.textContent = "✻ Thinking";
-    summary.append(label);
+    header.append(label);
     if (part.tokens != null) {
       const meta = el("span", "chat-thinking-meta");
       meta.textContent = `${part.tokens} tokens`;
-      summary.append(meta);
+      header.append(meta);
     }
     const body = el("div", "chat-thinking-body");
     body.append(renderMarkdown(part.text));
-    card.append(summary, body);
+    card.append(header, body);
     return card;
   }
 
   // ---- Rendering: tool card (visible/expanded by default — don't hide) ----
   function renderToolPart(part: Extract<ChatPart, { type: "tool" }>): HTMLElement {
     const card = el("details", "chat-tool");
-    card.open = true;
+    // Expanded by default — except TaskUpdate, which carries only a status and is
+    // noise without the task description, so it stays collapsed.
+    card.open = part.name !== "TaskUpdate";
     const summary = el("summary", "chat-tool-header");
     const nameEl = el("span", "chat-tool-name");
     nameEl.textContent = part.name;
