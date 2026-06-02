@@ -6,6 +6,9 @@ export interface HostCapabilities {
   remoteProjects: boolean;
   spawnSessions: boolean;
   persistentVault: boolean;
+  /** Absolute path the host's files are rooted at, if any — lets the web root
+   *  chat/agent sessions in the repo. Absent on hosts with no filesystem. */
+  filesRoot?: string;
 }
 
 export interface Identity {

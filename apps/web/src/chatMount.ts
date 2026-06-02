@@ -61,13 +61,19 @@ export function createChatMount(
         const link = await host.vault.get<string>("chat-link", panelSession.id);
         let chatSessionId: string;
         if (link) {
+          // Resume: a page reload while the host is still running replays history
+          // and keeps sending (the engine's live driver persists). Across a HOST
+          // restart the transcript still loads, but the first send will fail
+          // ("not open") until the engine grows a resume() that rebuilds the
+          // driver from persisted meta — tracked as follow-up.
           chatSessionId = link;
         } else {
           const created = await client.createSession({
             harness: panelSession.agent,
-            // capabilities() carries no files root; "." lets the host resolve cwd
-            // against its own defaultCwd (files root / process cwd).
-            cwd: ".",
+            // Root the chat agent in the repo so it operates on the project, not
+            // the host's launch dir. `cwd` is passed verbatim to the SDK, so a
+            // bare "." would resolve against the host process cwd.
+            cwd: host.capabilities().filesRoot ?? ".",
             title: panelSession.title,
           });
           chatSessionId = created.id;

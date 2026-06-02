@@ -132,8 +132,10 @@ export class NodeHost implements Host {
   readonly chat: ChatBackend;
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
+  private readonly filesRoot?: string;
 
   constructor(opts: NodeHostOptions) {
+    this.filesRoot = opts.filesRoot;
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
@@ -173,6 +175,7 @@ export class NodeHost implements Host {
       remoteProjects: false, // H4
       spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
+      filesRoot: this.filesRoot, // so the web can root chat sessions in the repo
     };
   }
 }
