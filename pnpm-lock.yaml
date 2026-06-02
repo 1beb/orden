@@ -59,6 +59,9 @@ importers:
       '@orden/annotation-core':
         specifier: workspace:*
         version: link:../../packages/annotation-core
+      '@orden/chat-ui':
+        specifier: workspace:*
+        version: link:../../packages/chat-ui
       '@orden/host':
         specifier: workspace:*
         version: link:../host

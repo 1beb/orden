@@ -11,6 +11,8 @@
     "paths": {
       "@orden/annotation-core": ["../../packages/annotation-core/src/index.ts"],
       "@orden/outliner": ["../../packages/outliner/src/index.ts"],
+      "@orden/chat-core": ["../../packages/chat-core/src/index.ts"],
+      "@orden/chat-ui": ["../../packages/chat-ui/src/index.ts"],
       "@orden/host-api": ["../../packages/host-api/src/index.ts"],
       "@orden/host-client": ["../host/src/client.ts"]
     }

@@ -45,6 +45,7 @@ import {
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal } from "./terminalView";
+import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
@@ -1061,6 +1062,8 @@ renderProjects();
 // linked card into the kanban planning column (separate-but-linked). The session open
 // last run is remembered (vault ui/last-session) so a reload reopens it.
 const lastSessionId = (await host.vault.get<string>("ui", "last-session")) || null;
+// The native Chat tab's mount fn, bound to the host + change feed.
+const chatMount = createChatMount(host, onVaultChange);
 const sessionsPanel = mountSessionsPanel({
   container: document.querySelector<HTMLElement>("#sessions")!,
   list: () => listSessions(loadSettings().showArchived),
@@ -1082,6 +1085,13 @@ const sessionsPanel = mountSessionsPanel({
     return s;
   },
   mountTerminal: (container, id) => mountTerminal(container, id, () => markSessionTouched(id)),
+  // Native Chat tab: a SEPARATE ChatBackend agent per session (independent of the
+  // Terminal's tmux agent — unifying them is future work). Only on hosts that can
+  // spawn real agents (NodeHost); the browser host's chat backend throws, so we
+  // omit mountChat there and the panel hides the Chat tab.
+  mountChat: host.capabilities().spawnSessions
+    ? chatMount
+    : undefined,
   archive: (id) => {
     archiveSession(id);
     refreshBoard(); // its card moved to Done
