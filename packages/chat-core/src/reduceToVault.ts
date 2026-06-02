@@ -76,9 +76,14 @@ export class VaultReducer {
   }
 
   // Ensure there is an open assistant message keyed by messageId, returning it.
-  // If a message is already open it is reused (regardless of messageId — a turn
-  // is a single assistant message in this model).
+  // A turn can carry MULTIPLE assistant messages, each with its own messageId
+  // (text msg_A → tool msg_A → text msg_B → … → one turn-end). When the open
+  // message's id differs from the incoming messageId, close it and open a fresh
+  // msg:<seq> for the new id; matching ids reuse the open message.
   private async openMessage(messageId: string): Promise<ChatMessage> {
+    if (this.current && this.current.msg.id !== messageId) {
+      this.current = null;
+    }
     if (!this.current) {
       const seq = await this.allocSeq();
       this.current = { seq, msg: { id: messageId, role: "assistant", parts: [] } };
