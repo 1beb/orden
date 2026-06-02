@@ -53,7 +53,8 @@ form. Variants are simply distinct `ModelOption`s in the catalog.
 
 ## ChatBackend interface
 
-Host-side, one interface, two implementations.
+The public surface, implemented once by a generic engine over a harness-adapter
+registry (see Engine and adapters below).
 
 ```
 listSessions()                              -> ChatSession[]
@@ -72,62 +73,123 @@ feed streams them to the web store. The backend is a writer, the UI a reader.
 Resume falls out for free: `getMessages` replays history, the feed delivers new
 parts. This is opencode-web's "direct-to-store SSE", expressed in orden's spine.
 
-## Backends
+## Engine and adapters (the extension point)
 
-`ClaudeChatBackend` holds one long-lived `query()` per session (an
-`AsyncIterable` prompt in streaming-input mode, required for `setModel` and
-multi-turn). It maps `assistant` messages to text and tool parts, the
-`system/init` message to the session id and `slash_commands`, and the `result`
-message to turn end. `options.model`/`fallbackModel` are set at start;
-`q.setModel(...)` switches at runtime; `q.supportedCommands()` lists commands.
-Isolation flags from the spike are retained: `permissionMode:'default'`,
-`settingSources:[]`.
+`ChatBackend` is implemented **once**, generically, as an engine over a registry
+of harness adapters. There is no per-harness backend class. Adding a harness is
+adding one adapter and one registry line; the engine, the UI, and every other
+package are untouched. This is the modularity requirement made concrete.
 
-`OpencodeChatBackend` ensures a project-scoped `opencode serve` child, subscribes
-to `GET /event` (SSE) and maps `message.updated`/`part.updated` to parts. It uses
-`session.create`/`session.prompt`/`session.command`, and `config.providers()` for
-the model catalog. Resume re-fetches the session and its messages.
+A `HarnessDriver` is a per-session live connection that emits one normalized
+event stream and accepts control calls:
 
-### Permission asymmetry
+```
+type DriverEvent =
+  | { kind:'session', sessionId, slashCommands: string[] }
+  | { kind:'text', messageId, text }
+  | { kind:'tool', messageId, toolId, name, input }
+  | { kind:'tool-result', toolId, output, ok }
+  | { kind:'turn-end' }
 
-Claude permissions are a pull: `canUseTool(name, input, opts)` must return a
-promise resolving to allow/deny. opencode permissions are a push: a bus event
-plus `POST /session/:id/permissions/:permissionID`. Both normalize to a minted
-`PermissionRequest{id}` written to the vault. The UI calls
-`respondPermission(id, decision)`. For Claude, the backend parks the `canUseTool`
-resolver in a map keyed by that id and resolves it on response. For opencode, it
-POSTs. Same UI, same vault shape, two hidden mechanisms.
+interface HarnessDriver {
+  events: AsyncIterable<DriverEvent>
+  send(text): Promise<void>             // text may be "/command"
+  setModel(model): Promise<void>
+  listCommands(): Promise<SlashCommand[]>
+  onPermission(cb): void                // driver calls cb to ask; cb resolves allow/deny
+  close(): Promise<void>
+}
 
-## Web UI
+interface HarnessAdapter {
+  harness: string                       // 'claude' | 'opencode' | future
+  listModels(): Promise<ModelOption[]>
+  open(opts: { cwd, model? }): HarnessDriver
+}
+```
 
-Vanilla TS (orden's `apps/web` stack), borrowing opencode-web patterns.
+Adapters register into a registry (`registerAdapter(adapter)`); the engine looks
+one up by `session.harness`. The engine owns all harness-agnostic work: it pipes a
+driver's `events` through `reduceToVault` (the one reducer that turns
+`DriverEvent`s into `chat:<sessionId>` writes), parks permission resolvers, and
+delegates `send`/`setModel`/`listCommands`/`listModels` to the driver/adapter.
+
+The two adapters differ only inside `open()`:
+
+- claude adapter wraps `@anthropic-ai/claude-agent-sdk` `query()` (streaming-input
+  mode; `permissionMode:'default'`, `settingSources:[]` per the spike). Maps
+  `system/init`→`session`, `assistant`→`text`/`tool`, results→`tool-result`,
+  `result`→`turn-end`. `canUseTool` drives `onPermission` (the pull).
+- opencode adapter ensures a project-scoped `opencode serve` child, maps SSE
+  `message.updated`/`part.updated` to the same `DriverEvent`s, uses
+  `session.create/prompt/command` and `config.providers()` for models, and
+  surfaces the permission bus event through `onPermission`, answering via
+  `POST /session/:id/permissions/:permissionID` (the push).
+
+### Permission asymmetry, normalized
+
+Claude is a pull (`canUseTool` must return allow/deny); opencode is a push (bus
+event + POST). Both surface through the driver's `onPermission`. The engine mints
+a `PermissionRequest{id}`, writes it to the vault, and parks the resolver in a map
+keyed by that id. `respondPermission(id, decision)` resolves the parked promise
+(claude) or POSTs (opencode). Same UI, same vault shape, hidden mechanism.
+
+## Frontend (`@orden/chat-ui`)
+
+Its own framework-free package — vanilla TS DOM, borrowing opencode-web patterns,
+with zero knowledge of any harness or of the host transport. It depends only on
+`@orden/chat-core` types plus a small `ChatClient` interface (the methods it
+calls). `apps/web` supplies a concrete `ChatClient` (over the host RPC) and the
+change feed; the package itself is reusable and host-agnostic.
 
 A `chatStore` hydrates from `getMessages` (resume) and applies change-feed deltas
-as atomic part mutations. `chatView.ts` renders messages to parts: text through
-the existing markdown path, tool parts as collapsible cards (name, input,
-streamed output, state), permission requests as inline allow/deny controls. A
-`/`-triggered command palette is populated from `listCommands`; a model picker
-from `listModels` is bound to `createSession` and `setModel`.
+as atomic part mutations. `chatView` renders messages to parts: text through a
+markdown renderer, tool parts as collapsible cards (name, input, streamed output,
+state), permission requests as inline allow/deny controls. A `/`-triggered command
+palette is populated from `listCommands`; a model picker from `listModels` is
+bound to `createSession` and `setModel`.
 
-## Placement
+## Packages
 
-- `packages/host-api`: `ChatBackend` types, alongside `SessionManager`.
-- `apps/host`: `claudeChatBackend.ts`, `opencodeChatBackend.ts` (node-only).
-- `apps/web`: `chatStore.ts`, `chatView.ts`, plus the Chat tab wiring.
-- `BrowserHost`: a no-op/error stub, as it already does for real sessions.
+The harness-agnostic core and the frontend are their own packages, reusable and
+free of any host/node/DOM coupling. Only the adapters carry harness SDKs.
+
+- `@orden/chat-core` (new, pure TS — no node, no DOM): the types (`ChatSession`,
+  `ChatMessage`, `ChatPart`, `PermissionRequest`, `ModelOption`, `SlashCommand`),
+  `DriverEvent`, the `HarnessAdapter`/`HarnessDriver` interfaces, the adapter
+  registry, `reduceToVault`, and the generic `ChatBackend` engine. The heart;
+  fully unit-testable anywhere.
+- `@orden/chat-ui` (new, framework-free DOM — no node): `chatStore`, `chatView`,
+  command palette, model picker. Depends on `@orden/chat-core` + the `ChatClient`
+  interface only.
+- `apps/host/src/chat/adapters/{claude,opencode}.ts`: each implements
+  `HarnessAdapter`, self-contained (depends only on `@orden/chat-core` + its own
+  SDK), registered once. Adding a harness = a new file here + one register call.
+  Promotable to standalone `@orden/chat-adapter-*` packages later; the layout
+  already isolates each one so the promotion is a move, not a rewrite.
+- `apps/host`: instantiates the engine with the registered adapters and the
+  emitting vault; `wsServer` proxies the `ChatBackend` RPC.
+- `apps/web`: mounts `@orden/chat-ui`, supplies the `ChatClient` (RPC) and wires
+  `onVaultChange`. Thin glue only.
+- `BrowserHost`: a `chat` stub (no adapters), as it already stubs real sessions.
+
+`Host.chat` is typed from `@orden/chat-core` (re-exported through `@orden/host-api`
+so no types are duplicated).
 
 ## Testing
 
-1. One shared contract test both backends pass: create, send, stream parts,
-   permission round-trip, resume, setModel.
-2. Per-backend mapping unit tests against recorded fixtures (Claude message to
-   parts; opencode SSE event to parts), no live process.
-3. Web `chatStore` reducer tests (feed delta to state).
-
-UI rendering stays thin and is manually verified by running the real app at the
-end, per the show-don't-narrate rule.
+1. `@orden/chat-core`: `reduceToVault` reducer tests (DriverEvent → vault writes:
+   text append, tool state transitions, out-of-order parts, turn-end) and engine
+   tests (permission park/resolve, resume, delegation).
+2. **One adapter contract test** every `HarnessAdapter` must pass, run against
+   each adapter's scripted fake driver — the proof the abstraction is real and the
+   gate a future harness must clear to be considered done.
+3. Live adapters: one env-gated smoke test each (`ORDEN_LIVE_CLAUDE=1` /
+   `ORDEN_LIVE_OPENCODE=1`), skipped in CI.
+4. `@orden/chat-ui`: `chatStore` reducer tests (feed delta → state). View
+   rendering stays thin and is manually verified by running the real app.
 
 ## Build order
 
-Types, then Claude backend, then opencode backend, then the shared contract test
-green, then wire the feed, then the Chat tab, then run it.
+`@orden/chat-core` types → `reduceToVault` + engine → adapter contract test → claude
+adapter → opencode adapter (both pass the contract) → host wiring (`Host.chat`,
+RPC) → `@orden/chat-ui` → mount in `apps/web` → run it.
