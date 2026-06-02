@@ -27,7 +27,13 @@ export function createChatStore(sessionId: string): ChatStore {
 
   return {
     hydrate(messages) {
-      msgs = [...messages];
+      // Seed bySeq too, not just msgs: the engine allocates msg:<seq> keys
+      // contiguously from 0, and getMessages returns them in that order, so the
+      // array index equals the seq. Without this, the first live msg:<seq> delta
+      // would rebuild msgs purely from an empty bySeq and drop all history.
+      bySeq.clear();
+      messages.forEach((m, i) => bySeq.set(i, m));
+      rebuildMessages();
     },
     applyChange(changeNs, key, value) {
       if (changeNs !== ns) return; // defensive: ignore other sessions' deltas
@@ -47,7 +53,7 @@ export function createChatStore(sessionId: string): ChatStore {
       // not a message and needs no store state for the view.
     },
     messages() {
-      return msgs;
+      return [...msgs]; // copy: callers must not mutate store state (matches pendingPermissions)
     },
     pendingPermissions() {
       return [...perms.values()];

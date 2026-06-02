@@ -17,6 +17,19 @@ describe("chatStore hydrate", () => {
     expect(store.messages().map((m) => m.id)).toEqual(["a", "b"]);
     expect(cb).not.toHaveBeenCalled();
   });
+
+  it("preserves hydrated history when a live delta arrives, and updates in place", () => {
+    const store = createChatStore(SID);
+    store.hydrate([msg("a", "hi"), msg("b", "streaming")]); // seqs 0 and 1
+    // A live update to the still-streaming last message (seq 1) must replace it,
+    // not drop the earlier hydrated history.
+    store.applyChange(`chat:${SID}`, "msg:0001", msg("b", "streaming done"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b"]);
+    expect(store.messages()[1].parts).toEqual([{ type: "text", text: "streaming done" }]);
+    // A brand-new message (seq 2) appends after the hydrated ones.
+    store.applyChange(`chat:${SID}`, "msg:0002", msg("c", "new"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
 });
 
 describe("chatStore applyChange msg", () => {
