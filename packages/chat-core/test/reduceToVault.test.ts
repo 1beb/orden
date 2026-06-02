@@ -155,6 +155,31 @@ describe("VaultReducer: tool-result event", () => {
   });
 });
 
+describe("VaultReducer: messageId split", () => {
+  it("starts a new message when messageId changes mid-turn (no turn-end)", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "thinking" });
+    await r.apply({ kind: "tool", messageId: "m1", toolId: "t1", name: "edit", input: {} });
+    await r.apply({ kind: "tool-result", toolId: "t1", output: "ok", ok: true });
+    await r.apply({ kind: "text", messageId: "m2", text: "after tool" });
+
+    const keys = await vault.list(ns("s1"));
+    expect(keys.filter((k) => k.startsWith("msg:")).sort()).toEqual(["msg:0000", "msg:0001"]);
+
+    const first = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(first!.id).toBe("m1");
+    expect(first!.parts).toEqual([
+      { type: "text", text: "thinking" },
+      { type: "tool", toolId: "t1", name: "edit", input: {}, state: "done", output: "ok" },
+    ]);
+
+    const second = await vault.get<ChatMessage>(ns("s1"), "msg:0001");
+    expect(second!.id).toBe("m2");
+    expect(second!.parts).toEqual([{ type: "text", text: "after tool" }]);
+  });
+});
+
 describe("VaultReducer: turn-end event", () => {
   it("closes the current message so the next text starts a new one", async () => {
     const vault = new MemVault();
