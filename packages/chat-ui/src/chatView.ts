@@ -176,6 +176,15 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
 
   // ---- Rendering: tool card (visible/expanded by default — don't hide) ----
   function renderToolPart(part: Extract<ChatPart, { type: "tool" }>): HTMLElement {
+    const input = asObj(part.input);
+
+    // File reads collapse to a single line: Read(path) — no card, no body.
+    if (part.name === "Read" && typeof input.file_path === "string") {
+      const line = el("div", "chat-tool-line");
+      line.textContent = `Read(${input.file_path})`;
+      return line;
+    }
+
     const card = el("details", "chat-tool");
     // Expanded by default — except TaskUpdate, which carries only a status and is
     // noise without the task description, so it stays collapsed.
@@ -187,6 +196,7 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     badge.textContent = part.state;
     summary.append(nameEl, badge);
 
+    // One inset: the body box holds the content; inner blocks add no second box.
     const body = el("div", "chat-tool-body");
     renderToolInput(body, part);
     if (part.output != null && part.output !== "") {
@@ -196,6 +206,38 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     }
     card.append(summary, body);
     return card;
+  }
+
+  // A formatted -/+ diff for edits/writes: the file path then removed (-) and
+  // added (+) lines — never a raw JSON block.
+  function renderDiff(filePath: unknown, hunks: Array<{ del: unknown; add: unknown }>): HTMLElement {
+    const wrap = el("div", "chat-diff");
+    if (typeof filePath === "string" && filePath) {
+      const f = el("div", "chat-diff-file");
+      f.textContent = filePath;
+      wrap.append(f);
+    }
+    for (const h of hunks) {
+      const block = el("pre", "chat-diff-block");
+      const del = String(h.del ?? "");
+      const add = String(h.add ?? "");
+      if (del) {
+        for (const l of del.split("\n")) {
+          const e = el("div", "chat-diff-del");
+          e.textContent = `- ${l}`;
+          block.append(e);
+        }
+      }
+      if (add) {
+        for (const l of add.split("\n")) {
+          const e = el("div", "chat-diff-add");
+          e.textContent = `+ ${l}`;
+          block.append(e);
+        }
+      }
+      wrap.append(block);
+    }
+    return wrap;
   }
 
   function renderToolInput(body: HTMLElement, part: Extract<ChatPart, { type: "tool" }>): void {
@@ -210,6 +252,23 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
         d.textContent = input.description;
         body.append(d);
       }
+      return;
+    }
+    // Edit / MultiEdit / Write: a real -/+ diff, not JSON.
+    if (part.name === "Edit" && typeof input.old_string === "string") {
+      body.append(renderDiff(input.file_path, [{ del: input.old_string, add: input.new_string }]));
+      return;
+    }
+    if (part.name === "MultiEdit" && Array.isArray(input.edits)) {
+      const hunks = input.edits.map((e) => {
+        const o = asObj(e);
+        return { del: o.old_string, add: o.new_string };
+      });
+      body.append(renderDiff(input.file_path, hunks));
+      return;
+    }
+    if (part.name === "Write" && typeof input.content === "string") {
+      body.append(renderDiff(input.file_path, [{ del: "", add: input.content }]));
       return;
     }
     // TodoWrite / TaskCreate: show the task list / description, not raw JSON.
