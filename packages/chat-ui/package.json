@@ -1,0 +1,22 @@
+{
+  "name": "@orden/chat-ui",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orden/chat-core": "workspace:*"
+  },
+  "devDependencies": {
+    "happy-dom": "^14.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

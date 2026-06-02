@@ -136,6 +136,22 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.39)(happy-dom@14.12.3)
 
+  packages/chat-ui:
+    dependencies:
+      '@orden/chat-core':
+        specifier: workspace:*
+        version: link:../chat-core
+    devDependencies:
+      happy-dom:
+        specifier: ^14.0.0
+        version: 14.12.3
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)(happy-dom@14.12.3)
+
   packages/host-api:
     dependencies:
       '@orden/chat-core':
