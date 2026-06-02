@@ -47,7 +47,7 @@ export function sdkMessageToEvents(msg: SDKMessage): DriverEvent[] {
       const messageId = msg.message.id;
       const content = msg.message.content;
       if (!Array.isArray(content)) return out;
-      for (const block of content as Array<Record<string, unknown>>) {
+      for (const block of content as unknown as Array<Record<string, unknown>>) {
         if (block.type === "text") {
           out.push({ kind: "text", messageId, text: block.text as string });
         } else if (block.type === "tool_use") {
@@ -67,7 +67,7 @@ export function sdkMessageToEvents(msg: SDKMessage): DriverEvent[] {
       const content = msg.message.content;
       if (!Array.isArray(content)) return [];
       const out: DriverEvent[] = [];
-      for (const block of content as Array<Record<string, unknown>>) {
+      for (const block of content as unknown as Array<Record<string, unknown>>) {
         if (block.type === "tool_result") {
           out.push({
             kind: "tool-result",
