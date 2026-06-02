@@ -3032,3 +3032,12 @@ li.sess-done-head {
 .issue-row .issue-title:hover {
   text-decoration: underline;
 }
+
+/* Annotation highlights painted by the CSS Custom Highlight API (textOverlay.ts).
+   No DOM nodes are inserted, so this is the only place the colour is defined. */
+::highlight(orden-annotation) {
+  background: color-mix(in srgb, var(--accent, #6d28d9) 22%, transparent);
+}
+::highlight(orden-annotation-active) {
+  background: color-mix(in srgb, var(--accent, #6d28d9) 40%, transparent);
+}
