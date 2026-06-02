@@ -205,3 +205,26 @@ describe("VaultReducer: turn-end event", () => {
     expect(await vault.list(ns("s1"))).toEqual([]);
   });
 });
+
+describe("VaultReducer: resume", () => {
+  it("appends after existing messages instead of clobbering msg:0000", async () => {
+    const vault = new MemVault();
+    const prior: ChatMessage = { id: "old", role: "user", parts: [{ type: "text", text: "q" }] };
+    await vault.set(ns("s1"), "msg:0000", prior);
+    await vault.set(ns("s1"), "meta", {
+      id: "s1",
+      title: "t",
+      harness: "claude",
+      cwd: "/",
+      createdAt: 1,
+    });
+
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "answer" });
+
+    const kept = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const fresh = await vault.get<ChatMessage>(ns("s1"), "msg:0001");
+    expect(kept!.id).toBe("old");
+    expect(fresh!.id).toBe("m1");
+  });
+});

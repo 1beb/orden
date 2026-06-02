@@ -10,8 +10,10 @@ export class VaultReducer {
   // The currently-open assistant message being assembled, plus its seq.
   // null between turns: the next text/tool starts a fresh message.
   private current: { seq: number; msg: ChatMessage } | null = null;
-  // Monotonic counter for the next msg:<seq> allocation.
-  private nextSeq = 0;
+  // Monotonic counter for the next msg:<seq> allocation. Seeded lazily from
+  // the vault on first use so resuming a populated session appends rather than
+  // clobbering existing messages.
+  private nextSeq: number | null = null;
 
   constructor(
     private vault: ChatVault,
@@ -57,12 +59,28 @@ export class VaultReducer {
     this.current = null;
   }
 
+  // Next seq to allocate, seeding from existing vault keys on first call so a
+  // resumed session appends after stored messages.
+  private async allocSeq(): Promise<number> {
+    if (this.nextSeq === null) {
+      const keys = await this.vault.list(this.ns);
+      let max = -1;
+      for (const k of keys) {
+        if (!k.startsWith("msg:")) continue;
+        const n = Number.parseInt(k.slice("msg:".length), 10);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+      this.nextSeq = max + 1;
+    }
+    return this.nextSeq++;
+  }
+
   // Ensure there is an open assistant message keyed by messageId, returning it.
   // If a message is already open it is reused (regardless of messageId — a turn
   // is a single assistant message in this model).
-  private openMessage(messageId: string): ChatMessage {
+  private async openMessage(messageId: string): Promise<ChatMessage> {
     if (!this.current) {
-      const seq = this.nextSeq++;
+      const seq = await this.allocSeq();
       this.current = { seq, msg: { id: messageId, role: "assistant", parts: [] } };
     }
     return this.current.msg;
@@ -74,7 +92,7 @@ export class VaultReducer {
   }
 
   private async onText(ev: { messageId: string; text: string }): Promise<void> {
-    const msg = this.openMessage(ev.messageId);
+    const msg = await this.openMessage(ev.messageId);
     const last = msg.parts[msg.parts.length - 1];
     if (last && last.type === "text") {
       last.text += ev.text;
@@ -91,7 +109,7 @@ export class VaultReducer {
     name: string;
     input: unknown;
   }): Promise<void> {
-    const msg = this.openMessage(ev.messageId);
+    const msg = await this.openMessage(ev.messageId);
     const part: ChatPart = {
       type: "tool",
       toolId: ev.toolId,
