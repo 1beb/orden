@@ -248,4 +248,23 @@ describe("makeOpencodeAdapter", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h._isClosed()).toBe(true);
   });
+
+  it("propagates a connect() failure to send() and ends the stream (no hang)", async () => {
+    const driver = makeOpencodeAdapter({
+      connect: async () => {
+        throw new Error("opencode serve failed to start");
+      },
+    }).open({ cwd: "/x" });
+
+    // The events stream must terminate (pumpEnded) rather than hang forever.
+    const drained: unknown[] = [];
+    const stream = (async () => {
+      for await (const ev of driver.events) drained.push(ev);
+    })();
+
+    // send() must reject (await sessionReady/connReady), not deadlock.
+    await expect(driver.send("hi")).rejects.toThrow(/serve failed/);
+    await stream; // resolves once the generator returns
+    expect(drained).toEqual([]);
+  });
 });

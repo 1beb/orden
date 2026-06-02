@@ -107,6 +107,9 @@ export class OpencodeTranslator {
       }
     }
 
+    // Keep the per-part state even after the result is emitted: opencode can
+    // re-send a terminal (completed/error) snapshot, and the `resultEmitted`
+    // flag is what makes re-emission idempotent. (State is tiny per part.)
     this.tool.set(part.id, st);
     return out;
   }

@@ -95,9 +95,17 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
         connReject = rej;
       });
       let sessionResolve!: (id: string) => void;
-      const sessionReady = new Promise<string>((res) => {
+      let sessionReject!: (e: unknown) => void;
+      const sessionReady = new Promise<string>((res, rej) => {
         sessionResolve = res;
+        sessionReject = rej;
       });
+      // A consumer that only reads `events` never awaits these, so a background
+      // connect/create failure would surface as an unhandledRejection. Attach
+      // inert catches: real awaiters (send/control/close) still observe the
+      // rejection; the failure also ends the events stream via `pumpEnded`.
+      connReady.catch(() => {});
+      sessionReady.catch(() => {});
 
       // Single-producer queue bridging the SSE pump to the events generator.
       const out: DriverEvent[] = [];
@@ -119,6 +127,7 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
         try {
           conn = await connect();
           connResolve(conn);
+          if (closed) return; // closed mid-connect: don't create/subscribe on a torn-down conn
 
           const created = await conn.client.session.create({
             query: cwd ? { directory: cwd } : undefined,
@@ -126,6 +135,7 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
           const sessionId = created.data?.id;
           if (!sessionId) throw new Error("opencode adapter: session.create returned no id");
           sessionResolve(sessionId);
+          if (closed) return;
           out.push({ kind: "session", sessionId, slashCommands: [] });
           wake();
 
@@ -145,7 +155,11 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
             wake();
           }
         } catch (err) {
+          // Surface the failure to both await channels so neither send() (which
+          // awaits sessionReady) nor close() can deadlock waiting on a session
+          // that will never be created.
           connReject(err);
+          sessionReject(err);
         } finally {
           pumpEnded = true;
           wake();
