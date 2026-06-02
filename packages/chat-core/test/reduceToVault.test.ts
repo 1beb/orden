@@ -65,3 +65,46 @@ describe("VaultReducer: text event", () => {
     expect(keys.filter((k) => k.startsWith("msg:"))).toEqual(["msg:0000"]);
   });
 });
+
+describe("VaultReducer: tool event", () => {
+  it("adds a running tool part to the current message", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "thinking" });
+    await r.apply({
+      kind: "tool",
+      messageId: "m1",
+      toolId: "t1",
+      name: "edit",
+      input: { path: "a.ts" },
+    });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg!.parts).toHaveLength(2);
+    expect(msg!.parts[1]).toEqual({
+      type: "tool",
+      toolId: "t1",
+      name: "edit",
+      input: { path: "a.ts" },
+      state: "running",
+    });
+  });
+
+  it("starts a message if a tool arrives with no open message", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({
+      kind: "tool",
+      messageId: "m1",
+      toolId: "t1",
+      name: "bash",
+      input: { cmd: "ls" },
+    });
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg!.id).toBe("m1");
+    expect(msg!.role).toBe("assistant");
+    expect(msg!.parts).toHaveLength(1);
+    expect(msg!.parts[0].type).toBe("tool");
+  });
+});

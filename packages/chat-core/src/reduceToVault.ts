@@ -30,6 +30,9 @@ export class VaultReducer {
       case "text":
         await this.onText(ev);
         return;
+      case "tool":
+        await this.onTool(ev);
+        return;
     }
   }
 
@@ -58,6 +61,24 @@ export class VaultReducer {
       const part: ChatPart = { type: "text", text: ev.text };
       msg.parts.push(part);
     }
+    await this.flush();
+  }
+
+  private async onTool(ev: {
+    messageId: string;
+    toolId: string;
+    name: string;
+    input: unknown;
+  }): Promise<void> {
+    const msg = this.openMessage(ev.messageId);
+    const part: ChatPart = {
+      type: "tool",
+      toolId: ev.toolId,
+      name: ev.name,
+      input: ev.input,
+      state: "running",
+    };
+    msg.parts.push(part);
     await this.flush();
   }
 
