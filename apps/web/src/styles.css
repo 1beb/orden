@@ -2394,13 +2394,18 @@ li.sess-done-head {
 }
 
 /* Image viewer: center the image, contain it within the view, transparent
-   checker-free background so PNG alpha reads against the panel. */
-#view-image {
-  overflow: auto;
-  padding: 24px;
+   checker-free background so PNG alpha reads against the panel. The flex layout
+   must be scoped to .active — an unscoped `#view-image { display:flex }` (ID
+   specificity) would beat `.view { display:none }` and keep the section visible
+   even when another view is selected, pushing the active view off-screen. */
+#view-image.active {
   display: flex;
   align-items: flex-start;
   justify-content: center;
+}
+#view-image {
+  overflow: auto;
+  padding: 24px;
 }
 .image-view {
   max-width: 100%;
