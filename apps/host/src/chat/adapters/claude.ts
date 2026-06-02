@@ -38,10 +38,14 @@ const CLAUDE_MODELS: ModelOption[] = [
 class InputStream implements AsyncIterable<SDKUserMessage> {
   private queue: SDKUserMessage[] = [];
   private waiting: ((r: IteratorResult<SDKUserMessage>) => void) | null = null;
-  private ended = false;
+  private _ended = false;
+
+  get ended(): boolean {
+    return this._ended;
+  }
 
   push(msg: SDKUserMessage): void {
-    if (this.ended) return;
+    if (this._ended) return;
     if (this.waiting) {
       const resolve = this.waiting;
       this.waiting = null;
@@ -52,7 +56,7 @@ class InputStream implements AsyncIterable<SDKUserMessage> {
   }
 
   end(): void {
-    this.ended = true;
+    this._ended = true;
     if (this.waiting) {
       const resolve = this.waiting;
       this.waiting = null;
@@ -66,7 +70,7 @@ class InputStream implements AsyncIterable<SDKUserMessage> {
         yield this.queue.shift()!;
         continue;
       }
-      if (this.ended) return;
+      if (this._ended) return;
       const next = await new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
         this.waiting = resolve;
       });
@@ -97,6 +101,9 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
     open({ cwd, model }: { cwd: string; model?: string }): HarnessDriver {
       const input = new InputStream();
       const abortController = new AbortController();
+      // Ordering contract: the consumer must call onPermission() synchronously
+      // after open() — before the first send() — so a tool request never races
+      // ahead of cb registration (the model can't ask for a tool pre-send).
       let permissionCb:
         | ((req: { toolName: string; input: unknown; title: string }) => Promise<{
             allow: boolean;
@@ -133,8 +140,14 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
       const q = query({ prompt: input, options });
 
       async function* events(): AsyncGenerator<DriverEvent, void> {
-        for await (const msg of q) {
-          yield* sdkMessageToEvents(msg);
+        try {
+          for await (const msg of q) {
+            yield* sdkMessageToEvents(msg);
+          }
+        } finally {
+          // The query ended (naturally, by error, or by close): end the input
+          // stream so its iterator can't leak waiting for messages forever.
+          input.end();
         }
       }
 
@@ -142,6 +155,9 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
         events: events(),
 
         async send(text: string): Promise<void> {
+          if (input.ended) {
+            throw new Error("claude adapter: send() after close()");
+          }
           input.push(userMessage(text));
         },
 

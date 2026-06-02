@@ -147,6 +147,20 @@ function makeHarness() {
 
 runAdapterContract("claude", makeHarness);
 
+// A minimal Query stand-in that never emits and accepts the control methods.
+function inertQuery(): Query {
+  return {
+    async *[Symbol.asyncIterator]() {
+      /* no messages */
+    },
+    async interrupt() {},
+    async setModel() {},
+    async supportedCommands() {
+      return [];
+    },
+  } as unknown as Query;
+}
+
 // Direct unit checks beyond the shared contract.
 describe("makeClaudeAdapter", () => {
   it("lists curated claude models including a [1m] variant", async () => {
@@ -154,5 +168,29 @@ describe("makeClaudeAdapter", () => {
     const models = await adapter.listModels();
     expect(models.every((m) => m.harness === "claude")).toBe(true);
     expect(models.some((m) => m.id.includes("[1m]"))).toBe(true);
+  });
+
+  it("delivers send() payloads to the streaming-input prompt", async () => {
+    const delivered: string[] = [];
+    const fakeQuery: QueryFn = (params) => {
+      const prompt = params.prompt as AsyncIterable<SDKUserMessage>;
+      void (async () => {
+        for await (const m of prompt) {
+          delivered.push(m.message.content as string);
+        }
+      })();
+      return inertQuery();
+    };
+    const driver = makeClaudeAdapter({ query: fakeQuery }).open({ cwd: "/x" });
+    await driver.send("hello");
+    await driver.send("world");
+    await new Promise((r) => setTimeout(r, 0)); // let the background drain run
+    expect(delivered).toEqual(["hello", "world"]);
+  });
+
+  it("throws on send() after close()", async () => {
+    const driver = makeClaudeAdapter({ query: () => inertQuery() }).open({ cwd: "/x" });
+    await driver.close();
+    await expect(driver.send("late")).rejects.toThrow(/after close/);
   });
 });
