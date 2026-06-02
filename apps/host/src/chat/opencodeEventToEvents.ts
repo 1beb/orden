@@ -30,14 +30,27 @@ export class OpencodeTranslator {
   // Keyed by part id: opencode re-sends the same part id as it grows.
   private text = new Map<string, TextState>();
   private tool = new Map<string, ToolState>();
+  // Role per message id, learned from message.updated. opencode streams the
+  // USER message's own parts as part.updated too; without this we'd surface the
+  // user's prompt as assistant output. The user message.updated is emitted at
+  // prompt time, before any part, so the role is known by the time parts arrive.
+  private role = new Map<string, "user" | "assistant">();
 
   translate(event: Event): DriverEvent[] {
     if (event.type === "session.idle") {
       return [{ kind: "turn-end" }];
     }
 
+    if (event.type === "message.updated") {
+      const info = event.properties.info;
+      this.role.set(info.id, info.role);
+      return [];
+    }
+
     if (event.type === "message.part.updated") {
       const part = event.properties.part;
+      // Only assistant parts become chat output; skip the user's echoed message.
+      if (this.role.get(part.messageID) === "user") return [];
       if (part.type === "text") {
         return this.translateText(part);
       }

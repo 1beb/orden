@@ -46,7 +46,22 @@ function toolPart(
 const idle = (): Event =>
   ({ type: "session.idle", properties: { sessionID: "s1" } }) as unknown as Event;
 
+const messageUpdated = (id: string, role: "user" | "assistant"): Event =>
+  ({ type: "message.updated", properties: { info: { id, role } } }) as unknown as Event;
+
 describe("OpencodeTranslator", () => {
+  it("ignores the user message's own parts; only assistant parts become output", () => {
+    const t = new OpencodeTranslator();
+    const out: DriverEvent[] = [
+      ...t.translate(messageUpdated("mUser", "user")),
+      ...t.translate(textPart("mUser", "pU", "Reply with PONG")), // the echoed prompt
+      ...t.translate(messageUpdated("mAsst", "assistant")),
+      ...t.translate(textPart("mAsst", "pA", "PONG")),
+    ];
+    expect(out).toEqual([{ kind: "text", messageId: "mAsst", text: "PONG" }]);
+  });
+
+
   it("emits text deltas, not snapshots, for a growing text part", () => {
     const t = new OpencodeTranslator();
     const out: DriverEvent[] = [
