@@ -70,7 +70,16 @@ export async function handleMcpRequest(
     }
 
     if (!transport) {
-      res.writeHead(400, { "content-type": "application/json" });
+      // A session id we don't know about means the session was terminated —
+      // typically because the host restarted and lost the in-memory transports
+      // map while a long-lived agent kept its cached Mcp-Session-Id. The MCP
+      // Streamable HTTP spec says answer 404 here; that is the client's signal
+      // to transparently re-initialize (a fresh POST with no session id). A 400
+      // instead leaves the agent stuck repeating the same failed call — the
+      // recurrent "No valid session" errors after restart. The /mcp/<convId>
+      // card binding lives in the URL, so it survives the re-initialize.
+      const status = sessionId ? 404 : 400;
+      res.writeHead(status, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
           jsonrpc: "2.0",
