@@ -89,3 +89,39 @@ describe("chatStore applyChange meta + other ns", () => {
     expect(store.pendingPermissions()).toEqual([]);
   });
 });
+
+describe("chatStore onChange", () => {
+  const ns = `chat:${SID}`;
+
+  it("fires on every mutating applyChange (msg and perm)", () => {
+    const store = createChatStore(SID);
+    const cb = vi.fn();
+    store.onChange(cb);
+    store.applyChange(ns, "msg:0000", msg("a", "A"));
+    store.applyChange(ns, "perm:p1", {
+      id: "p1",
+      toolName: "Bash",
+      input: {},
+      title: "t",
+    });
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fire for foreign ns", () => {
+    const store = createChatStore(SID);
+    const cb = vi.fn();
+    store.onChange(cb);
+    store.applyChange("chat:other", "msg:0000", msg("a", "A"));
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("unsubscribe stops further calls", () => {
+    const store = createChatStore(SID);
+    const cb = vi.fn();
+    const off = store.onChange(cb);
+    store.applyChange(ns, "msg:0000", msg("a", "A"));
+    off();
+    store.applyChange(ns, "msg:0001", msg("b", "B"));
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});

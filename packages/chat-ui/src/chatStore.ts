@@ -21,6 +21,10 @@ export function createChatStore(sessionId: string): ChatStore {
     msgs = [...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m);
   }
 
+  function notify() {
+    for (const cb of subscribers) cb();
+  }
+
   return {
     hydrate(messages) {
       msgs = [...messages];
@@ -32,10 +36,12 @@ export function createChatStore(sessionId: string): ChatStore {
         if (Number.isNaN(seq)) return;
         bySeq.set(seq, value as ChatMessage);
         rebuildMessages();
+        notify();
       } else if (key.startsWith("perm:")) {
         const permId = key.slice("perm:".length);
         if (value == null) perms.delete(permId);
         else perms.set(permId, value as PermissionRequest);
+        notify();
       }
       // The `meta` key (a ChatSession) is accepted but not surfaced here; it is
       // not a message and needs no store state for the view.
