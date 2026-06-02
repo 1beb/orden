@@ -85,3 +85,133 @@ describe("createChatBackend pump + getMessages", () => {
     expect(msgs.map((m) => m.id)).toEqual(["a", "b"]);
   });
 });
+
+describe("createChatBackend permission round-trip", () => {
+  it("writes a perm request, then resolves the driver promise and deletes the key on allow", async () => {
+    // Distinct id streams: "s" for session ids, the engine's genId mints perm ids.
+    const ids = (() => {
+      let n = 0;
+      return () => `g${++n}`;
+    })();
+    const { backend, driver, vault } = setup({ ids });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    let resolved: { allow: boolean } | null = null;
+    const p = driver.firePermission({ toolName: "bash", input: { cmd: "rm" }, title: "Run bash?" });
+    p.then((d) => {
+      resolved = d;
+    });
+    await tick();
+
+    // The perm key exists while the request is parked.
+    const keys = await vault.list("chat:" + s.id);
+    const permKey = keys.find((k) => k.startsWith("perm:"));
+    expect(permKey).toBeDefined();
+    expect(resolved).toBeNull();
+
+    const permId = permKey!.slice("perm:".length);
+    await backend.respondPermission(s.id, permId, { decision: "allow" });
+    await p;
+    expect(resolved).toEqual({ allow: true });
+
+    const after = await vault.list("chat:" + s.id);
+    expect(after.some((k) => k.startsWith("perm:"))).toBe(false);
+  });
+
+  it("resolves allow:false on deny", async () => {
+    const ids = (() => {
+      let n = 0;
+      return () => `g${++n}`;
+    })();
+    const { backend, driver, vault } = setup({ ids });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    const p = driver.firePermission({ toolName: "x", input: {}, title: "?" });
+    await tick();
+    const permId = (await vault.list("chat:" + s.id))
+      .find((k) => k.startsWith("perm:"))!
+      .slice("perm:".length);
+    await backend.respondPermission(s.id, permId, { decision: "deny" });
+    expect(await p).toEqual({ allow: false });
+  });
+
+  it("no-ops on an unknown permission id", async () => {
+    const { backend } = setup({ ids: seqIds("s") });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    await expect(backend.respondPermission(s.id, "nope", { decision: "allow" })).resolves.toBeUndefined();
+  });
+});
+
+describe("createChatBackend send/setModel reach the driver", () => {
+  it("send forwards text", async () => {
+    const { backend, driver } = setup({ ids: seqIds("s") });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    await backend.send(s.id, "hi there");
+    expect(driver.sent).toEqual(["hi there"]);
+  });
+
+  it("send with model sets the model first", async () => {
+    const { backend, driver } = setup({ ids: seqIds("s") });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    await backend.send(s.id, "hi", { model: "opus" });
+    expect(driver.models).toEqual(["opus"]);
+    expect(driver.sent).toEqual(["hi"]);
+  });
+
+  it("setModel forwards to the driver", async () => {
+    const { backend, driver } = setup({ ids: seqIds("s") });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    await backend.setModel(s.id, "sonnet");
+    expect(driver.models).toEqual(["sonnet"]);
+  });
+});
+
+describe("createChatBackend listModels/listCommands/listSessions", () => {
+  it("listModels delegates to the adapter", async () => {
+    const models = [{ harness: "claude" as const, id: "opus", label: "Opus" }];
+    const { backend } = setup({ ids: seqIds("s"), models });
+    expect(await backend.listModels("claude")).toEqual(models);
+  });
+
+  it("listCommands delegates to the session driver", async () => {
+    const { backend } = setup({ ids: seqIds("s") });
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+    expect(await backend.listCommands(s.id)).toEqual([
+      { name: "/commit", description: "commit" },
+    ]);
+  });
+
+  it("listSessions returns metas for indexed ids", async () => {
+    const { backend } = setup({ ids: seqIds("s") });
+    await backend.createSession({ harness: "claude", cwd: "/a", title: "one" });
+    await backend.createSession({ harness: "claude", cwd: "/b", title: "two" });
+    const sessions = await backend.listSessions();
+    expect(sessions.map((s) => s.title)).toEqual(["one", "two"]);
+  });
+});
+
+describe("createChatBackend resume over a shared vault", () => {
+  it("a fresh engine replays getMessages and listSessions without a live driver", async () => {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    const driver = makeFakeDriver();
+    registry.register(makeFakeAdapter("claude", driver));
+    const first = createChatBackend({ vault, registry, genId: seqIds("s") });
+    const s = await first.createSession({ harness: "claude", cwd: "/w", title: "resumed" });
+    driver.push({ kind: "text", messageId: "m1", text: "persisted" });
+    driver.push({ kind: "turn-end" });
+    await tick();
+
+    // A brand-new engine over the SAME vault, no driver opened for the session.
+    const second = createChatBackend({ vault, registry, genId: seqIds("x") });
+    const msgs = await second.getMessages(s.id);
+    expect(msgs[0].parts[0]).toEqual({ type: "text", text: "persisted" });
+    const sessions = await second.listSessions();
+    expect(sessions.map((x) => x.title)).toEqual(["resumed"]);
+  });
+
+  it("live-driver methods throw on a non-opened session", async () => {
+    const { vault, registry } = setup({ ids: seqIds("s") });
+    const fresh = createChatBackend({ vault, registry, genId: seqIds("y") });
+    await expect(fresh.send("never", "hi")).rejects.toThrow(/not open/);
+  });
+});
