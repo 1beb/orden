@@ -20,7 +20,10 @@ describe("selectorsForRange", () => {
     range.setStart(textNode, 4); // "quick"
     range.setEnd(textNode, 9);
     const sels = selectorsForRange(range, root);
-    expect(sels[0]).toMatchObject({ type: "text-quote", exact: "quick", prefix: "the ", suffix: " brown" });
+    // Quote context is a raw 32-char window (same convention as anchor.ts), so the
+    // suffix over-reaches past one word — assert a prefix-of like anchor.test.ts does.
+    expect(sels[0]).toMatchObject({ type: "text-quote", exact: "quick", prefix: "the " });
+    expect((sels[0] as { suffix: string }).suffix.startsWith(" brown")).toBe(true);
     expect(sels[1]).toMatchObject({ type: "text-position", start: 4, end: 9 });
     expect((sels[1] as { blockId: string }).blockId).toBe(p.getAttribute(BLOCK_ID_ATTR));
   });

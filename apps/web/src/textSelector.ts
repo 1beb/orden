@@ -10,19 +10,6 @@ function closestBlock(node: Node): Element | null {
   return el;
 }
 
-// Quote context is captured to whole-word boundaries (not a raw char window): the
-// prefix drops a leading partial word, the suffix drops the trailing word, so the
-// stored anchor reads as clean words around `exact`.
-function trimPrefix(s: string, truncatedLeft: boolean): string {
-  if (!truncatedLeft) return s;
-  const i = s.indexOf(" ");
-  return i >= 0 ? s.slice(i) : s;
-}
-function trimSuffix(s: string): string {
-  const i = s.lastIndexOf(" ");
-  return i > 0 ? s.slice(0, i) : s;
-}
-
 // Convert a non-collapsed selection Range into [text-quote, text-position] fallbacks.
 // Offsets are into the block's concatenated textContent (via offsetsFromRange), so
 // the text-position selector round-trips through resolveSelectors.
@@ -44,11 +31,11 @@ export function selectorsForRange(range: Range, _root: Element): Selector[] {
   if (!exact) return [];
 
   const blockId = block.getAttribute(BLOCK_ID_ATTR) ?? undefined;
-  const prefix = trimPrefix(
-    text.slice(Math.max(0, start - QUOTE_CONTEXT), start),
-    start - QUOTE_CONTEXT > 0,
-  );
-  const suffix = trimSuffix(text.slice(end, Math.min(text.length, end + QUOTE_CONTEXT)));
+  // Raw 32-char context window on each side — same convention as annotations.ts /
+  // anchor.ts. The resolver scores by common prefix/suffix length, so a window that
+  // over-reaches by a word is harmless; consistency across the codebase wins.
+  const prefix = text.slice(Math.max(0, start - QUOTE_CONTEXT), start);
+  const suffix = text.slice(end, Math.min(text.length, end + QUOTE_CONTEXT));
 
   return [
     { type: "text-quote", exact, prefix, suffix, blockId },
