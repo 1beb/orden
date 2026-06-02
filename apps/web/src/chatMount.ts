@@ -1,13 +1,16 @@
 // Mount the native Chat tab (the @orden/chat-ui view) for a panel session.
 //
-// v1 ARCHITECTURE NOTE: the Terminal tab and the Chat tab are INDEPENDENT agent
-// processes. The Terminal drives a tmux SessionManager session (host.sessions,
-// keyed by the panel session id); the Chat tab drives a SEPARATE ChatBackend
-// session (host.chat). For now we lazily create ONE ChatBackend session per panel
-// session and persist the mapping so a reload resumes it. Unifying the two so a
-// session has a single underlying agent is future work.
+// PREFERRED PATH — terminal mirror: if the session can be mirrored (a claude
+// session with a transcript), the Chat tab shows the SAME conversation the
+// Terminal tab runs (host.terminalChat.mirror parses its transcript into
+// chat:<sessionId>), and the composer types into that session's tmux pane
+// (host.terminalChat.send). Chat and Terminal are then two views of one agent.
+//
+// FALLBACK — separate agent: if the session isn't mirrorable, we lazily create
+// a standalone ChatBackend session (host.chat) and persist the mapping so a
+// reload resumes it. (opencode mirroring is future work; it falls back today.)
 import type { Host } from "@orden/host-api";
-import { createChatStore, mountChatView } from "@orden/chat-ui";
+import { createChatStore, mountChatView, type ChatClient } from "@orden/chat-ui";
 import { makeChatClient } from "./chatClient";
 import type { Session } from "./sessions";
 
@@ -29,7 +32,24 @@ export function createChatMount(
   host: Host,
   onVaultChange: (cb: (ns: string, key: string) => void) => void,
 ): (container: HTMLElement, session: Session) => () => void {
-  const client = makeChatClient(host);
+  const agentClient = makeChatClient(host);
+
+  // A ChatClient for a mirrored terminal session: messages come from the
+  // transcript (read via host.chat.getMessages, a pure vault read), and `send`
+  // types into the terminal pane. Model/commands/permissions are owned by the
+  // terminal itself, so they are inert here.
+  const mirrorClient: ChatClient = {
+    listSessions: async () => [],
+    createSession: async () => {
+      throw new Error("a mirrored terminal session is not creatable from chat");
+    },
+    getMessages: (id) => host.chat!.getMessages(id),
+    send: (id, text) => host.terminalChat!.send(id, text),
+    respondPermission: async () => {},
+    setModel: async () => {},
+    listModels: async () => [],
+    listCommands: async () => [],
+  };
 
   return (container, panelSession) => {
     let disposed = false;
@@ -49,35 +69,37 @@ export function createChatMount(
       });
     });
 
-    // Placeholder while the (async) ChatBackend session resolves.
     const placeholder = document.createElement("div");
     placeholder.className = "chat-starting";
-    placeholder.textContent = "starting chat…";
+    placeholder.textContent = "loading chat…";
     container.append(placeholder);
 
     void (async () => {
       try {
-        // Resolve-or-create the ChatBackend session for this panel session.
-        const link = await host.vault.get<string>("chat-link", panelSession.id);
+        // Prefer mirroring the terminal session; fall back to a separate agent.
+        const mirrored = host.terminalChat
+          ? await host.terminalChat.mirror(panelSession.id)
+          : false;
+
         let chatSessionId: string;
-        if (link) {
-          // Resume: a page reload while the host is still running replays history
-          // and keeps sending (the engine's live driver persists). Across a HOST
-          // restart the transcript still loads, but the first send will fail
-          // ("not open") until the engine grows a resume() that rebuilds the
-          // driver from persisted meta — tracked as follow-up.
-          chatSessionId = link;
+        let client: ChatClient;
+        if (mirrored) {
+          chatSessionId = panelSession.id; // the transcript writes to chat:<panelId>
+          client = mirrorClient;
         } else {
-          const created = await client.createSession({
-            harness: panelSession.agent,
-            // Root the chat agent in the repo so it operates on the project, not
-            // the host's launch dir. `cwd` is passed verbatim to the SDK, so a
-            // bare "." would resolve against the host process cwd.
-            cwd: host.capabilities().filesRoot ?? ".",
-            title: panelSession.title,
-          });
-          chatSessionId = created.id;
-          await host.vault.set("chat-link", panelSession.id, chatSessionId);
+          client = agentClient;
+          const link = await host.vault.get<string>("chat-link", panelSession.id);
+          if (link) {
+            chatSessionId = link;
+          } else {
+            const created = await client.createSession({
+              harness: panelSession.agent,
+              cwd: host.capabilities().filesRoot ?? ".",
+              title: panelSession.title,
+            });
+            chatSessionId = created.id;
+            await host.vault.set("chat-link", panelSession.id, chatSessionId);
+          }
         }
         if (disposed) return;
 
@@ -114,7 +136,6 @@ export function createChatMount(
       } catch {
         /* ignore */
       }
-      // Don't kill the ChatBackend session — reopening resumes it.
       container.replaceChildren();
     };
   };

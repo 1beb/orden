@@ -143,9 +143,12 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
         opt.textContent = m.label;
         modelSelect.append(opt);
       }
+      // No models (e.g. a mirrored terminal session owns its own model) — hide
+      // the picker rather than show an empty dropdown.
+      modelSelect.hidden = models.length === 0;
     })
     .catch(() => {
-      /* no models available — leave the select empty */
+      modelSelect.hidden = true;
     });
 
   // ---- Rendering: tool card ----

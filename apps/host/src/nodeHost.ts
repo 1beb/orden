@@ -22,6 +22,7 @@ import type {
   Session,
   SessionState,
   ChatBackend,
+  TerminalChat,
   HarnessAdapter,
 } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
@@ -30,6 +31,7 @@ import { FsFiles } from "./fsFiles";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
 import { makeOpencodeAdapter } from "./chat/adapters/opencode";
+import { NodeTerminalChat } from "./chat/nodeTerminalChat";
 
 export interface NodeHostOptions {
   /** Directory the vault persists into. */
@@ -130,6 +132,7 @@ export class NodeHost implements Host {
   readonly sessions: SessionManager;
   readonly locks: LockService = new NoopLocks();
   readonly chat: ChatBackend;
+  readonly terminalChat: TerminalChat;
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
@@ -162,6 +165,10 @@ export class NodeHost implements Host {
     const adapters = opts.chatAdapters ?? [makeClaudeAdapter(), makeOpencodeAdapter()];
     for (const adapter of adapters) registry.register(adapter);
     this.chat = createChatBackend({ vault: this.vault, registry });
+    // Mirror a terminal session's transcript into the chat view + type into its
+    // pane, so the Chat tab is a second view of the SAME session the Terminal
+    // tab runs (vs `chat`, which spawns its own agent).
+    this.terminalChat = new NodeTerminalChat(this, opts.filesRoot ?? process.cwd());
   }
 
   /** Subscribe to vault writes (from any bus). Returns an unsubscribe fn. */

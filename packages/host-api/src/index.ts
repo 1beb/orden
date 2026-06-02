@@ -132,6 +132,21 @@ export interface LockService {
   holders(resource: string): Promise<string[]>;
 }
 
+/**
+ * Mirror a live terminal agent session into the chat view, and type into it.
+ * Unlike `chat` (which spawns its own agent), this reflects the SAME session the
+ * Terminal tab runs: it parses the session's transcript into `chat:<sessionId>`
+ * (so the chat store/view render it live) and routes `send` into the agent's
+ * tmux pane, so the Chat tab and Terminal tab are two views of one session.
+ */
+export interface TerminalChat {
+  /** Start mirroring the session's transcript into `chat:<sessionId>`. Idempotent.
+   *  Returns false if the session can't be mirrored (e.g. unsupported agent). */
+  mirror(sessionId: string): Promise<boolean>;
+  /** Type `text` into the session's live agent pane (its next-turn input). */
+  send(sessionId: string, text: string): Promise<void>;
+}
+
 export interface Host {
   identity: Identity;
   vault: VaultStore;
@@ -140,5 +155,6 @@ export interface Host {
   sessions: SessionManager;
   locks: LockService;
   chat?: ChatBackend;
+  terminalChat?: TerminalChat;
   capabilities(): HostCapabilities;
 }
