@@ -128,6 +128,10 @@ importers:
         version: 1.6.1(@types/node@20.19.39)(happy-dom@14.12.3)
 
   packages/host-api:
+    dependencies:
+      '@orden/chat-core':
+        specifier: workspace:*
+        version: link:../chat-core
     devDependencies:
       typescript:
         specifier: ^5.4.0

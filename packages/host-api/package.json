@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "main": "src/index.ts",
+  "dependencies": {
+    "@orden/chat-core": "workspace:*"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",

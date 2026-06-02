@@ -1,3 +1,7 @@
+export * from "@orden/chat-core";
+
+import type { ChatBackend } from "@orden/chat-core";
+
 export interface HostCapabilities {
   remoteProjects: boolean;
   spawnSessions: boolean;
@@ -98,5 +102,6 @@ export interface Host {
   files: FileSource;
   sessions: SessionManager;
   locks: LockService;
+  chat?: ChatBackend;
   capabilities(): HostCapabilities;
 }
