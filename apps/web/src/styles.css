@@ -197,6 +197,11 @@ body {
   display: none;
 }
 
+/* Non-annotatable views (journal/kanban/pages/project) get no panel at all. */
+#view-area.no-panel #panel {
+  display: none;
+}
+
 /* left navigation rail */
 #leftnav {
   background: #f4f4f2;

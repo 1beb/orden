@@ -693,11 +693,17 @@ document.addEventListener("orden:open-page", (e) => {
   if (name) openPage(name);
 });
 
+// Views whose content can carry annotations — the only ones that show the
+// annotations panel. Board/index views (journal, kanban, pages, project) aren't
+// annotatable surfaces, so the panel hides there instead of sitting empty.
+const ANNOTATABLE_VIEWS = new Set<View>(["review", "code", "image", "html"]);
+
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
     viewEls[name].classList.toggle("active", name === v);
   }
+  viewArea.classList.toggle("no-panel", !ANNOTATABLE_VIEWS.has(v));
   const titles: Record<View, string> = {
     review: currentDocTitle,
     code: currentDocTitle,
