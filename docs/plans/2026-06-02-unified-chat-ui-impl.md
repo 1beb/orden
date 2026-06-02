@@ -12,6 +12,8 @@
 
 **Design doc:** `docs/plans/2026-06-02-unified-chat-ui-design.md`.
 
+**Execution:** Subagent-driven in the originating session (decided 2026-06-02) — a fresh subagent implements each task, with a code-review checkpoint between tasks. Work happens on branch `chat-ui` in the worktree above. (Alternative not taken: a separate session driving `executing-plans` in batches.)
+
 ---
 
 ## Conventions
