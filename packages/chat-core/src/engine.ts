@@ -145,8 +145,12 @@ export function createChatBackend(deps: {
       const resolve = l.pending.get(reqId);
       if (!resolve) return; // unknown / already-resolved: no-op
       l.pending.delete(reqId);
-      await vault.delete(sessNs(sessionId), `perm:${reqId}`);
+      // Resolve the driver's permission promise BEFORE the vault delete: a failed
+      // delete would otherwise wedge the tool call forever (resolver unreachable).
+      // A stale perm: key left behind is the lesser evil. `remember` is dropped
+      // deliberately — the engine has no allow-list policy yet (deferred).
       resolve({ allow: d.decision === "allow" });
+      await vault.delete(sessNs(sessionId), `perm:${reqId}`);
     },
 
     async setModel(sessionId: string, model: string): Promise<void> {

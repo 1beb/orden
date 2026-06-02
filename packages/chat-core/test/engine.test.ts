@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createChatBackend } from "../src/engine";
 import { AdapterRegistry } from "../src/registry";
 import { MemVault } from "./helpers/memVault";
 import { makeFakeDriver, makeFakeAdapter } from "./helpers/fakeDriver";
-import type { ChatSession, ModelOption } from "../src/index";
+import type { ChatSession, ModelOption, HarnessDriver } from "../src/index";
 
 // Deterministic id generator for tests.
 function seqIds(prefix = "id"): () => string {
@@ -213,5 +213,39 @@ describe("createChatBackend resume over a shared vault", () => {
     const { vault, registry } = setup({ ids: seqIds("s") });
     const fresh = createChatBackend({ vault, registry, genId: seqIds("y") });
     await expect(fresh.send("never", "hi")).rejects.toThrow(/not open/);
+  });
+});
+
+describe("createChatBackend pump errors", () => {
+  it("surfaces a pump failure instead of swallowing it", async () => {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    // A driver whose event stream throws as soon as the pump iterates it.
+    const throwing: HarnessDriver = {
+      events: {
+        // eslint-disable-next-line require-yield
+        async *[Symbol.asyncIterator]() {
+          throw new Error("boom");
+        },
+      },
+      async send() {},
+      async setModel() {},
+      async listCommands() {
+        return [];
+      },
+      onPermission() {},
+      async close() {},
+    };
+    registry.register(makeFakeAdapter("claude", throwing));
+    const backend = createChatBackend({ vault, registry, genId: seqIds("s") });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await backend.createSession({ harness: "claude", cwd: "/w" });
+      await tick();
+      expect(errSpy).toHaveBeenCalled();
+      expect(errSpy.mock.calls.flat().join(" ")).toContain("s1");
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
