@@ -35,13 +35,17 @@ function collect(
   };
 }
 
-// Poll until predicate holds or a small timeout elapses; throws with `msg` on timeout.
+// Poll until predicate holds or a wall-clock timeout elapses; throws on timeout.
+// Wall-clock (not a fixed tick count) so a REAL adapter — whose turn takes seconds
+// of model + tool latency, not microtasks — isn't failed spuriously. The fake
+// satisfies it in milliseconds; the generous default just bounds a hung adapter.
 async function waitFor(
   pred: () => boolean,
   msg: string,
-  { tries = 100 }: { tries?: number } = {},
+  { timeoutMs = 10_000 }: { timeoutMs?: number } = {},
 ): Promise<void> {
-  for (let i = 0; i < tries; i++) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     if (pred()) return;
     await tick();
   }
@@ -102,6 +106,9 @@ export function runAdapterContract(label: string, make: () => AdapterContractHar
         }
       } finally {
         sink.stop();
+        // Close the driver so a real long-lived events iterator actually
+        // terminates instead of parking past test teardown.
+        await driver.close();
       }
     });
 
