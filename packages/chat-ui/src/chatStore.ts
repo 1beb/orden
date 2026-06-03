@@ -1,8 +1,10 @@
-import type { ChatMessage, PermissionRequest } from "@orden/chat-core";
+import type { ChatMessage, KeyedMessage, PermissionRequest } from "@orden/chat-core";
 
 export interface ChatStore {
   hydrate(messages: ChatMessage[]): void;
+  hydrateKeyed(entries: KeyedMessage[]): void;
   applyChange(ns: string, key: string, value: unknown): void;
+  addMessage(message: ChatMessage): void;
   messages(): ChatMessage[];
   pendingPermissions(): PermissionRequest[];
   onChange(cb: () => void): () => void;
@@ -35,6 +37,17 @@ export function createChatStore(sessionId: string): ChatStore {
       messages.forEach((m, i) => bySeq.set(i, m));
       rebuildMessages();
     },
+    hydrateKeyed(entries) {
+      // Seed bySeq at each message's REAL seq, not its array position. The
+      // terminal mirror keys by absolute transcript index and only writes a
+      // sliding window, so on-disk keys can start at an offset and have gaps —
+      // array-index hydration would then place history at seqs that disagree
+      // with the live msg:<seq> deltas, reordering/duplicating messages. Sharing
+      // one keyspace makes a delta upsert exactly where its message was seeded.
+      bySeq.clear();
+      for (const { seq, message } of entries) bySeq.set(seq, message);
+      rebuildMessages();
+    },
     applyChange(changeNs, key, value) {
       if (changeNs !== ns) return; // defensive: ignore other sessions' deltas
       if (key.startsWith("msg:")) {
@@ -51,6 +64,15 @@ export function createChatStore(sessionId: string): ChatStore {
       }
       // The `meta` key (a ChatSession) is accepted but not surfaced here; it is
       // not a message and needs no store state for the view.
+    },
+    addMessage(message) {
+      let maxSeq = -1;
+      for (const seq of bySeq.keys()) {
+        if (seq > maxSeq) maxSeq = seq;
+      }
+      bySeq.set(maxSeq + 1, message);
+      rebuildMessages();
+      notify();
     },
     messages() {
       return [...msgs]; // copy: callers must not mutate store state (matches pendingPermissions)

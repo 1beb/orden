@@ -20,7 +20,7 @@ export type ConnectFn = () => Promise<OpencodeConnection>;
 
 // Default connection: spawn an opencode server and return its client. `close`
 // shuts the server down (the client has no separate lifecycle).
-async function defaultConnect(): Promise<OpencodeConnection> {
+export async function defaultConnect(): Promise<OpencodeConnection> {
   const { client, server } = await createOpencode();
   return { client, close: () => server.close() };
 }
@@ -262,7 +262,7 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
 // Every opencode SSE event we care about carries a sessionID somewhere in its
 // properties; keep only those for our session (and the session-less ones we
 // already filtered out by type are simply ignored downstream).
-function eventBelongsTo(event: Event, sessionId: string): boolean {
+export function eventBelongsTo(event: Event, sessionId: string): boolean {
   const props = (event as { properties?: Record<string, unknown> }).properties;
   if (!props) return false;
   if (typeof props.sessionID === "string") return props.sessionID === sessionId;

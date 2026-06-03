@@ -7,9 +7,11 @@ import type { Host } from "@orden/host-api";
 import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 
 export type StartupView = "journal" | "kanban" | "last";
+export type KanbanView = "board" | "list";
 
 export interface Settings {
   startup: StartupView;
+  kanbanView: KanbanView; // kanban tab layout: column board or grouped list
   fontFamily: string; // a FONT_OPTIONS id
   fontSize: number; // px
   accent: string; // hex color (#rrggbb)
@@ -21,6 +23,7 @@ export interface Settings {
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
+const KANBAN_VIEWS: readonly KanbanView[] = ["board", "list"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
@@ -32,6 +35,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 export const FADE_HOURS_OPTIONS: readonly number[] = [1, 4, 8, 24];
 const DEFAULT_SETTINGS: Settings = {
   startup: "last",
+  kanbanView: "board",
   fontFamily: DEFAULT_FONT_ID,
   fontSize: 16,
   accent: DEFAULT_ACCENT,
@@ -46,12 +50,17 @@ function isStartupView(value: unknown): value is StartupView {
   return typeof value === "string" && (STARTUP_VIEWS as readonly string[]).includes(value);
 }
 
+function isKanbanView(value: unknown): value is KanbanView {
+  return typeof value === "string" && (KANBAN_VIEWS as readonly string[]).includes(value);
+}
+
 function coerce(stored: unknown): Settings {
   const s = (typeof stored === "object" && stored !== null ? stored : {}) as Record<string, unknown>;
   const size = s.fontSize;
   const pct = s.sessionPanelPct;
   return {
     startup: isStartupView(s.startup) ? s.startup : DEFAULT_SETTINGS.startup,
+    kanbanView: isKanbanView(s.kanbanView) ? s.kanbanView : DEFAULT_SETTINGS.kanbanView,
     fontFamily:
       typeof s.fontFamily === "string" && FONT_IDS.includes(s.fontFamily)
         ? s.fontFamily

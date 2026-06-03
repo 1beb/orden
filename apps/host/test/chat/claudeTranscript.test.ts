@@ -79,6 +79,49 @@ describe("parseClaudeTranscript", () => {
     expect(msgs).toEqual([{ id: "u1", role: "user", parts: [{ type: "text", text: "actually do the thing" }] }]);
   });
 
+  it("hides skill loads entirely (Skill tool card + isMeta body)", () => {
+    const raw = jsonl(
+      { type: "user", uuid: "u1", message: { role: "user", content: "load the skill" } },
+      {
+        type: "assistant",
+        message: { id: "a1", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Skill", input: { skill: "claude-api" } }] },
+      },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "Launching skill: claude-api" }] } },
+      // The skill body: a user entry marked isMeta carrying the whole skill markdown.
+      // No wrapper tag, so prefix matching misses it — must be dropped via isMeta.
+      { type: "user", isMeta: true, message: { role: "user", content: [{ type: "text", text: "Base directory for this skill: /tmp/...\n\n# Big Skill\n..." }] } },
+    );
+    const msgs = parseClaudeTranscript(raw);
+    // Loading a skill is plumbing, not a turn: the Skill tool card is dropped, its
+    // assistant message has zero remaining parts (so it vanishes too), and the body
+    // is dropped via isMeta. Only the human's prompt survives.
+    expect(msgs).toEqual([{ id: "u1", role: "user", parts: [{ type: "text", text: "load the skill" }] }]);
+  });
+
+  it("keeps non-Skill tool cards alongside a dropped Skill card in the same turn", () => {
+    const raw = jsonl(
+      {
+        type: "assistant",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "t1", name: "Skill", input: { skill: "claude-api" } },
+            { type: "tool_use", id: "t2", name: "Bash", input: { command: "ls" } },
+          ],
+        },
+      },
+    );
+    const msgs = parseClaudeTranscript(raw);
+    expect(msgs).toEqual([
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [{ type: "tool", toolId: "t2", name: "Bash", input: { command: "ls" }, state: "running" }],
+      },
+    ]);
+  });
+
   it("skips subagent sidechains and malformed lines", () => {
     const raw = [
       "{ not json",

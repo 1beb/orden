@@ -1,7 +1,8 @@
 // Font registry + application. The app's reading/UI font and base size are
 // selectable in Settings; a curated set of Google Fonts (plus the system
 // stack). applyFont injects the Google stylesheet on demand and drives two CSS
-// variables (--app-font, --app-font-size) consumed by the body in styles.css.
+// variables (--app-font, --font-scale) consumed throughout styles.css. Every
+// font-size is calc(<px> * var(--font-scale)), so the base size sets the scale.
 
 export interface FontOption {
   id: string;
@@ -64,5 +65,6 @@ export function applyFont(
   const href = googleFontHref(opt);
   if (href) ensureFontLink(opt.id, href);
   root.style.setProperty("--app-font", opt.stack);
-  root.style.setProperty("--app-font-size", `${sizePx}px`);
+  // Base size 16px == scale 1; the slider's 12–24px maps to 0.75×–1.5×.
+  root.style.setProperty("--font-scale", String(sizePx / 16));
 }

@@ -7,30 +7,24 @@ import type { FileEntry } from "@orden/host-api";
 import {
   itemsByProject,
   addItem,
-  setItemState,
-  setItemProject,
-  cardSessionIds,
   type Item,
 } from "./cards";
 import {
   getProject,
   listProjects,
-  updateProject,
   DEFAULT_PROJECT_ID,
   type Project,
 } from "./projects";
-import { agentLauncher, markFor } from "./agentMarks";
+import { agentLauncher } from "./agentMarks";
 import { loadSettings } from "./settings";
 import {
-  sessionsForCard,
-  setSessionProject,
-  isSessionComplete,
   listSessions,
   type Agent,
 } from "./sessions";
 import { openDialog } from "./modal";
+import { openProjectModal } from "./projectModal";
 import { makeOutlineEditor } from "./outlineEditor";
-import { openCardModal } from "./cardModal";
+import { renderIssueGroups } from "./issueList";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
 // The project page surfaces what needs attention first, so it uses its own
@@ -67,14 +61,6 @@ export function projectPageHasFocus(): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
-// Capitalized labels for group headers and the state picker.
-const STATE_LABELS: Record<CardState, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
-};
-
 // The notes Page for a project is keyed deterministically by project id, not by
 // name: a distinct key (`notes:<id>`) so it (a) survives a project rename and
 // (b) does NOT collide with `[[Project: X]]`, which already routes to the
@@ -91,18 +77,24 @@ export function renderProjectPage(
   container: HTMLElement,
   projectId: string,
   onChange: () => void,
+  // The callbacks below are optional in spirit (each use is guarded in the body
+  // / by the sole caller), but typed `T | undefined` rather than `?` so the
+  // now-required `listFiles` can follow them without tripping TS's rule that a
+  // required parameter can't come after an optional one. The only caller
+  // (main.ts renderProject) always passes all of them positionally.
   // Start an agent session from an existing card that has no conversation yet.
-  onStartSession?: (item: Item, agent: Agent) => void,
+  onStartSession: ((item: Item, agent: Agent) => void) | undefined,
   // Open an existing session in the sessions panel.
-  onOpenSession?: (id: string) => void,
+  onOpenSession: ((id: string) => void) | undefined,
   // Start a NEW project-scoped session (not tied to any card).
-  onNewSession?: (agent: Agent) => void,
+  onNewSession: ((agent: Agent) => void) | undefined,
   // Open a repo file in the review/document view (file-backed projects only).
-  onOpenFile?: (path: string) => void,
-  // The repo's files (path + title). The host's FileSource is single-rooted at
-  // the repo for now; per-project roots come later, at which point this should
-  // be scoped per project rather than the whole repo.
-  repoFiles: FileEntry[] = [],
+  onOpenFile: ((path: string) => void) | undefined,
+  // Fetch THIS project's own files (path + title), lazily on render. The host
+  // serves files per project now, so the page asks for its own list rather than
+  // receiving one global repo array. Required: the Files widget is its whole
+  // reason to exist and the sole caller always passes it.
+  listFiles: (projectId: string) => Promise<FileEntry[]>,
   // Called after an in-place edit (rename / re-path) so the caller can refresh
   // the sidebar list and the view title to match.
   onProjectChanged?: () => void,
@@ -150,7 +142,7 @@ export function renderProjectPage(
     notesWidget(project),
     // File explorer last (below notes) — only for file-backed (local) projects.
     // Ephemeral/ssh/s3 projects have no browsable local files, so it's omitted.
-    ...(project.source.kind === "local" ? [filesWidget(projectId, repoFiles, onOpenFile)] : []),
+    ...(project.source.kind === "local" ? [filesWidget(projectId, listFiles, onOpenFile)] : []),
     activityWidget(),
   );
 }
@@ -224,15 +216,19 @@ function projectHeader(
   editBtn.className = "project-menu__item";
   editBtn.textContent = "Edit details";
 
-  // The inline edit form, hidden until "Edit details" is chosen.
-  const form = editForm(project, meta, heading, syncMeta, onProjectChanged);
-
+  // "Edit details" opens the shared add/edit modal in edit mode. On save it
+  // refreshes the title/meta in place and notifies the caller (sidebar/title).
   editBtn.addEventListener("click", () => {
     closeMenu();
-    titleRow.hidden = true;
-    meta.hidden = true;
-    form.hidden = false;
-    form.focus();
+    openProjectModal({
+      mode: "edit",
+      project,
+      onSaved: (updated) => {
+        heading.textContent = updated.name;
+        syncMeta();
+        onProjectChanged?.();
+      },
+    });
   });
   menu.append(editBtn);
 
@@ -253,76 +249,8 @@ function projectHeader(
   cogWrap.className = "project-cog-wrap";
   cogWrap.append(cog, menu);
   titleRow.append(heading, cogWrap);
-  wrap.append(titleRow, meta, form);
-  // Show/hide the form's restore of the title row on cancel/save.
-  form.addEventListener("project-edit-done", () => {
-    titleRow.hidden = false;
-    syncMeta();
-    form.hidden = true;
-  });
+  wrap.append(titleRow, meta);
   return wrap;
-}
-
-// Inline name (+ path, for local projects) editor. Emits a "project-edit-done"
-// event on its own element when the user saves or cancels, so the header can
-// restore the title row. Saving persists via updateProject and notifies the
-// caller to refresh the sidebar/title.
-function editForm(
-  project: Project,
-  _meta: HTMLElement,
-  heading: HTMLElement,
-  syncMeta: () => void,
-  onProjectChanged?: () => void,
-): HTMLElement {
-  const form = document.createElement("form");
-  form.className = "project-edit";
-  form.hidden = true;
-
-  const nameInput = document.createElement("input");
-  nameInput.className = "project-edit__input";
-  nameInput.placeholder = "Project name";
-  nameInput.value = project.name;
-
-  const pathInput = document.createElement("input");
-  pathInput.className = "project-edit__input";
-  pathInput.placeholder = "Folder path";
-  const isLocal = project.source.kind === "local";
-  if (isLocal) pathInput.value = (project.source as { path: string }).path;
-
-  const save = document.createElement("button");
-  save.type = "submit";
-  save.className = "project-edit__save";
-  save.textContent = "Save";
-
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.className = "project-edit__cancel";
-  cancel.textContent = "Cancel";
-
-  const done = (): void => {
-    form.dispatchEvent(new CustomEvent("project-edit-done"));
-  };
-  cancel.addEventListener("click", () => {
-    nameInput.value = project.name;
-    if (isLocal) pathInput.value = (project.source as { path: string }).path;
-    done();
-  });
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = nameInput.value.trim();
-    if (!name) return; // a project must keep a name
-    updateProject(project.id, { name, path: isLocal ? pathInput.value : undefined });
-    heading.textContent = project.name;
-    syncMeta();
-    onProjectChanged?.();
-    done();
-  });
-
-  form.append(nameInput, ...(isLocal ? [pathInput] : []), save, cancel);
-  // Focusing the form focuses the name field (header calls form.focus()).
-  form.addEventListener("focus", () => nameInput.focus());
-  Object.defineProperty(form, "focus", { value: () => nameInput.focus() });
-  return form;
 }
 
 // The remove confirmation flow. Counts the project's cards/sessions, offers
@@ -404,7 +332,8 @@ function addBar(
   });
   row.append(input, addBtn);
 
-  // The brand marks add the item and start a session on it in one action.
+  // The brand marks add the item and start a session on it in one action. The
+  // project's default agent (if set) is emphasized in the launcher.
   if (onStartSession) {
     row.append(
       agentLauncher((agent) => {
@@ -412,7 +341,7 @@ function addBar(
         if (!item) return;
         onStartSession(item, agent);
         refreshItems(); // show the new item's open button
-      }),
+      }, getProject(projectId)?.defaultAgent),
     );
   }
   return row;
@@ -491,9 +420,15 @@ let expandedDirs = new Set<string>();
 // transition's full re-render doesn't snap it shut while the user is in it.
 let filesSectionOpen = false;
 
+// Build the Files widget shell synchronously (so the page's widget order is
+// preserved), then fetch this project's files lazily and populate the body when
+// they resolve. The fetch is guarded against races: the project page re-renders
+// frequently (a card transition rebuilds it), so a stale result that arrives
+// after the section was replaced — or after a switch to another project — must
+// not populate the new DOM. `section.isConnected` is the minimal robust guard.
 function filesWidget(
   projectId: string,
-  repoFiles: FileEntry[],
+  listFiles: (projectId: string) => Promise<FileEntry[]>,
   onOpenFile?: (path: string) => void,
 ): HTMLElement {
   const { section, body } = widget("Files", {
@@ -503,12 +438,54 @@ function filesWidget(
       filesSectionOpen = open;
     },
   });
+
+  const loading = document.createElement("p");
+  loading.className = "project-widget-empty";
+  loading.textContent = "Loading…";
+  body.append(loading);
+
+  // The isConnected guard below relies on renderProjectPage rebuilding a fresh
+  // `section` each call (via container.replaceChildren()), so a stale fetch can
+  // only ever target its own now-detached section — never the live one. If that
+  // invariant ever changes (e.g. DOM reuse across renders), this needs a
+  // per-render generation token instead.
+  void listFiles(projectId)
+    .then((repoFiles) => {
+      // Bail if this section was detached before the fetch resolved (page
+      // re-rendered, or the user navigated to a different project).
+      if (!section.isConnected) return;
+      renderFilesBody(body, projectId, repoFiles, onOpenFile);
+    })
+    .catch(() => {
+      // The list call can reject (host down, dropped connection, unreadable
+      // root, server throw). Same detachment guard, then show an error state
+      // instead of hanging on "Loading…" forever.
+      if (!section.isConnected) return;
+      body.replaceChildren();
+      const err = document.createElement("p");
+      err.className = "project-widget-empty";
+      err.textContent = "Couldn't load files.";
+      body.append(err);
+    });
+  return section;
+}
+
+// Pure renderer: populate a Files widget body from a known files array. Split
+// out from filesWidget so the shell can mount before the per-project fetch
+// resolves; all the filter/tree/chip logic lives here, driven by the array.
+function renderFilesBody(
+  body: HTMLElement,
+  projectId: string,
+  repoFiles: FileEntry[],
+  onOpenFile?: (path: string) => void,
+): void {
+  body.replaceChildren();
   if (repoFiles.length === 0) {
     const empty = document.createElement("p");
     empty.className = "project-widget-empty";
     empty.textContent = "No files in this project.";
     body.append(empty);
-    return section;
+    return;
   }
 
   // A fresh project starts unfiltered and fully furled; the same project keeps
@@ -675,7 +652,6 @@ function filesWidget(
   renderExtOptions();
   renderTree();
   body.append(search, filters, list);
-  return section;
 }
 
 // --- Widget shell ---------------------------------------------------------
@@ -713,39 +689,6 @@ function widget(
 
 // --- Items by state (issue tracker + active sessions, combined) -----------
 
-// A leading control for an item row. If the item has linked session(s), render
-// one brand-mark button per session that opens it directly (the active-session
-// affordance, folded onto the row). Otherwise render the Claude/opencode
-// launcher to start a session on it.
-function rowLeader(
-  item: Item,
-  onStartSession?: (item: Item, agent: Agent) => void,
-  onOpenSession?: (id: string) => void,
-): HTMLElement {
-  const lead = document.createElement("span");
-  lead.className = "issue-row-lead";
-  const sessions = sessionsForCard(item);
-  if (sessions.length > 0) {
-    for (const s of sessions) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "issue-sess-open";
-      if (isSessionComplete(s)) b.classList.add("is-complete");
-      b.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
-      b.title = `Open ${s.agent} session: ${s.title}`;
-      b.setAttribute("aria-label", b.title);
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onOpenSession?.(s.id);
-      });
-      lead.append(b);
-    }
-  } else if (onStartSession) {
-    lead.append(agentLauncher((agent) => onStartSession(item, agent)));
-  }
-  return lead;
-}
-
 function itemsWidget(
   projectId: string,
   onChange: () => void,
@@ -776,86 +719,23 @@ function itemsWidget(
     if (soonestDrop !== Infinity) {
       dropTimer = setTimeout(render, soonestDrop - nowMs + 50);
     }
-    list.replaceChildren();
     if (items.length === 0) {
+      list.replaceChildren();
       const empty = document.createElement("p");
       empty.className = "project-widget-empty";
       empty.textContent = "No items yet. Add one above.";
       list.append(empty);
       return;
     }
-    for (const state of STATES) {
-      const group = items.filter((i) => i.state === state);
-      if (group.length === 0) continue;
-      const details = document.createElement("details");
-      details.className = "issue-group";
-      // Completed cards can pile up; show the group but keep it furled until the
-      // user opens it. Every other state defaults open.
-      details.open = state !== "complete";
-      const summary = document.createElement("summary");
-      summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${STATE_LABELS[state]}</span> <span class="issue-group-count">${group.length}</span>`;
-      details.append(summary);
-      for (const item of group) {
-        const row = document.createElement("div");
-        row.className = "issue-row";
-        // Leading control: open the linked session(s) directly, or — if none —
-        // launch one. This is what folds Active sessions into the row.
-        const lead = rowLeader(item, onStartSession, onOpenSession);
-        // Click the title to open the card's detail modal (same modal the
-        // kanban board opens). Mutations there refresh this list;
-        // onStart/onOpen fall back to no-ops if the page didn't wire them.
-        const title = document.createElement("button");
-        title.type = "button";
-        title.className = "issue-title";
-        title.textContent = item.title;
-        title.addEventListener("click", () => {
-          openCardModal(item.id, {
-            onStartSession: (it, agent) => onStartSession?.(it, agent),
-            onOpenSession: (id) => onOpenSession?.(id),
-            onChange: () => {
-              onChange();
-              render();
-            },
-          });
-        });
-        const select = document.createElement("select");
-        select.className = "issue-state";
-        for (const s of STATES) {
-          const opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = STATE_LABELS[s];
-          opt.selected = s === item.state;
-          select.append(opt);
-        }
-        select.addEventListener("change", () => {
-          setItemState(item.id, select.value as CardState);
-          onChange();
-          render();
-        });
-        // Move the card to another project (it then leaves this page's list).
-        const projSel = document.createElement("select");
-        projSel.className = "issue-project";
-        projSel.title = "Project";
-        for (const p of listProjects()) {
-          const opt = document.createElement("option");
-          opt.value = p.id;
-          opt.textContent = p.name;
-          opt.selected = p.id === item.projectId;
-          projSel.append(opt);
-        }
-        projSel.addEventListener("change", () => {
-          setItemProject(item.id, projSel.value);
-          // Move the linked sessions too, so they follow the card off this page
-          // instead of stranding under its old project.
-          for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
-          onChange();
-          render();
-        });
-        row.append(lead, title, select, projSel);
-        details.append(row);
-      }
-      list.append(details);
-    }
+    renderIssueGroups(list, items, {
+      states: STATES,
+      onMutate: () => {
+        onChange();
+        render();
+      },
+      onStartSession,
+      onOpenSession,
+    });
   };
 
   body.append(list);

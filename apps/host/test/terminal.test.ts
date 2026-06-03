@@ -1,6 +1,26 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { tmpdir } from "node:os";
-import { mcpConfigArg, settingsArg, launchDetached, resolveSessionCwd } from "../src/terminal";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+// Under vitest's worker pool os.homedir() is pinned to the real home and ignores
+// a runtime $HOME change, and node:os exports are non-configurable so vi.spyOn
+// can't patch homedir(). Mock the module instead, with a hoisted mutable holder
+// the buildCommand tests point at a throwaway home (empty = real homedir).
+const osHome = vi.hoisted(() => ({ dir: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => osHome.dir || actual.homedir() };
+});
+import {
+  mcpConfigArg,
+  settingsArg,
+  launchDetached,
+  resolveSessionCwd,
+  resolveAgentBin,
+  buildCommand,
+} from "../src/terminal";
+import { encodeCwd } from "../src/transcriptTitle";
 import type { Host, Project } from "@orden/host-api";
 
 // A host whose vault returns the given project records (ns "projects") and
@@ -135,6 +155,163 @@ describe("resolveSessionCwd", () => {
       },
     });
     expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+  });
+});
+
+describe("resolveAgentBin", () => {
+  const ORIGINAL_PATH = process.env.PATH;
+  const ORIGINAL_HOME = process.env.HOME;
+  let home: string;
+
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+    if (ORIGINAL_PATH === undefined) delete process.env.PATH;
+    else process.env.PATH = ORIGINAL_PATH;
+    if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+    else process.env.HOME = ORIGINAL_HOME;
+  });
+
+  function fakeBin(dir: string, name: string): string {
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, name);
+    writeFileSync(p, "#!/bin/sh\n");
+    chmodSync(p, 0o755);
+    return p;
+  }
+
+  // The bug: the host started with a PATH lacking ~/.local/bin (where claude
+  // lives) launched `sh -c "claude …"`, which exited 127 and showed `[exited]`.
+  test("finds claude in ~/.local/bin even when PATH omits it", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path"; // claude not reachable here
+    const p = fakeBin(join(home, ".local", "bin"), "claude");
+    expect(resolveAgentBin("claude")).toBe(p);
+  });
+
+  test("finds opencode in ~/.opencode/bin", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path";
+    const p = fakeBin(join(home, ".opencode", "bin"), "opencode");
+    expect(resolveAgentBin("opencode")).toBe(p);
+  });
+
+  test("prefers a PATH entry over the home fallbacks", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    const onPath = fakeBin(join(home, "pathbin"), "claude");
+    fakeBin(join(home, ".local", "bin"), "claude"); // also present, must lose
+    process.env.PATH = join(home, "pathbin");
+    expect(resolveAgentBin("claude")).toBe(onPath);
+  });
+
+  test("falls back to the bare name when nothing is found", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path";
+    expect(resolveAgentBin("claude")).toBe("claude");
+  });
+});
+
+describe("buildCommand (claude resume vs mint)", () => {
+  const ORIGINAL_HOME = process.env.HOME;
+  let home: string;
+
+  // Point claude's transcript lookup at a throwaway HOME so a test can make a
+  // conversation "exist" (or not) without touching the real ~/.claude. The mocked
+  // os.homedir() (see top of file) reads osHome.dir.
+  function setup(): void {
+    home = mkdtempSync(join(tmpdir(), "orden-home-"));
+    process.env.HOME = home;
+    osHome.dir = home;
+  }
+  afterEach(() => {
+    osHome.dir = "";
+    if (home) rmSync(home, { recursive: true, force: true });
+    if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+    else process.env.HOME = ORIGINAL_HOME;
+  });
+
+  // Drop a fake claude transcript at ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
+  function writeTranscript(cwd: string, convId: string): void {
+    const dir = join(home, ".claude", "projects", encodeCwd(cwd));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${convId}.jsonl`), "{}\n");
+  }
+
+  // A vault that records the last record set, so we can assert what gets persisted.
+  function vaultHost(): { host: Host; saved: () => Record<string, unknown> | null } {
+    let last: Record<string, unknown> | null = null;
+    const host = {
+      vault: {
+        get: async () => null,
+        set: async (_ns: string, _key: string, val: unknown) => {
+          last = val as Record<string, unknown>;
+        },
+        list: async () => [],
+        delete: async () => {},
+      },
+    } as unknown as Host;
+    return { host, saved: () => last };
+  }
+
+  const CWD = "/work/repo";
+
+  test("resumes when the conversation transcript exists on disk", async () => {
+    setup();
+    writeTranscript(CWD, "conv-real");
+    const { host } = vaultHost();
+    const rec = { agent: "claude", conversationId: "conv-real" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--resume conv-real");
+    expect(cmd).not.toContain("--session-id");
+  });
+
+  test("re-mints with the SAME id (not --resume) when the transcript is missing", async () => {
+    setup();
+    // conversationId persisted at mint time, but claude never wrote the transcript
+    // (session closed before its first turn) — the bug that printed `[exited]`.
+    const { host } = vaultHost();
+    const rec = { agent: "claude", conversationId: "conv-ghost" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--session-id conv-ghost");
+    expect(cmd).not.toContain("--resume");
+    // Same id is kept so the scoped MCP endpoint stays bound.
+    expect(cmd).toContain("/mcp/conv-ghost");
+  });
+
+  test("launches via the resolved absolute agent path (PATH-independent)", async () => {
+    setup();
+    const binDir = join(home, ".local", "bin");
+    mkdirSync(binDir, { recursive: true });
+    const binPath = join(binDir, "claude");
+    writeFileSync(binPath, "#!/bin/sh\n");
+    chmodSync(binPath, 0o755);
+    const savedPath = process.env.PATH;
+    process.env.PATH = "/no/such/orden/path"; // force resolution via the home fallback
+    try {
+      const { host } = vaultHost();
+      const rec = { agent: "claude" } as never;
+      const cmd = await buildCommand(host, rec, "sess_1", CWD);
+      // The command leads with the shquoted absolute path, not a bare `claude`.
+      expect(cmd.startsWith(`'${binPath}' `)).toBe(true);
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
+  });
+
+  test("mints a fresh id and persists it for a brand-new session", async () => {
+    setup();
+    const { host, saved } = vaultHost();
+    const rec = { agent: "claude" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    const m = cmd.match(/--session-id ([0-9a-f-]{36})/);
+    expect(m).not.toBeNull();
+    expect(cmd).not.toContain("--resume");
+    // The minted id is written back to the record.
+    expect((saved() as { conversationId?: string })?.conversationId).toBe(m![1]);
   });
 });
 

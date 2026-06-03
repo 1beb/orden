@@ -32,6 +32,62 @@ describe("chatStore hydrate", () => {
   });
 });
 
+describe("chatStore hydrateKeyed (real-seq aware)", () => {
+  // The terminal mirror keys messages by their ABSOLUTE position in the parsed
+  // transcript and only writes a sliding window of the most recent ones, so the
+  // on-disk msg:<seq> keys can start at an offset (e.g. 481, not 0) and have
+  // gaps. Hydrating by array position then diverges from live deltas (which use
+  // the real seq), reordering/duplicating messages. hydrateKeyed seeds the store
+  // at the REAL seq so both paths share one keyspace.
+  const ns = `chat:${SID}`;
+
+  it("seeds messages at their real seq; a live update to the last one replaces in place", () => {
+    const store = createChatStore(SID);
+    store.hydrateKeyed([
+      { seq: 481, message: msg("a", "old-1") },
+      { seq: 482, message: msg("b", "old-2") },
+      { seq: 483, message: msg("c", "streaming") },
+    ]);
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "c"]);
+    // The still-streaming last message updates, keyed by its REAL seq (483),
+    // not its array position (2).
+    store.applyChange(ns, "msg:0483", msg("c", "streaming done"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "c"]); // no duplicate
+    expect(store.messages()[2].parts).toEqual([{ type: "text", text: "streaming done" }]);
+    // A brand-new appended message (real seq 484) lands AFTER history.
+    store.applyChange(ns, "msg:0484", msg("d", "new"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("a live update to an EARLY message in an offset keyspace stays in place — no reorder/dup", () => {
+    const store = createChatStore(SID);
+    store.hydrateKeyed([
+      { seq: 481, message: msg("a", "first") },
+      { seq: 482, message: msg("b", "second") },
+      { seq: 483, message: msg("c", "third") },
+    ]);
+    // A tool_result flips the FIRST history message, keyed by real seq 481.
+    // With array-index hydration this lands at seq 481 (after everything) and
+    // the message appears duplicated at the end.
+    store.applyChange(ns, "msg:0481", msg("a", "first updated"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "c"]);
+    expect(store.messages()[0].parts).toEqual([{ type: "text", text: "first updated" }]);
+  });
+
+  it("tolerates gaps in the seq keyspace, ordering by real seq", () => {
+    const store = createChatStore(SID);
+    store.hydrateKeyed([
+      { seq: 0, message: msg("a", "A") },
+      { seq: 1, message: msg("b", "B") },
+      { seq: 100, message: msg("y", "Y") }, // gap 2..99
+      { seq: 101, message: msg("z", "Z") },
+    ]);
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "y", "z"]);
+    store.applyChange(ns, "msg:0100", msg("y", "Y2")); // update across the gap
+    expect(store.messages().map((m) => m.id)).toEqual(["a", "b", "y", "z"]);
+  });
+});
+
 describe("chatStore applyChange msg", () => {
   const ns = `chat:${SID}`;
 

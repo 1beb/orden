@@ -84,6 +84,22 @@ describe("sessions store (host-backed)", () => {
     expect(killed).toContain(s.id);
   });
 
+  it("flags the persisted record pendingLaunch so the host spawns the agent on create", async () => {
+    // Web session starts are explicit user actions, so the agent must launch
+    // immediately — not lazily when the Terminal tab attaches. Otherwise a panel
+    // that opens on the Chat tab (which only mirrors) never spawns the agent.
+    const h = new BrowserHost();
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    const s = createSession({ title: "Launch me", agent: "claude" });
+    await settle();
+    const rec = await h.vault.get<{ pendingLaunch?: boolean }>("sessions", s.id);
+    expect(rec?.pendingLaunch).toBe(true);
+    // The in-memory cache stays clean so later persists don't re-trigger launch.
+    expect((getSession(s.id) as Session & { pendingLaunch?: boolean }).pendingLaunch).toBeUndefined();
+  });
+
   it("ensureSummary seeds from the title once a card is complete; no-op otherwise", () => {
     const s = createSession({ title: "Wrap up", agent: "claude" });
     ensureSummary(s, "in-progress");

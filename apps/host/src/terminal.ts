@@ -12,10 +12,15 @@ import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host, Project } from "@orden/host-api";
-import { readTranscriptTitle } from "./transcriptTitle";
+import { readTranscriptTitle, claudeTranscriptExists } from "./transcriptTitle";
+// Resolve agent CLIs to absolute paths so a minimal host PATH can't break launch
+// (see agentBin.ts). Re-exported so tests can drive it via this module's surface.
+import { resolveAgentBin } from "./agentBin";
+export { resolveAgentBin };
 import { persistTitle, persistSummary } from "./sessionTitles";
 import {
   discoverOpencodeSession,
@@ -35,6 +40,26 @@ export function tmuxNameFor(sessionId: string): string {
 // a missing session just makes tmux exit non-zero, which we swallow.
 export async function killSessionTmux(sessionId: string): Promise<void> {
   await exec("tmux", ["kill-session", "-t", tmuxNameFor(sessionId)]).catch(() => {});
+}
+
+// Build the env vars (tmux -e arguments + spawn env entries) for opencode
+// sessions that carry the kanban state plugin.
+function opencodeEnv(
+  rec: { agent: "claude" | "opencode" },
+  sessionId: string,
+): { args: string[]; env: Record<string, string> } {
+  if (rec.agent !== "opencode") return { args: [], env: {} };
+  const pluginDir = ensureOpencodePluginDir(sessionId);
+  return {
+    args: [
+      "-e", `ORDEN_SESSION_ID=${sessionId}`,
+      "-e", `OPENCODE_CONFIG_DIR=${pluginDir}`,
+    ],
+    env: {
+      ORDEN_SESSION_ID: sessionId,
+      OPENCODE_CONFIG_DIR: pluginDir,
+    },
+  };
 }
 
 interface SessionRecord {
@@ -57,6 +82,7 @@ interface SessionRecord {
 function shquote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
+
 
 // Build the `--mcp-config <json>` fragment that binds a launched claude session
 // to ITS OWN scoped orden MCP endpoint: http://127.0.0.1:<port>/mcp/<convId>.
@@ -110,6 +136,69 @@ export function settingsArg(): string {
     },
   };
   return `--settings ${shquote(JSON.stringify(settings))}`;
+}
+
+// opencode kanban state plugin: mirrors what settingsArg() does for Claude hooks.
+// Opencode doesn't have inline --settings, so we generate a tiny plugin file and
+// point opencode at it via OPENCODE_CONFIG_DIR. The plugin uses fetch() (Bun's
+// in-process HTTP) to POST state transitions to the host. Sessions are mapped via
+// ORDEN_SESSION_ID (not conversationId) so the host doesn't need the opencode
+// session id to be pre-registered — the first event (session.created) carries the
+// opencode id and the host persists it then.
+//
+// Event mapping:
+//   session.created / session.updated / tool.execute.after -> in-progress
+//   session.idle                                          -> blocked
+//
+// Subagent gating (Claude's SubagentStart/Stop) is not wired for opencode yet;
+// session.idle fires even while child sessions run, which may cause premature
+// blocked transitions during subagent workflows.
+function opencodePluginSource(): string {
+  return `// auto-generated orden kanban plugin — do not edit
+export const OrdenKanban = async () => {
+  const PORT = process.env.ORDEN_PORT || "4319"
+  const ORDEN_SID = process.env.ORDEN_SESSION_ID || ""
+
+  const post = async (path, extra) => {
+    try {
+      await fetch("http://127.0.0.1:" + PORT + "/hooks/" + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...extra, orden_session_id: ORDEN_SID }),
+      })
+    } catch (_) {}
+  }
+
+  return {
+    event: async ({ event }) => {
+      if (!event?.type) return
+      if (event.type === "session.created") {
+        await post("session-state?state=in-progress", { session_id: event.properties?.id })
+      }
+      if (event.type === "session.idle") {
+        await post("session-state?state=blocked")
+      }
+      if (event.type === "session.updated") {
+        await post("session-state?state=in-progress")
+      }
+    },
+    "tool.execute.after": async () => {
+      await post("session-state?state=in-progress")
+    },
+  }
+}
+`;
+}
+
+// Create the plugin directory for an opencode session. Returns the path that
+// should be set as OPENCODE_CONFIG_DIR. Idempotent — reattach reuses the same
+// directory so the plugin file is only written once per session id.
+function ensureOpencodePluginDir(sessionId: string): string {
+  const dir = `${homedir()}/.orden/opencode-plugins/${sessionId}`;
+  const pluginsDir = `${dir}/plugins`;
+  mkdirSync(pluginsDir, { recursive: true });
+  writeFileSync(`${pluginsDir}/orden-kanban.js`, opencodePluginSource(), "utf8");
+  return dir;
 }
 
 // Resolve the working directory a session's agent should launch in: the folder
@@ -187,35 +276,30 @@ async function applyTranscriptTitle(
   return persistTitle(host, sessionId, title);
 }
 
-async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): Promise<string> {
+export async function buildCommand(
+  host: Host,
+  rec: SessionRecord,
+  sessionId: string,
+  cwd: string,
+): Promise<string> {
+  // Launch via the agent's absolute path so a minimal host PATH can't break it
+  // (see resolveAgentBin). shquoted in case the resolved path contains spaces.
+  const bin = shquote(resolveAgentBin(rec.agent));
   if (rec.agent === "opencode") {
     // opencode's TUI has no --session-id to MINT a chosen id (only -s/--session to
     // RESUME an existing one), so we can't pre-persist an id the way Claude allows.
-    // Reattach: resume the id we discovered after the first launch (the poller
-    // persists conversationId — see applyTranscriptTitle). First open: launch bare;
-    // the discovered id is captured shortly after.
+    // Reattach: resume the id we discovered after the first launch (conversationId
+    // is persisted either by the kanban plugin's first event or by the poller).
+    // First open: launch bare; the id is captured shortly after.
     //
-    // NOTE (kanban state hooks — NOT wired for opencode yet): claude gets the
-    // working/blocked hooks via settingsArg() below. opencode needs a different
-    // approach and three things differ:
-    //   1. No Claude hook taxonomy. opencode has no UserPromptSubmit/PostToolUse/
-    //      Stop/Notification. Map its OWN lifecycle events instead — message/tool
-    //      activity -> in-progress, session-idle / permission-request -> blocked,
-    //      first activity after idle -> in-progress (the recovery edge).
-    //   2. No inline --settings. opencode is configured via opencode.json /
-    //      OPENCODE_CONFIG / a plugin module, not an inline JSON flag — so we
-    //      can't do the file-free injection trick. Likeliest path: a tiny bundled
-    //      opencode plugin that POSTs to /hooks/* on the relevant events, pointed
-    //      at via OPENCODE_CONFIG (port templated in, same as settingsArg). A
-    //      JS plugin POSTs with fetch in-process — no curl/shell-quoting, and it
-    //      already knows opencode's session id from the event payload.
-    //   3. id timing. We discover+persist opencode's conversationId only AFTER
-    //      first launch, so a plugin firing on turn 1 carries an id the host hasn't
-    //      mapped yet (sessionForConversation misses -> no-op). Either gate the
-    //      plugin until discovery lands, or have the plugin self-register the id.
-    if (rec.conversationId) return `opencode --session ${rec.conversationId}`;
+    // Kanban state hooks are wired via a generated opencode plugin (see
+    // opencodePluginSource / ensureOpencodePluginDir above), pointed at via
+    // OPENCODE_CONFIG_DIR in the tmux env. The plugin uses fetch() to POST
+    // state transitions to /hooks/session-state, mapping through ORDEN_SESSION_ID
+    // so the host doesn't need the opencode session id pre-registered.
+    if (rec.conversationId) return `${bin} --session ${rec.conversationId}`;
     // First open: launch the TUI, seeding the card's text as the initial prompt.
-    let cmd = "opencode"; // interactive opencode TUI (id discovered post-launch)
+    let cmd = bin; // interactive opencode TUI (id discovered post-launch)
     if (rec.initialPrompt) {
       cmd += ` --prompt ${shquote(rec.initialPrompt)}`;
       rec.initialPrompt = undefined;
@@ -223,17 +307,24 @@ async function buildCommand(host: Host, rec: SessionRecord, sessionId: string): 
     }
     return cmd;
   }
-  // claude: resume the conversation if we have its id, else mint one and persist
-  // it so chat-mode and future TUI opens continue the same session.
+  // claude: resume the conversation if we have its id AND claude actually wrote
+  // its transcript to disk. The id is persisted at MINT time (below) because the
+  // scoped --mcp-config endpoint and --settings hooks bind to it before the agent
+  // runs — but claude writes the transcript only once the session does real work.
+  // A session opened and closed before its first turn (e.g. reaped as untouched)
+  // leaves conversationId pointing at a file that never existed; `--resume` on it
+  // errors "No conversation found" and exits instantly, so the tmux client just
+  // prints `[exited]`. Guard on the transcript: resume only when it exists, else
+  // fall through and relaunch with the SAME id (keeps the MCP binding stable).
   // --mcp-config binds this session to its scoped orden endpoint; --settings
   // injects the kanban state hooks (both port-templated by orden, no repo files).
-  if (rec.conversationId)
-    return `claude ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
-  const id = randomUUID();
+  if (rec.conversationId && claudeTranscriptExists(cwd, rec.conversationId))
+    return `${bin} ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
+  const id = rec.conversationId ?? randomUUID();
   rec.conversationId = id;
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
-  let cmd = `claude ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
+  let cmd = `${bin} ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;
@@ -264,8 +355,9 @@ export async function launchDetached(
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
     const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
-    const cmd = await buildCommand(host, rec, sessionId);
+    const cmd = await buildCommand(host, rec, sessionId, cwd);
     const tmuxName = tmuxNameFor(sessionId);
+    const ocEnv = opencodeEnv(rec, sessionId);
     // Mirror handle()'s tmux invocation, but detached (-d) and via plain spawn
     // (no pty needed to merely create). `cmd` is a single shell string and is
     // passed as the trailing positional arg, exactly as handle() does.
@@ -274,14 +366,16 @@ export async function launchDetached(
         "tmux",
         [
           "new-session", "-d", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
-          "-c", cwd, cmd,
+          "-c", cwd,
+          ...ocEnv.args,
+          cmd,
           ";", "set-option", "-g", "mouse", "on",
           ";", "set-option", "-g", "window-size", "latest",
           ";", "set-option", "-g", "aggressive-resize", "on",
         ],
         {
           cwd,
-          env: { ...process.env, ORDEN_MANAGED: "1" } as Record<string, string>,
+          env: { ...process.env, ORDEN_MANAGED: "1", ...ocEnv.env } as Record<string, string>,
           stdio: "ignore",
           detached: true,
         },
@@ -334,8 +428,9 @@ async function handle(
       ? await existingOpencodeSessions(cwd)
       : new Set<string>();
 
-  const cmd = await buildCommand(host, rec, sessionId);
+  const cmd = await buildCommand(host, rec, sessionId, cwd);
   const tmuxName = tmuxNameFor(sessionId);
+  const ocEnv = opencodeEnv(rec, sessionId);
   const term = ptySpawn(
     "tmux",
     // attach-or-create: the command only runs when the session is first created.
@@ -355,7 +450,9 @@ async function handle(
       // survives a shared server. Without it the Claude hooks see no
       // ORDEN_MANAGED and never POST state, so the kanban card never moves.
       "new-session", "-A", "-e", "ORDEN_MANAGED=1", "-s", tmuxName,
-      "-x", String(cols), "-y", String(rows), "-c", cwd, cmd,
+      "-x", String(cols), "-y", String(rows), "-c", cwd,
+      ...ocEnv.args,
+      cmd,
       ";", "set-option", "-g", "mouse", "on",
       ";", "set-option", "-g", "window-size", "latest",
       ";", "set-option", "-g", "aggressive-resize", "on",
@@ -369,7 +466,7 @@ async function handle(
       cwd,
       cols,
       rows,
-      env: { ...process.env, ORDEN_MANAGED: "1" } as Record<string, string>,
+      env: { ...process.env, ORDEN_MANAGED: "1", ...ocEnv.env } as Record<string, string>,
     },
   );
 

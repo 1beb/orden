@@ -227,7 +227,13 @@ export function createSession(opts: {
     ...(prompt ? { initialPrompt: prompt } : {}),
   };
   cache.push(session);
-  persist(session);
+  // Starting a session from the web is always an explicit user action, so tell
+  // the host to spawn the agent NOW (the pendingLaunch reactor in serve.ts clears
+  // the flag and launches detached). Don't wait for the Terminal tab's /term
+  // socket to attach: the panel may open on the Chat tab, which only mirrors an
+  // existing transcript and never spawns the agent. The flag is written to the
+  // vault only, not the cache, so later persists don't re-trigger a launch.
+  if (host) void host.vault.set("sessions", session.id, { ...session, pendingLaunch: true });
   // separate-but-linked: a card on the kanban points back to this session.
   // Started from an existing card → link that one; otherwise drop a new card.
   if (opts.linkToCardId) addItemSession(opts.linkToCardId, session.id);

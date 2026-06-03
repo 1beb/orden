@@ -42,6 +42,7 @@ class NoopHost implements Host {
     list: async (_projectId: string, _glob?: string): Promise<FileEntry[]> => [],
     read: async (_projectId: string, _path: string) => "",
     write: async (_projectId: string, _path: string, _content: string) => {},
+    pickDirectory: async () => null,
   };
 
   sessions: SessionManager = {

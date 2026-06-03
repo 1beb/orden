@@ -23,6 +23,8 @@ export interface ServerEvent {
   type: "change";
   ns: string;
   key: string;
+  /** For `files` changes: which project's file changed. */
+  projectId?: string;
 }
 
 export interface WsConnection {

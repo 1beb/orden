@@ -27,6 +27,7 @@ interface RawBlock {
 interface RawEntry {
   type?: string;
   isSidechain?: boolean;
+  isMeta?: boolean;
   uuid?: string;
   message?: {
     id?: string;
@@ -89,6 +90,11 @@ export function parseClaudeTranscript(raw: string): ChatMessage[] {
       continue; // skip malformed line
     }
     if (e.isSidechain) continue; // subagent internals — keep the main thread clean
+    // isMeta marks claude's injected (not human-typed) entries — skill bodies,
+    // the "Base directory for this skill: …" dump, command caveats, continuation
+    // prompts. They carry no wrapper tag, so prefix matching misses them; drop
+    // them here so loading a skill doesn't spill its whole markdown into the chat.
+    if (e.isMeta) continue;
     const msg = e.message;
     if (!msg) continue;
 
@@ -102,6 +108,11 @@ export function parseClaudeTranscript(raw: string): ChatMessage[] {
           const text = block.thinking ?? block.text ?? "";
           parts.push({ type: "thinking", text, ...(tokens != null ? { tokens } : {}) });
         } else if (block?.type === "tool_use") {
+          // Skill loads surface as a Skill tool_use ("Launching skill: …") plus an
+          // isMeta body we already drop. The tool card is pure plumbing — loading a
+          // skill isn't a conversation turn — so skip it. Its orphaned tool_result
+          // then finds no toolIndex entry and is a harmless no-op.
+          if (block.name === "Skill") continue;
           parts.push({
             type: "tool",
             toolId: String(block.id ?? ""),

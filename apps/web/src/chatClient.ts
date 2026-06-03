@@ -17,6 +17,7 @@ export function makeChatClient(host: Host): ChatClient {
     listSessions: () => backend().listSessions(),
     createSession: (opts) => backend().createSession(opts),
     getMessages: (id) => backend().getMessages(id),
+    getMessagesKeyed: (id) => backend().getMessagesKeyed(id),
     send: (id, text, opts) => backend().send(id, text, opts),
     respondPermission: (id, reqId, d) => backend().respondPermission(id, reqId, d),
     setModel: (id, model) => backend().setModel(id, model),

@@ -1,12 +1,13 @@
 // Viewers for non-code, non-markdown files: images and rendered HTML.
 //
-// Images load over the host's /repo-file/ byte route (RPC files.read() is utf8
-// and would corrupt binary). HTML renders inside a sandboxed iframe via srcdoc:
-// allow-scripts WITHOUT allow-same-origin, so the page's own JS runs but in a
-// null origin — it can't touch the app's cookies, vault, or localStorage.
+// Images load over the host's /repo-file/<projectId>/ byte route (RPC
+// files.read() is utf8 and would corrupt binary). HTML renders inside a
+// sandboxed iframe via srcdoc: owned (on-disk, trusted) files render
+// same-origin so the parent can annotate inside them; external pages stay
+// null-origin (allow-scripts only) with no access to app cookies/vault/storage.
 
-export function repoFileUrl(path: string): string {
-  return `/repo-file/${path.split("/").map(encodeURIComponent).join("/")}`;
+export function repoFileUrl(projectId: string, path: string): string {
+  return `/repo-file/${encodeURIComponent(projectId)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // Renders the image wrapped in a positioned container so absolute region-boxes
@@ -16,14 +17,14 @@ export function repoFileUrl(path: string): string {
 // re-enable pointer events to stay clickable (see styles.css).
 export function renderImageView(
   container: HTMLElement,
-  doc: { title: string; path: string },
+  doc: { title: string; path: string; projectId: string },
 ): { wrap: HTMLDivElement; img: HTMLImageElement; layer: HTMLDivElement } {
   container.replaceChildren();
   const wrap = document.createElement("div");
   wrap.className = "image-wrap";
   const img = document.createElement("img");
   img.className = "image-view";
-  img.src = repoFileUrl(doc.path);
+  img.src = repoFileUrl(doc.projectId, doc.path);
   img.alt = doc.title;
   const layer = document.createElement("div");
   layer.className = "region-layer";

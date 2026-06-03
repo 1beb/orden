@@ -12,13 +12,12 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import {
   listProjects,
-  addProject,
   getProject,
-  isHostFilesRoot,
   hydrateProjects,
   removeProject,
   ensureDefaultProject,
 } from "./projects";
+import { openProjectModal } from "./projectModal";
 import { hydratePages } from "./pages";
 import {
   hydrateCards,
@@ -45,7 +44,7 @@ import {
   type Agent,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
-import { mountTerminal } from "./terminalView";
+import { mountTerminal, updateTerminalFonts } from "./terminalView";
 import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
@@ -83,6 +82,8 @@ import {
   saveSettings,
   MIN_PANEL_PCT,
   MAX_PANEL_PCT,
+  MIN_FONT_SIZE,
+  MAX_FONT_SIZE,
   type StartupView,
 } from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
@@ -151,6 +152,7 @@ const log = new AnnotationLog();
 const sink = new VaultSink();
 let feedbackTarget: "agent" | "human" = "agent";
 let currentDocKey = "review:sample";
+let currentDocProjectId = "repo";
 let currentDocTitle = DOC_TITLE;
 
 function persistReview(): void {
@@ -788,8 +790,8 @@ function teardownActiveImage(): void {
   refreshSourceSend();
 }
 
-async function showImageFile(path: string, title: string): Promise<void> {
-  const { img, layer, wrap } = renderImageView(viewEls.image, { title, path });
+async function showImageFile(projectId: string, path: string, title: string): Promise<void> {
+  const { img, layer, wrap } = renderImageView(viewEls.image, { title, path, projectId });
   const source = await fileSource(path, path); // binary: hash the path (see viewerSource)
 
   // Switching into a fresh image view tears down any prior text OR image annotator.
@@ -1085,6 +1087,9 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
+  // we navigate to a default element (kanban/journal/pages/project).
+  if (v !== "html" && v !== "code") htmlToggle.hidden = true;
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
   // Text-annotation lifecycle: the code, html, and review views share the single
@@ -1108,12 +1113,6 @@ function openPage(name: string): void {
 }
 
 function renderProject(projectId: string): void {
-  // The host serves files from a single root, which maps to exactly one project
-  // (per-project roots come later). Show repo files ONLY on that project; every
-  // other project gets an empty list so the host root's files don't leak in.
-  const project = getProject(projectId);
-  const files =
-    project && isHostFilesRoot(project, host.capabilities().filesRoot) ? repoFiles : [];
   renderProjectPage(
     viewEls.project,
     projectId,
@@ -1121,8 +1120,8 @@ function renderProject(projectId: string): void {
     startSessionForItem,
     openSessionInPanel,
     startProjectSession,
-    (path) => void openRepoFile(path),
-    files,
+    (path) => void openRepoFile(projectId, path),
+    (id) => host.files.list(id),
     onProjectChanged,
     removeProjectWithItems,
   );
@@ -1260,11 +1259,17 @@ fontSelect.addEventListener("change", () => {
   void saveSettings({ fontFamily: fontSelect.value });
 });
 
-const sizeSelect = document.querySelector<HTMLSelectElement>("#font-size")!;
-sizeSelect.value = String(settings.fontSize);
-sizeSelect.addEventListener("change", () => {
-  const size = Number(sizeSelect.value);
+const sizeInput = document.querySelector<HTMLInputElement>("#font-size")!;
+const sizeValue = document.querySelector<HTMLElement>("#font-size-value")!;
+sizeInput.min = String(MIN_FONT_SIZE);
+sizeInput.max = String(MAX_FONT_SIZE);
+sizeInput.value = String(settings.fontSize);
+sizeValue.textContent = `${settings.fontSize}px`;
+sizeInput.addEventListener("input", () => {
+  const size = Number(sizeInput.value);
+  sizeValue.textContent = `${size}px`;
   applyFont(loadSettings().fontFamily, size);
+  updateTerminalFonts();
   void saveSettings({ fontSize: size });
 });
 
@@ -1306,7 +1311,6 @@ function loadReviewDoc(opts: {
 }): void {
   currentDocKey = opts.key;
   currentDocTitle = opts.title;
-  void host.vault.set("ui", "last-doc", opts.key);
 
   const saved = loadState(opts.key);
   const parsed = markdownParser.parse(
@@ -1336,10 +1340,8 @@ function loadReviewDoc(opts: {
 }
 
 const recentList = document.querySelector<HTMLElement>("#recent-list")!;
-// Repo docs come through host.files now (path + title); content is read on open.
-// Kept in a module variable so the project file explorer (projectPage) can list
-// them without re-fetching. The FILES nav itself shows only recently-OPENED files.
-const repoFiles = await host.files.list("repo");
+// Repo docs come through host.files now, read per project on open. The FILES nav
+// shows only recently-OPENED files; the project page lists its own files (Task 10).
 
 function setActiveFile(path: string | null): void {
   recentList.querySelectorAll<HTMLElement>(".nav-file").forEach((el) => {
@@ -1371,32 +1373,32 @@ function updateHtmlToggle(path: string | null): void {
 // records a recent. Markdown → prose/annotation editor; images → image viewer;
 // HTML → rendered (sandboxed iframe) or source per the effective flag; all else
 // → read-only code viewer.
-async function openRepoFile(path: string): Promise<void> {
-  const title = repoFiles.find((f) => f.path === path)?.title ?? (path.split("/").pop() ?? path);
+async function openRepoFile(projectId: string, path: string): Promise<void> {
+  const title = path.split("/").pop() ?? path;
   const kind = viewerFor(path, effectiveHtmlRender(path));
+  currentDocProjectId = projectId;
   currentDocKey = `review:${path}`;
   currentDocTitle = title;
 
   if (kind === "prose") {
     // markdown read happens inside loadReviewDoc's funnel
-    const content = await host.files.read("repo", path);
+    const content = await host.files.read(projectId, path);
     loadReviewDoc({ key: `review:${path}`, title, markdown: content });
     viewStore.set("review");
   } else {
-    void host.vault.set("ui", "last-doc", currentDocKey);
     if (kind === "image") {
-      await showImageFile(path, title); // bytes load via /repo-file/
+      await showImageFile(projectId, path, title); // bytes load via /repo-file/<projectId>/
     } else if (kind === "html") {
-      await showHtmlFile(path, title, await host.files.read("repo", path));
+      await showHtmlFile(path, title, await host.files.read(projectId, path));
     } else {
-      await showCodeFile(path, title, await host.files.read("repo", path));
+      await showCodeFile(path, title, await host.files.read(projectId, path));
     }
     viewTitle.textContent = title;
     viewStore.set(kind as View);
   }
   updateHtmlToggle(path);
   setActiveFile(path);
-  recordRecentFile(path);
+  recordRecentFile(projectId, path);
   renderRecentFiles();
 }
 
@@ -1406,7 +1408,7 @@ htmlToggle.addEventListener("click", () => {
   const path = currentDocKey.startsWith("review:") ? currentDocKey.slice("review:".length) : null;
   if (!path) return;
   htmlRenderOverride.set(path, !effectiveHtmlRender(path));
-  void openRepoFile(path);
+  void openRepoFile(currentDocProjectId, path);
 });
 
 // FILES nav: the top few most-recently-opened repo files (not the whole repo).
@@ -1420,7 +1422,7 @@ function renderRecentFiles(): void {
     recentList.append(hint);
     return;
   }
-  for (const path of recents) {
+  for (const { projectId, path } of recents) {
     const a = document.createElement("a");
     a.className = "nav-file";
     a.dataset.path = path;
@@ -1432,28 +1434,21 @@ function renderRecentFiles(): void {
     meta.className = "nav-file-meta";
     meta.textContent = path.includes("/") ? path.replace(/\/[^/]+$/, "") : "/";
     a.append(name, meta);
-    a.addEventListener("click", () => void openRepoFile(path));
+    a.addEventListener("click", () => void openRepoFile(projectId, path));
     recentList.append(a);
   }
 }
 renderRecentFiles();
 
-// Initial review document: last-opened repo file, else the design doc, else the
-// built-in sample (which seeds demo annotations on first run).
-const lastKey = await host.vault.get<string>("ui", "last-doc");
-const lastFile = repoFiles.find((f) => `review:${f.path}` === lastKey);
-const defaultFile =
-  lastFile ?? repoFiles.find((f) => f.path.includes("orden-design")) ?? repoFiles[0];
-if (defaultFile) {
-  await openRepoFile(defaultFile.path);
-} else {
-  loadReviewDoc({
-    key: "review:sample",
-    title: DOC_TITLE,
-    markdown: sampleMarkdown,
-    seedIfEmpty: true,
-  });
-}
+// Initial review document: always the built-in sample (which seeds demo
+// annotations on first run). Repo files open per project from the FILES nav /
+// project page; boot no longer reopens a single global file.
+loadReviewDoc({
+  key: "review:sample",
+  title: DOC_TITLE,
+  markdown: sampleMarkdown,
+  seedIfEmpty: true,
+});
 
 onUpdate();
 applyLayout(mobile.matches);
@@ -1465,9 +1460,6 @@ else if (settings.startup === "kanban") viewStore.set("kanban");
 // --- Projects registry (local/remote file access arrives with the host backend) ---
 const projectList = document.querySelector<HTMLElement>("#project-list")!;
 const addProjectBtn = document.querySelector<HTMLElement>("#add-project")!;
-const addProjectForm = document.querySelector<HTMLElement>("#add-project-form")!;
-const projNameInput = document.querySelector<HTMLInputElement>("#add-project-name")!;
-const projPathInput = document.querySelector<HTMLInputElement>("#add-project-path")!;
 
 function renderProjects(): void {
   projectList.replaceChildren();
@@ -1499,27 +1491,15 @@ function renderProjects(): void {
   }
 }
 
-function showAddProject(show: boolean): void {
-  addProjectForm.hidden = !show;
-  addProjectBtn.hidden = show;
-  if (show) projNameInput.focus();
-}
-
-addProjectBtn.addEventListener("click", () => showAddProject(true));
-document.querySelector("#add-project-cancel")?.addEventListener("click", () => {
-  projNameInput.value = "";
-  projPathInput.value = "";
-  showAddProject(false);
-});
-document.querySelector("#add-project-save")?.addEventListener("click", () => {
-  const name = projNameInput.value.trim();
-  if (!name) return;
-  addProject(name, { kind: "local", path: projPathInput.value.trim() || "(path unset)" });
-  projNameInput.value = "";
-  projPathInput.value = "";
-  showAddProject(false);
-  renderProjects();
-});
+addProjectBtn.addEventListener("click", () =>
+  openProjectModal({
+    mode: "create",
+    onSaved: (project) => {
+      renderProjects();
+      openProject(project.id);
+    },
+  }),
+);
 renderProjects();
 
 // Right pane: sessions (claude/opencode conversations). Creating one drops a
@@ -1612,9 +1592,18 @@ if (htmlRenderCb) {
       : null;
     const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
     if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
-      void openRepoFile(path);
+      void openRepoFile(currentDocProjectId, path);
     }
   });
+}
+
+// Vault location: a read-only path so the user knows where their data lives.
+// The in-browser host has no on-disk vault, so it reports browser storage.
+const vaultLocationEl = document.querySelector<HTMLElement>("#vault-location");
+if (vaultLocationEl) {
+  const vaultRoot = host.capabilities().vaultRoot;
+  vaultLocationEl.textContent = vaultRoot ?? "Browser storage (in-memory host)";
+  if (vaultRoot) vaultLocationEl.title = vaultRoot;
 }
 
 // --- Omnisearch: a multi-purpose search field in the topbar. What it searches
@@ -1654,27 +1643,27 @@ if (searchForm && searchInput) {
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
 // No-op on BrowserHost (single writer).
-onVaultChange((ns, key) => {
+onVaultChange((ns, key, projectId) => {
   void (async () => {
     const v = viewStore.get();
     switch (ns) {
       case "files": {
-        // A repo file changed on disk. If it's the one we're showing, re-read and
-        // re-render so external edits (by an agent, git, or a collaborator) appear
-        // live. Non-prose viewers always re-render; the markdown editor reload is
-        // guarded so it never clobbers what the user is actively typing.
-        if (currentDocKey === `review:${key}`) {
+        // A repo file changed on disk. If it's the one we're showing (same project
+        // AND path), re-read and re-render so external edits (by an agent, git, or
+        // a collaborator) appear live. Non-prose viewers always re-render; the
+        // markdown editor reload is guarded so it never clobbers active typing.
+        if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
           const kind = viewerFor(key, effectiveHtmlRender(key));
           if (kind === "image") {
-            await showImageFile(key, currentDocTitle);
+            await showImageFile(projectId, key, currentDocTitle);
           } else if (kind === "html") {
-            const content = await host.files.read("repo", key);
+            const content = await host.files.read(projectId, key);
             await showHtmlFile(key, currentDocTitle, content);
           } else if (kind === "code") {
-            const content = await host.files.read("repo", key);
+            const content = await host.files.read(projectId, key);
             await showCodeFile(key, currentDocTitle, content);
           } else if (!view.hasFocus()) {
-            const markdown = await host.files.read("repo", key);
+            const markdown = await host.files.read(projectId, key);
             loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
           }
         }
@@ -1729,7 +1718,9 @@ onVaultChange((ns, key) => {
         const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
         if (!intent) break;
         dispatchPanelIntent(intent, {
-          openRepoFile: (path) => void openRepoFile(path),
+          // The MCP panel_open intent carries a bare path; resolve it against the
+          // host filesRoot alias ("repo"). Per-project panel intents are future work.
+          openRepoFile: (path) => void openRepoFile("repo", path),
           openPage,
           openKanban: () => {
             viewStore.set("kanban");

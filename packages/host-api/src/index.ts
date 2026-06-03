@@ -1,6 +1,6 @@
 export * from "@orden/chat-core";
 
-import type { ChatBackend } from "@orden/chat-core";
+import type { ChatBackend, QuestionResponse } from "@orden/chat-core";
 
 export interface HostCapabilities {
   remoteProjects: boolean;
@@ -14,6 +14,18 @@ export interface HostCapabilities {
    * (e.g. the in-browser host).
    */
   filesRoot?: string;
+  /**
+   * Absolute path the host persists its vault into. The web shows it in
+   * settings so the user knows where their data lives. Absent for the
+   * in-browser host, whose vault is the browser's own storage.
+   */
+  vaultRoot?: string;
+  /**
+   * True when the host can pop a native directory chooser (files.pickDirectory).
+   * The project modal shows a "Browse…" button only then. Absent/false on the
+   * in-browser host and on hosts with no picker tool installed.
+   */
+  pickDirectory?: boolean;
 }
 
 export interface Identity {
@@ -38,6 +50,10 @@ export interface Project {
   id: string;
   name: string;
   source: ProjectSource;
+  /** Per-project default agent the launchers pre-select. Absent = ask each time. */
+  defaultAgent?: "claude" | "opencode";
+  /** Per-project cwd agents launch in. Absent = use the source path / global default. */
+  workingDir?: string;
 }
 
 export interface ProjectRegistry {
@@ -55,6 +71,13 @@ export interface FileSource {
   list(projectId: string, glob?: string): Promise<FileEntry[]>;
   read(projectId: string, path: string): Promise<string>;
   write(projectId: string, path: string, content: string): Promise<void>;
+  /**
+   * Open a native directory chooser on the host and resolve to the selected
+   * absolute path, or null when cancelled / unsupported. A browser can't produce
+   * a real filesystem path, so the project modal's "Browse…" button routes here.
+   * Gated by capabilities().pickDirectory — false hosts hide the button.
+   */
+  pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null>;
 }
 
 export type SessionState =
@@ -145,6 +168,14 @@ export interface TerminalChat {
   mirror(sessionId: string): Promise<boolean>;
   /** Type `text` into the session's live agent pane (its next-turn input). */
   send(sessionId: string, text: string): Promise<void>;
+  /**
+   * Answer a pending AskUserQuestion in the session's live pane. `toolId` is the
+   * tool_use id of the question (from the mirrored transcript); the host reads
+   * the question structure from the transcript and drives claude's interactive
+   * menu with the keystrokes the `response` implies. A "chat" response declines
+   * all questions so the user can reply in the composer instead.
+   */
+  answerQuestion(sessionId: string, toolId: string, response: QuestionResponse): Promise<void>;
 }
 
 export interface Host {

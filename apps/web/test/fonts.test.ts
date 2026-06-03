@@ -41,11 +41,12 @@ describe("applyFont", () => {
     document.querySelectorAll('link[id^="font-"]').forEach((l) => l.remove());
   });
 
-  it("sets the --app-font and --app-font-size CSS variables", () => {
+  it("sets the --app-font and --font-scale CSS variables", () => {
     applyFont("atkinson", 18);
     const root = document.documentElement;
     expect(root.style.getPropertyValue("--app-font")).toContain("Atkinson Hyperlegible");
-    expect(root.style.getPropertyValue("--app-font-size")).toBe("18px");
+    // Base size 16px maps to scale 1, so 18px → 1.125 (see fonts.ts applyFont).
+    expect(root.style.getPropertyValue("--font-scale")).toBe("1.125");
   });
 
   it("injects the Google Fonts <link> once (idempotent)", () => {

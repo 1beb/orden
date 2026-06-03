@@ -1,59 +1,72 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { describe, test, expect, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { FsFiles } from "../src/fsFiles";
 
-let root: string;
-let files: FsFiles;
+const dirs: string[] = [];
+function root(files: Record<string, string>): string {
+  const d = mkdtempSync(join(tmpdir(), "fsroot-"));
+  dirs.push(d);
+  for (const [p, c] of Object.entries(files)) {
+    mkdirSync(dirname(join(d, p)), { recursive: true });
+    writeFileSync(join(d, p), c);
+  }
+  return d;
+}
+afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
-beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "orden-fs-"));
-  await writeFile(join(root, "readme.md"), "# Readme\n\nhello");
-  await writeFile(join(root, "main.ts"), "export const x = 1;");
-  await writeFile(join(root, "data.json"), '{"a":1}');
-  await writeFile(join(root, ".env"), "SECRET=1"); // dotfiles are skipped
-  await mkdir(join(root, "docs"), { recursive: true });
-  await writeFile(join(root, "docs", "plan.md"), "- no heading here");
-  await mkdir(join(root, "node_modules", "pkg"), { recursive: true });
-  await writeFile(join(root, "node_modules", "pkg", "junk.md"), "# Junk");
-  files = new FsFiles(root);
-});
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
-});
-
-describe("FsFiles", () => {
-  test("lists all files (repo-relative), excluding node_modules and dotfiles", async () => {
-    const list = await files.list("repo");
-    const paths = list.map((f) => f.path).sort();
-    expect(paths).toEqual(["data.json", "docs/plan.md", "main.ts", "readme.md"]);
+describe("FsFiles (multi-root)", () => {
+  test("lists files from the resolved per-project root", async () => {
+    const a = root({ "a.md": "# A" });
+    const b = root({ "b.md": "# B" });
+    const fs = new FsFiles(async (id) => (id === "pa" ? a : id === "pb" ? b : undefined));
+    expect((await fs.list("pa")).map((e) => e.path)).toEqual(["a.md"]);
+    expect((await fs.list("pb")).map((e) => e.path)).toEqual(["b.md"]);
   });
-
-  test("markdown titles come from the first heading, else the filename", async () => {
-    const list = await files.list("repo");
-    const byPath = Object.fromEntries(list.map((f) => [f.path, f.title]));
-    expect(byPath["readme.md"]).toBe("Readme");
-    expect(byPath["docs/plan.md"]).toBe("plan.md");
+  test("returns [] for a project with no root", async () => {
+    const fs = new FsFiles(async () => undefined);
+    expect(await fs.list("ghost")).toEqual([]);
   });
-
-  test("non-markdown files are titled by filename (content not read)", async () => {
-    const list = await files.list("repo");
-    const byPath = Object.fromEntries(list.map((f) => [f.path, f.title]));
-    expect(byPath["main.ts"]).toBe("main.ts");
-    expect(byPath["data.json"]).toBe("data.json");
+  test("reads/writes within the resolved root and blocks traversal", async () => {
+    const a = root({ "a.md": "# A" });
+    const fs = new FsFiles(async () => a);
+    expect(await fs.read("pa", "a.md")).toBe("# A");
+    await fs.write("pa", "sub/c.md", "hi");
+    expect(await fs.read("pa", "sub/c.md")).toBe("hi");
+    await expect(fs.read("pa", "../escape.md")).rejects.toThrow();
   });
-
-  test("read returns file contents by repo-relative path", async () => {
-    expect(await files.read("repo", "readme.md")).toBe("# Readme\n\nhello");
+  test("rejects read/write for a project with no root", async () => {
+    const fs = new FsFiles(async () => undefined);
+    await expect(fs.read("ghost", "a.md")).rejects.toThrow();
+    await expect(fs.write("ghost", "a.md", "x")).rejects.toThrow();
   });
-
-  test("write then read round-trips", async () => {
-    await files.write("repo", "docs/plan.md", "# Plan\n\nupdated");
-    expect(await files.read("repo", "docs/plan.md")).toBe("# Plan\n\nupdated");
+  test("titles by markdown H1 (filename fallback) and skips dotfiles/SKIP_DIRS", async () => {
+    const a = root({
+      "r.md": "# Real Title",
+      "plain.md": "no heading",
+      "main.ts": "code",
+      ".env": "secret",
+      "node_modules/pkg/x.md": "# Dep",
+    });
+    const fs = new FsFiles(async () => a);
+    const entries = await fs.list("p");
+    const paths = entries.map((e) => e.path);
+    // Dotfiles and SKIP_DIRS (node_modules) are excluded; non-markdown is kept.
+    expect(paths).toEqual(["main.ts", "plain.md", "r.md"]);
+    expect(paths).not.toContain(".env");
+    expect(paths.some((p) => p.startsWith("node_modules/"))).toBe(false);
+    const byPath = Object.fromEntries(entries.map((e) => [e.path, e.title]));
+    expect(byPath["r.md"]).toBe("Real Title"); // H1 extracted
+    expect(byPath["plain.md"]).toBe("plain.md"); // headingless md → filename
+    expect(byPath["main.ts"]).toBe("main.ts"); // non-markdown → filename
   });
-
-  test("read throws for a path escaping the root", async () => {
-    await expect(files.read("repo", "../secret")).rejects.toThrow();
+  test("an absolute path cannot escape the root", async () => {
+    const a = root({ "a.md": "# A" });
+    const fs = new FsFiles(async () => a);
+    // join(root, "/etc/passwd") strips the leading slash and scopes it under the
+    // root, so this resolves to <root>/etc/passwd (nonexistent) and rejects —
+    // it never reads the real /etc/passwd.
+    await expect(fs.read("pa", "/etc/passwd")).rejects.toThrow();
   });
 });

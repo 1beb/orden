@@ -6,11 +6,34 @@
 // where <encoded-cwd> is the absolute cwd with every "/" and "." replaced by "-"
 // (e.g. /home/b/projects/orden -> -home-b-projects-orden). Verified against the
 // real ~/.claude/projects directory on disk (Claude Code v2.1.x).
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
+
+// The user's home, used to locate ~/.claude. Prefer the live $HOME env var over
+// os.homedir(): on Linux they're identical (homedir() returns $HOME when set),
+// but a directly-read env var is honored under test runners that set HOME at
+// runtime, where the cached native homedir() is not.
+const claudeHome = (): string => process.env.HOME || homedir();
+
+// Has Claude actually written this session's transcript to disk yet? A
+// conversationId is persisted at MINT time (the scoped MCP endpoint + state
+// hooks bind to it before the agent runs), but Claude writes
+// ~/.claude/projects/<encoded-cwd>/<id>.jsonl only once the session does real
+// work. A session opened but never given a turn — or killed as untouched before
+// its first turn — leaves the id pointing at a file that never existed. Callers
+// use this to avoid `--resume`-ing a ghost conversation, which exits instantly.
+export const claudeTranscriptExists = (cwd: string, sessionId: string): boolean => {
+  try {
+    return existsSync(
+      join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`),
+    );
+  } catch {
+    return false;
+  }
+};
 
 // Claude's own session title appears in the transcript as JSONL lines shaped
 //   {"type":"ai-title","aiTitle":"...","sessionId":"..."}
@@ -21,7 +44,7 @@ export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
 // null on any missing file/dir or parse issue — never throws.
 export const readTranscriptTitle = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     const raw = readFileSync(file, "utf8");
     let latest: string | null = null;
     for (const line of raw.split("\n")) {
@@ -79,7 +102,7 @@ export const firstUserPrompt = (raw: string): string | null => {
 // the safe default (don't claim activity we can't see). Never throws.
 export const readUserPrompt = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     return firstUserPrompt(readFileSync(file, "utf8"));
   } catch {
     return null;
@@ -92,7 +115,7 @@ export const readUserPrompt = (cwd: string, sessionId: string): string | null =>
 // transcript is missing/unreadable so callers can fall back. Never throws.
 export const readTranscriptSummary = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     const raw = readFileSync(file, "utf8");
     const title = readTranscriptTitle(cwd, sessionId);
     const opening = firstUserPrompt(raw);

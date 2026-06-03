@@ -4,6 +4,7 @@ import { hydrateSettings, loadSettings, saveSettings } from "../src/settings";
 
 const DEFAULTS = {
   startup: "last",
+  kanbanView: "board",
   fontFamily: "system",
   fontSize: 16,
   accent: "#6d28d9",
@@ -53,6 +54,7 @@ describe("settings store (host-backed)", () => {
     await hydrateSettings(new BrowserHost());
     expect(loadSettings()).toEqual({
       startup: "kanban",
+      kanbanView: "board",
       fontFamily: "lora",
       fontSize: 20,
       accent: "#0099ff",

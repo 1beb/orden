@@ -2,6 +2,7 @@
 // build a ChatBackend without reaching into internal module paths.
 export { createChatBackend } from "./engine";
 export { AdapterRegistry, defaultRegistry } from "./registry";
+export { VaultReducer } from "./reduceToVault";
 
 export type ChatHarness = "claude" | "opencode";
 
@@ -34,6 +35,15 @@ export interface ChatMessage {
   parts: ChatPart[];
 }
 
+// A message paired with its real msg:<seq> key. Hydrating from these (rather
+// than re-deriving the seq from array position) keeps the store's keyspace
+// identical to the live-delta keyspace, which matters when the source keys are
+// sparse/offset (the terminal mirror's windowed, absolute-indexed transcript).
+export interface KeyedMessage {
+  seq: number;
+  message: ChatMessage;
+}
+
 export interface PermissionRequest {
   id: string;
   toolName: string;
@@ -57,6 +67,24 @@ export interface PermissionDecision {
   remember?: boolean;
 }
 
+// ---- AskUserQuestion answers (terminal-mirrored sessions) ----
+//
+// claude's AskUserQuestion is an interactive menu in the terminal; the Chat tab
+// renders it as a card and sends the answer back by driving that menu with
+// keystrokes (see apps/host questionKeystrokes). One QuestionAnswer per question,
+// in the questions' original order.
+export type QuestionAnswer =
+  | { kind: "option"; index: number } // single-select: chosen option (0-based)
+  | { kind: "multi"; indexes: number[] } // multiSelect: chosen options (0-based)
+  | { kind: "other"; text: string }; // the "Type something" free-text entry
+
+// The whole response to one AskUserQuestion call: either answer every question
+// and submit, or decline all ("Chat about this") so the user replies in the
+// composer instead.
+export type QuestionResponse =
+  | { kind: "submit"; answers: QuestionAnswer[] }
+  | { kind: "chat" };
+
 // The public surface, implemented once by a generic engine (built later).
 export interface ChatBackend {
   listSessions(): Promise<ChatSession[]>;
@@ -67,6 +95,9 @@ export interface ChatBackend {
     model?: string;
   }): Promise<ChatSession>;
   getMessages(sessionId: string): Promise<ChatMessage[]>;
+  // Like getMessages but each message carries its real msg:<seq> key, so a
+  // client can hydrate into the same keyspace live deltas use.
+  getMessagesKeyed(sessionId: string): Promise<KeyedMessage[]>;
   send(sessionId: string, text: string, opts?: { model?: string }): Promise<void>;
   respondPermission(sessionId: string, reqId: string, d: PermissionDecision): Promise<void>;
   setModel(sessionId: string, model: string): Promise<void>;

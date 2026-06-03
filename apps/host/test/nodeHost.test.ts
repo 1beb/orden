@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -7,6 +7,7 @@ import type {
   HarnessAdapter,
   HarnessDriver,
   ModelOption,
+  Project,
   SlashCommand,
 } from "@orden/host-api";
 import { NodeHost } from "../src/nodeHost";
@@ -14,13 +15,23 @@ import { dispatch } from "../src/rpc";
 
 let root: string;
 let host: NodeHost;
+// Track every host so afterEach can stop its file watcher. NodeHost never stops
+// the watcher on its own (process-lifetime in prod), so without this each test's
+// host leaks an fs.watch/inotify instance — the suite exhausts the per-user limit
+// under parallel load and watcher-dependent tests silently stop receiving events.
+const hosts: NodeHost[] = [];
+const track = (h: NodeHost): NodeHost => {
+  hosts.push(h);
+  return h;
+};
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "orden-host-"));
-  host = new NodeHost({ vaultRoot: root });
+  host = track(new NodeHost({ vaultRoot: root }));
 });
 
 afterEach(async () => {
+  for (const h of hosts.splice(0)) h.stop();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -104,10 +115,75 @@ describe("NodeHost", () => {
   });
 });
 
+describe("NodeHost per-project files", () => {
+  // Verifies the real "projects" vault ns end-to-end (not stub): a NodeHost with
+  // a filesRoot serves the legacy "repo" id from that root AND serves a local
+  // project's own root resolved from a real "projects" record.
+  test('files.list resolves "repo" to filesRoot and a local project to its source.path', async () => {
+    const filesRoot = await mkdtemp(join(tmpdir(), "orden-repo-"));
+    await writeFile(join(filesRoot, "repo.md"), "# Repo");
+
+    const projRoot = await mkdtemp(join(tmpdir(), "orden-proj-"));
+    await writeFile(join(projRoot, "doc.md"), "# Doc");
+
+    const fileHost = track(new NodeHost({ vaultRoot: root, filesRoot }));
+    const project: Project = {
+      id: "p1",
+      name: "P",
+      source: { kind: "local", path: projRoot },
+    };
+    await fileHost.vault.set("projects", "p1", project);
+
+    const repoFiles = await fileHost.files.list("repo");
+    expect(repoFiles.map((f) => f.path)).toEqual(["repo.md"]);
+
+    const projFiles = await fileHost.files.list("p1");
+    expect(projFiles.map((f) => f.path)).toEqual(["doc.md"]);
+
+    await rm(filesRoot, { recursive: true, force: true });
+    await rm(projRoot, { recursive: true, force: true });
+  });
+
+  test("MultiRootWatcher delivers a projectId-tagged files change on an in-root edit", async () => {
+    const filesRoot = await mkdtemp(join(tmpdir(), "orden-repo-"));
+    const projRoot = await mkdtemp(join(tmpdir(), "orden-proj-"));
+
+    const fileHost = track(new NodeHost({ vaultRoot: root, filesRoot }));
+    await fileHost.vault.set("projects", "p1", {
+      id: "p1",
+      name: "P",
+      source: { kind: "local", path: projRoot },
+    } satisfies Project);
+
+    // Give the watcher's refresh() (fired on the projects write) time to arm.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const changes: { ns: string; key: string; projectId?: string }[] = [];
+    fileHost.onChange((c) => changes.push(c));
+
+    // fs.watch delivery latency varies with machine load, and the watcher may
+    // still be arming when we first write. Re-touch the file and poll until the
+    // projectId-tagged change arrives (or time out), so a busy parallel suite
+    // can't flake this on a fixed wall-clock wait.
+    const hit = () =>
+      changes.some((c) => c.ns === "files" && c.projectId === "p1" && c.key === "note.md");
+    const deadline = Date.now() + 3000;
+    while (!hit() && Date.now() < deadline) {
+      await writeFile(join(projRoot, "note.md"), `# Note ${Date.now()}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    expect(hit()).toBe(true);
+
+    await rm(filesRoot, { recursive: true, force: true });
+    await rm(projRoot, { recursive: true, force: true });
+  });
+});
+
 describe("NodeHost chat over RPC", () => {
   test("createSession dispatches, streams a chat: change, and getMessages replays the turn", async () => {
     const { adapter, driver } = makeFakeAdapter();
-    const chatHost = new NodeHost({ vaultRoot: root, chatAdapters: [adapter] });
+    const chatHost = track(new NodeHost({ vaultRoot: root, chatAdapters: [adapter] }));
 
     const changes: { ns: string; key: string }[] = [];
     chatHost.onChange((c) => changes.push(c));

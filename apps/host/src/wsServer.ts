@@ -16,7 +16,7 @@ export interface HostServer {
 // A Host that can notify of vault writes (NodeHost). Optional — the change feed
 // is only pushed when the host supports it.
 interface ChangeSource {
-  onChange(listener: (change: { ns: string; key: string }) => void): () => void;
+  onChange(listener: (change: { ns: string; key: string; projectId?: string }) => void): () => void;
 }
 function isChangeSource(host: Host): host is Host & ChangeSource {
   return typeof (host as Partial<ChangeSource>).onChange === "function";
@@ -39,7 +39,9 @@ function wireConnections(wss: WebSocketServer, host: Host): void {
     if (isChangeSource(host)) {
       const unsubscribe = host.onChange((change) => {
         if (socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: "change", ns: change.ns, key: change.key }));
+          socket.send(
+            JSON.stringify({ type: "change", ns: change.ns, key: change.key, projectId: change.projectId }),
+          );
         }
       });
       socket.on("close", unsubscribe);

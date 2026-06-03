@@ -1,14 +1,13 @@
 // Mount the native Chat tab (the @orden/chat-ui view) for a panel session.
 //
-// PREFERRED PATH — terminal mirror: if the session can be mirrored (a claude
-// session with a transcript), the Chat tab shows the SAME conversation the
-// Terminal tab runs (host.terminalChat.mirror parses its transcript into
-// chat:<sessionId>), and the composer types into that session's tmux pane
-// (host.terminalChat.send). Chat and Terminal are then two views of one agent.
+// PREFERRED PATH — terminal mirror: if the session can be mirrored (claude via
+// TranscriptMirror, opencode via OpencodeMirror), the Chat tab shows the SAME
+// conversation the Terminal tab runs, and the composer types into that session's
+// tmux pane. Chat and Terminal are then two views of one agent.
 //
 // FALLBACK — separate agent: if the session isn't mirrorable, we lazily create
 // a standalone ChatBackend session (host.chat) and persist the mapping so a
-// reload resumes it. (opencode mirroring is future work; it falls back today.)
+// reload resumes it.
 import type { Host } from "@orden/host-api";
 import { createChatStore, mountChatView, type ChatClient } from "@orden/chat-ui";
 import { makeChatClient } from "./chatClient";
@@ -33,7 +32,10 @@ export function createChatMount(
       throw new Error("a mirrored terminal session is not creatable from chat");
     },
     getMessages: (id) => host.chat!.getMessages(id),
+    getMessagesKeyed: (id) => host.chat!.getMessagesKeyed(id),
     send: (id, text) => host.terminalChat!.send(id, text),
+    answerQuestion: (id, toolId, response) =>
+      host.terminalChat!.answerQuestion(id, toolId, response),
     respondPermission: async () => {},
     // The terminal owns its model; setModel is display-only here for now.
     setModel: async () => {},
@@ -67,9 +69,23 @@ export function createChatMount(
     void (async () => {
       try {
         // Prefer mirroring the terminal session; fall back to a separate agent.
-        const mirrored = host.terminalChat
+        let mirrored = host.terminalChat
           ? await host.terminalChat.mirror(panelSession.id)
           : false;
+
+        // A freshly-created session mints its conversationId host-side at
+        // launch — a beat AFTER the panel synchronously opens this Chat tab, so
+        // the first mirror() attempt loses the race and returns false. Falling
+        // back here would strand the tab on a SEPARATE, empty agent, and the
+        // starter prompt (which went to the terminal session) would never show.
+        // We therefore WAIT for the mirror to attach before falling back.
+        if (!mirrored && host.terminalChat) {
+          for (let i = 0; i < 60 && !mirrored; i++) {
+            await new Promise((r) => setTimeout(r, 400));
+            if (disposed) return;
+            mirrored = await host.terminalChat.mirror(panelSession.id);
+          }
+        }
 
         let chatSessionId: string;
         let client: ChatClient;
@@ -94,9 +110,13 @@ export function createChatMount(
         if (disposed) return;
 
         const s = createChatStore(chatSessionId);
-        const initial = await client.getMessages(chatSessionId);
+        // Hydrate at each message's REAL seq, not its array position: the mirror
+        // keys by absolute (windowed, gappy) transcript index, and live deltas
+        // carry that same seq — so array-index hydration would diverge from the
+        // delta keyspace and reorder/duplicate messages.
+        const initial = await client.getMessagesKeyed(chatSessionId);
         if (disposed) return;
-        s.hydrate(initial);
+        s.hydrateKeyed(initial);
         ns = `chat:${chatSessionId}`;
         store = s; // arm the change-feed listener now that the store is ready
 

@@ -4,6 +4,26 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { loadSettings } from "./settings";
+
+// Base xterm font at the default 16px app size; scales with the Text size
+// setting. The TUI must stay monospace, so only the size follows the setting.
+const TERM_BASE_PX = 13;
+function termFontSize(): number {
+  return Math.max(8, Math.round(TERM_BASE_PX * (loadSettings().fontSize / 16)));
+}
+
+// Live terminals, so a Text-size change resizes them without a remount.
+const liveTerms = new Set<{ term: Terminal; refit: () => void }>();
+
+/** Re-apply the current Text-size setting to every mounted terminal. */
+export function updateTerminalFonts(): void {
+  const size = termFontSize();
+  for (const t of liveTerms) {
+    t.term.options.fontSize = size;
+    t.refit();
+  }
+}
 
 export function mountTerminal(
   container: HTMLElement,
@@ -11,7 +31,7 @@ export function mountTerminal(
   onInput?: () => void,
 ): () => void {
   const term = new Terminal({
-    fontSize: 13,
+    fontSize: termFontSize(),
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     cursorBlink: true,
     // light theme to match the app (no black background)
@@ -25,11 +45,16 @@ export function mountTerminal(
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(container);
-  try {
-    fit.fit();
-  } catch {
-    /* container not laid out yet */
-  }
+  const refit = () => {
+    try {
+      fit.fit();
+    } catch {
+      /* container not laid out yet */
+    }
+  };
+  refit();
+  const entry = { term, refit };
+  liveTerms.add(entry);
 
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${scheme}//${location.host}/term?session=${encodeURIComponent(sessionId)}&cols=${term.cols}&rows=${term.rows}`;
@@ -152,6 +177,7 @@ export function mountTerminal(
   container.addEventListener("touchend", onTouchEnd, { passive: true });
 
   return () => {
+    liveTerms.delete(entry);
     container.style.touchAction = prevTouchAction;
     container.style.overscrollBehavior = prevOverscroll;
     try {

@@ -18,7 +18,6 @@ import type {
   HostCapabilities,
   Project,
   ProjectSource,
-  FileEntry,
   Session,
   SessionState,
   ChatBackend,
@@ -28,6 +27,9 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
+import { makeProjectRootResolver, listLocalProjectRoots } from "./projectRoots";
+import { MultiRootWatcher } from "./multiRootWatcher";
+import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
 import { makeOpencodeAdapter } from "./chat/adapters/opencode";
@@ -71,21 +73,11 @@ class StubProjects implements ProjectRegistry {
   }
 }
 
-class StubFiles implements FileSource {
-  async list(_projectId: string, _glob?: string): Promise<FileEntry[]> {
-    throw new Error("NodeHost: files.list not implemented yet (H2)");
-  }
-  async read(_projectId: string, _path: string): Promise<string> {
-    throw new Error("NodeHost: files.read not implemented yet (H2)");
-  }
-  async write(_projectId: string, _path: string, _content: string): Promise<void> {
-    throw new Error("NodeHost: files.write not implemented yet (H2)");
-  }
-}
-
 export interface VaultChange {
   ns: string;
   key: string;
+  /** For `files` changes: which project's file changed (set by the watcher). */
+  projectId?: string;
 }
 
 // Wraps a VaultStore so every write (set/delete) notifies a listener. NodeHost
@@ -136,21 +128,34 @@ export class NodeHost implements Host {
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
+  private readonly vaultRoot: string;
+  private readonly watcher: MultiRootWatcher;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
+    this.vaultRoot = opts.vaultRoot;
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
-    const files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
-    this.files = files;
-    // Repo .md edits (by us, an agent, git, anything) push a "files" change on
-    // the same feed the vault uses, so an open doc in the UI live-reloads.
-    if (files instanceof FsFiles) {
-      files.watch((path) => {
-        for (const listener of this.changeListeners) listener({ ns: "files", key: path });
-      });
-    }
+    // FsFiles serves every project from its own root (resolved per call from the
+    // "projects" vault ns); "repo" aliases filesRoot, and an unresolvable id
+    // degrades to empty lists / throwing reads, so this works even with no
+    // filesRoot (the former StubFiles case) — no stub needed.
+    this.files = new FsFiles(makeProjectRootResolver(this, opts.filesRoot));
+    // Watch every local project's root: an in-root edit (by us, an agent, git,
+    // anything) pushes a projectId-tagged "files" change on the same feed the
+    // vault uses, so an open doc in the UI live-reloads. The watched set is
+    // vault-driven, so re-derive it whenever the "projects" ns changes.
+    // In production the watcher runs for the host process lifetime; stop() exists
+    // mainly so tests (which spin up many hosts) can release the fs.watch handle
+    // instead of leaking one inotify instance per host until the limit is hit.
+    this.watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
+      for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
+    });
+    void this.watcher.start();
+    this.onChange((c) => {
+      if (c.ns === "projects") void this.watcher.refresh();
+    });
     // Sessions run agents on the host; writes go through the emitting vault so
     // transcript + card updates stream live to the UI.
     this.sessions = new NodeSessions({
@@ -177,12 +182,20 @@ export class NodeHost implements Host {
     return () => this.changeListeners.delete(listener);
   }
 
+  /** Release the project-root file watcher. Not needed in production (one host,
+   *  process lifetime); used by tests to avoid leaking fs.watch instances. */
+  stop(): void {
+    this.watcher.stop();
+  }
+
   capabilities(): HostCapabilities {
     return {
       remoteProjects: false, // H4
       spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
       filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
+      vaultRoot: this.vaultRoot, // so the web can show where the vault lives
+      pickDirectory: hasDirectoryPicker(), // native folder chooser available?
     };
   }
 }
