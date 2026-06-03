@@ -55,6 +55,7 @@ import { AnnotationStore } from "./annotationStore";
 import { fileSource } from "./viewerSource";
 import { paintHighlights, setActiveHighlight, clearHighlights, ensureHighlightStyles } from "./textOverlay";
 import { renderSourcePanel } from "./sourcePanel";
+import { toAnnotationSendInput } from "./annotationDeliveryMap";
 import { buildTextAnnotation } from "./textAnnotation";
 import { mountDomAnnotator } from "./domAnnotator";
 import type { Source } from "@orden/annotation-core";
@@ -185,6 +186,7 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const listEl = document.querySelector<HTMLUListElement>("#annotation-list")!;
 const primaryBtn = document.querySelector<HTMLButtonElement>("#primary-action")!;
 const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
+const sourceSendBtn = document.querySelector<HTMLButtonElement>("#source-send")!;
 
 app.dataset.target = feedbackTarget;
 
@@ -604,7 +606,64 @@ function teardownActiveText(): void {
   activeText.annotator.destroy();
   clearHighlights(activeText.win);
   activeText = null;
+  activePanelSource = null;
+  reRenderActiveSource = () => {};
+  refreshSourceSend();
 }
+
+// The source-view (code/image/html) Send affordance lives separately from the
+// review panel's #primary-action/#copy buttons so it can't tangle their state.
+// `activePanelSource` is the source whose annotations the panel currently shows;
+// set by the text/image openers' rerender, cleared on their teardown.
+let activePanelSource: Source | null = null;
+
+// Show the source Send button only on an annotatable source view (code/image/html)
+// when the active source has at least one OPEN annotation. Hidden in review and on
+// non-source views, leaving the review Approve/Copy buttons untouched.
+function refreshSourceSend(): void {
+  const v = viewStore.get();
+  const isSourceView = v === "code" || v === "image" || v === "html";
+  const open = activePanelSource
+    ? annotationStore.forSource(activePanelSource).filter((a) => a["orden:status"] === "open")
+    : [];
+  sourceSendBtn.hidden = !(isSourceView && activePanelSource !== null && open.length > 0);
+}
+
+// Deliver the active source's OPEN annotations to the agent working that plan via
+// the host. A not-linked result is a normal outcome (arbitrary files often have no
+// session), not an error — surface it as a toast and leave the annotations open.
+async function sendSourceAnnotations(): Promise<void> {
+  const source = activePanelSource;
+  if (!source) return;
+  const open = annotationStore.forSource(source).filter((a) => a["orden:status"] === "open");
+  if (open.length === 0) return;
+  const planDoc = source.kind === "file" ? source.vaultPath : source.url;
+  sourceSendBtn.disabled = true;
+  try {
+    const result = await host.sessions.annotationSend(toAnnotationSendInput(source, open));
+    if (result.ok) {
+      for (const a of open) {
+        annotationStore.replace(source, a.id, { ...a, "orden:status": "sent" });
+      }
+      // Re-render the live source panel so it reflects the new "sent" status.
+      reRenderActiveSource();
+      showToast(`Sent ${open.length} annotation${open.length === 1 ? "" : "s"} to ${result.target}`);
+    } else {
+      showToast(`No agent session linked to ${planDoc} — annotation saved`);
+    }
+  } catch {
+    showToast("Couldn't deliver — saved locally");
+  } finally {
+    sourceSendBtn.disabled = false;
+    refreshSourceSend();
+  }
+}
+
+// Re-render the live source panel after a status change. Each opener owns its own
+// rerender closure; we re-invoke it by re-opening the panel through the stored hook.
+let reRenderActiveSource: () => void = () => {};
+
+sourceSendBtn.addEventListener("click", () => void sendSourceAnnotations());
 
 // Wire a rendered text root (code / plain-text / owned-HTML body) to the store,
 // panel, overlay, and selection annotator. `getSelection` lets an iframe pass its
@@ -644,7 +703,11 @@ function openAnnotatableText(
         rerender();
       },
     });
+    refreshSourceSend();
   };
+
+  activePanelSource = source;
+  reRenderActiveSource = rerender;
 
   const annotator = mountDomAnnotator({
     root,
@@ -710,6 +773,9 @@ function teardownActiveImage(): void {
   if (!activeImage) return;
   activeImage.teardown();
   activeImage = null;
+  activePanelSource = null;
+  reRenderActiveSource = () => {};
+  refreshSourceSend();
 }
 
 async function showImageFile(path: string, title: string): Promise<void> {
@@ -744,7 +810,11 @@ async function showImageFile(path: string, title: string): Promise<void> {
         rerender();
       },
     });
+    refreshSourceSend();
   };
+
+  activePanelSource = source;
+  reRenderActiveSource = rerender;
 
   // A tiny floating composer anchored near the drag rect: textarea + Save/Cancel.
   let composer: HTMLDivElement | null = null;
@@ -1035,6 +1105,9 @@ viewStore.subscribe((v) => {
   if (v !== "code" && v !== "html") teardownActiveText();
   if (v !== "image") teardownActiveImage();
   if (v === "review") renderPanel();
+  // Hide the source Send button outside source views (and show it when a source
+  // view with open annotations is active); never touches the review buttons.
+  refreshSourceSend();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
 
