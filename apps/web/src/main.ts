@@ -733,7 +733,7 @@ function renderProject(projectId: string): void {
     openSessionInPanel,
     startProjectSession,
     (path) => void openRepoFile(projectId, path),
-    [], // Task 10: project page lists its own files
+    (id) => host.files.list(id),
     onProjectChanged,
     removeProjectWithItems,
   );

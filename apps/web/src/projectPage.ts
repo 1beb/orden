@@ -99,10 +99,10 @@ export function renderProjectPage(
   onNewSession?: (agent: Agent) => void,
   // Open a repo file in the review/document view (file-backed projects only).
   onOpenFile?: (path: string) => void,
-  // The repo's files (path + title). The host's FileSource is single-rooted at
-  // the repo for now; per-project roots come later, at which point this should
-  // be scoped per project rather than the whole repo.
-  repoFiles: FileEntry[] = [],
+  // Fetch THIS project's own files (path + title), lazily on render. The host
+  // serves files per project now, so the page asks for its own list rather than
+  // receiving one global repo array.
+  listFiles?: (projectId: string) => Promise<FileEntry[]>,
   // Called after an in-place edit (rename / re-path) so the caller can refresh
   // the sidebar list and the view title to match.
   onProjectChanged?: () => void,
@@ -150,7 +150,7 @@ export function renderProjectPage(
     notesWidget(project),
     // File explorer last (below notes) — only for file-backed (local) projects.
     // Ephemeral/ssh/s3 projects have no browsable local files, so it's omitted.
-    ...(project.source.kind === "local" ? [filesWidget(projectId, repoFiles, onOpenFile)] : []),
+    ...(project.source.kind === "local" ? [filesWidget(projectId, listFiles, onOpenFile)] : []),
     activityWidget(),
   );
 }
@@ -428,9 +428,15 @@ let expandedDirs = new Set<string>();
 // transition's full re-render doesn't snap it shut while the user is in it.
 let filesSectionOpen = false;
 
+// Build the Files widget shell synchronously (so the page's widget order is
+// preserved), then fetch this project's files lazily and populate the body when
+// they resolve. The fetch is guarded against races: the project page re-renders
+// frequently (a card transition rebuilds it), so a stale result that arrives
+// after the section was replaced — or after a switch to another project — must
+// not populate the new DOM. `section.isConnected` is the minimal robust guard.
 function filesWidget(
   projectId: string,
-  repoFiles: FileEntry[],
+  listFiles?: (projectId: string) => Promise<FileEntry[]>,
   onOpenFile?: (path: string) => void,
 ): HTMLElement {
   const { section, body } = widget("Files", {
@@ -440,12 +446,39 @@ function filesWidget(
       filesSectionOpen = open;
     },
   });
+
+  const loading = document.createElement("p");
+  loading.className = "project-widget-empty";
+  loading.textContent = "Loading…";
+  body.append(loading);
+
+  if (!listFiles) return section;
+
+  void listFiles(projectId).then((repoFiles) => {
+    // Bail if this section was detached before the fetch resolved (page
+    // re-rendered, or the user navigated to a different project).
+    if (!section.isConnected) return;
+    renderFilesBody(body, projectId, repoFiles, onOpenFile);
+  });
+  return section;
+}
+
+// Pure renderer: populate a Files widget body from a known files array. Split
+// out from filesWidget so the shell can mount before the per-project fetch
+// resolves; all the filter/tree/chip logic lives here, driven by the array.
+function renderFilesBody(
+  body: HTMLElement,
+  projectId: string,
+  repoFiles: FileEntry[],
+  onOpenFile?: (path: string) => void,
+): void {
+  body.replaceChildren();
   if (repoFiles.length === 0) {
     const empty = document.createElement("p");
     empty.className = "project-widget-empty";
     empty.textContent = "No files in this project.";
     body.append(empty);
-    return section;
+    return;
   }
 
   // A fresh project starts unfiltered and fully furled; the same project keeps
@@ -612,7 +645,6 @@ function filesWidget(
   renderExtOptions();
   renderTree();
   body.append(search, filters, list);
-  return section;
 }
 
 // --- Widget shell ---------------------------------------------------------
