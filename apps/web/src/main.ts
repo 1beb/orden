@@ -60,6 +60,7 @@ import { mountDomAnnotator } from "./domAnnotator";
 import type { Source } from "@orden/annotation-core";
 import { viewerFor } from "./codeHighlight";
 import { renderImageView, renderHtmlView } from "./richView";
+import { normalizeRect, renderRegionBoxes, buildRegionAnnotation } from "./regionOverlay";
 import {
   hydrateRecentFiles,
   recordRecentFile,
@@ -697,6 +698,190 @@ async function showHtmlFile(path: string, title: string, content: string): Promi
   });
 }
 
+// --- Image region-annotation wiring (Task 9). Images have no text to select, so
+// this is a SEPARATE path from openAnnotatableText: a drag over the image draws a
+// rectangle, a small floating composer captures a note, and the region is stored
+// as a normalized 0..1 rect that re-paints as an overlay box at any display size.
+// Like the text path it shares the single `#annotation-list`; leaving the image
+// view tears its drag/resize listeners + boxes down so nothing leaks across views.
+let activeImage: { teardown(): void } | null = null;
+
+function teardownActiveImage(): void {
+  if (!activeImage) return;
+  activeImage.teardown();
+  activeImage = null;
+}
+
+async function showImageFile(path: string, title: string): Promise<void> {
+  const { img, layer, wrap } = renderImageView(viewEls.image, { title, path });
+  const source = await fileSource(path, path); // binary: hash the path (see viewerSource)
+
+  // Switching into a fresh image view tears down any prior text OR image annotator.
+  teardownActiveText();
+  teardownActiveImage();
+
+  let activeId: string | null = null;
+
+  const displaySize = (): { w: number; h: number } => ({ w: img.clientWidth, h: img.clientHeight });
+
+  const rerender = (): void => {
+    const anns = annotationStore.forSource(source);
+    renderRegionBoxes(layer, anns, displaySize(), {
+      activeId,
+      onSelect: (id) => {
+        activeId = id;
+        rerender();
+      },
+    });
+    renderSourcePanel(listEl, anns, {
+      onSelect: (id) => {
+        activeId = id;
+        rerender();
+      },
+      onDelete: (id) => {
+        annotationStore.remove(source, id);
+        if (activeId === id) activeId = null;
+        rerender();
+      },
+    });
+  };
+
+  // A tiny floating composer anchored near the drag rect: textarea + Save/Cancel.
+  let composer: HTMLDivElement | null = null;
+  const closeComposer = (): void => {
+    composer?.remove();
+    composer = null;
+  };
+  const openComposer = (
+    at: { x: number; y: number },
+    onSave: (note: string) => void,
+  ): void => {
+    closeComposer();
+    const box = document.createElement("div");
+    box.className = "annotator-composer region-composer";
+    box.style.position = "absolute";
+    box.style.left = `${at.x}px`;
+    box.style.top = `${at.y}px`;
+    const ta = document.createElement("textarea");
+    ta.className = "annotator-note";
+    ta.placeholder = "Note for this region…";
+    ta.rows = 3;
+    const actions = document.createElement("div");
+    actions.className = "annotator-actions";
+    const save = document.createElement("button");
+    save.className = "primary";
+    save.textContent = "Save";
+    const cancel = document.createElement("button");
+    cancel.className = "ghost";
+    cancel.textContent = "Cancel";
+    actions.append(cancel, save);
+    box.append(ta, actions);
+    wrap.append(box);
+    composer = box;
+    ta.focus();
+    const commit = (): void => {
+      const note = ta.value.trim();
+      closeComposer();
+      if (note) onSave(note);
+      else rerender(); // drop the draft box
+    };
+    save.addEventListener("click", commit);
+    cancel.addEventListener("click", () => {
+      closeComposer();
+      rerender();
+    });
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        commit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeComposer();
+        rerender();
+      }
+    });
+  };
+
+  // Drag-to-create: track from mousedown on the image, draw a draft box, and on
+  // mouseup (if the drag is more than a few px) open the composer for a note.
+  let dragStart: { x: number; y: number } | null = null;
+  let draft: HTMLDivElement | null = null;
+
+  const pointIn = (e: MouseEvent): { x: number; y: number } => {
+    const r = img.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    if (composer) return; // don't start a new drag while a composer is open
+    closeComposer();
+    dragStart = pointIn(e);
+    draft = document.createElement("div");
+    draft.className = "region-box is-draft";
+    draft.style.position = "absolute";
+    layer.append(draft);
+  };
+  const onMove = (e: MouseEvent): void => {
+    if (!dragStart || !draft) return;
+    const p = pointIn(e);
+    const left = Math.min(dragStart.x, p.x);
+    const top = Math.min(dragStart.y, p.y);
+    draft.style.left = `${left}px`;
+    draft.style.top = `${top}px`;
+    draft.style.width = `${Math.abs(p.x - dragStart.x)}px`;
+    draft.style.height = `${Math.abs(p.y - dragStart.y)}px`;
+  };
+  const onUp = (e: MouseEvent): void => {
+    if (!dragStart) return;
+    const start = dragStart;
+    dragStart = null;
+    draft?.remove();
+    draft = null;
+    const p = pointIn(e);
+    const left = Math.min(start.x, p.x);
+    const top = Math.min(start.y, p.y);
+    const w = Math.abs(p.x - start.x);
+    const h = Math.abs(p.y - start.y);
+    if (w < 5 || h < 5) {
+      rerender(); // treat as a click — clear any stray draft
+      return;
+    }
+    const size = displaySize();
+    const rect = normalizeRect({ x: left, y: top, w, h }, size);
+    openComposer({ x: left, y: top + h }, (note) => {
+      const ann = buildRegionAnnotation({ source, rect, note, creator: me });
+      annotationStore.add(source, ann);
+      activeId = ann.id;
+      rerender();
+    });
+  };
+
+  wrap.addEventListener("mousedown", onDown);
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+
+  // The displayed image size changes on window resize; re-lay-out the boxes.
+  const onResize = (): void => rerender();
+  window.addEventListener("resize", onResize);
+  // First paint may precede image load (clientWidth = 0); repaint once it loads.
+  img.addEventListener("load", onResize);
+
+  activeImage = {
+    teardown: () => {
+      wrap.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("resize", onResize);
+      img.removeEventListener("load", onResize);
+      closeComposer();
+      layer.replaceChildren();
+    },
+  };
+
+  rerender();
+}
+
 // Dev seed: apply a few sample annotations on load so the page shows highlights
 // and a populated panel immediately. Remove once persistence (Phase 2) lands.
 function findPhrase(phrase: string): { from: number; to: number } | null {
@@ -848,6 +1033,7 @@ viewStore.subscribe((v) => {
   // the shared list. (A text view's own panel is rendered by openAnnotatableText
   // via showCodeFile/showHtmlFile on open.)
   if (v !== "code" && v !== "html") teardownActiveText();
+  if (v !== "image") teardownActiveImage();
   if (v === "review") renderPanel();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
@@ -1135,7 +1321,7 @@ async function openRepoFile(path: string): Promise<void> {
   } else {
     void host.vault.set("ui", "last-doc", currentDocKey);
     if (kind === "image") {
-      renderImageView(viewEls.image, { title, path }); // bytes load via /repo-file/
+      await showImageFile(path, title); // bytes load via /repo-file/
     } else if (kind === "html") {
       await showHtmlFile(path, title, await host.files.read("repo", path));
     } else {
@@ -1416,7 +1602,7 @@ onVaultChange((ns, key) => {
         if (currentDocKey === `review:${key}`) {
           const kind = viewerFor(key, effectiveHtmlRender(key));
           if (kind === "image") {
-            renderImageView(viewEls.image, { title: currentDocTitle, path: key });
+            await showImageFile(key, currentDocTitle);
           } else if (kind === "html") {
             const content = await host.files.read("repo", key);
             await showHtmlFile(key, currentDocTitle, content);

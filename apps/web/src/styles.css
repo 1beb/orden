@@ -2629,6 +2629,12 @@ li.sess-done-head {
   pointer-events: none;
   border-style: dashed;
 }
+/* Floating note composer anchored at the drag rect; sits above the boxes. */
+.region-composer {
+  width: 260px;
+  max-width: 90%;
+  z-index: 5;
+}
 
 /* Rendered-HTML viewer: a sandboxed iframe filling the center view. */
 #view-html {
