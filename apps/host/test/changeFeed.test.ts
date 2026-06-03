@@ -58,4 +58,37 @@ describe("change feed over the ws bus", () => {
     await conn.close();
     await server.close();
   });
+
+  test("a files change carrying projectId round-trips over the feed", async () => {
+    // The watcher (Task 4) is what will set projectId on real `files` changes;
+    // here we drive the feed directly through a fake ChangeSource host to prove
+    // the projectId survives the wsServer send + wsTransport receive plumbing.
+    let emit: ((change: { ns: string; key: string; projectId?: string }) => void) | undefined;
+    const fakeHost = {
+      onChange(listener: (change: { ns: string; key: string; projectId?: string }) => void) {
+        emit = listener;
+        return () => {
+          emit = undefined;
+        };
+      },
+    } as unknown as Host;
+
+    const server = await startHostServer(fakeHost, { port: 0 });
+    const conn = await createWsTransport(`ws://127.0.0.1:${server.port}`);
+
+    const events: { type: string; ns: string; key: string; projectId?: string }[] = [];
+    conn.onEvent((e) => events.push(e));
+    // let the connection settle so the server has wired the change listener
+    await new Promise((r) => setTimeout(r, 20));
+
+    emit?.({ ns: "files", key: "docs/readme.md", projectId: "proj_x" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const received = events.find((e) => e.ns === "files");
+    expect(received).toBeDefined();
+    expect(received?.projectId).toBe("proj_x");
+
+    await conn.close();
+    await server.close();
+  });
 });

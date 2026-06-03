@@ -92,6 +92,8 @@ class StubFiles implements FileSource {
 export interface VaultChange {
   ns: string;
   key: string;
+  /** For `files` changes: which project's file changed (set by the watcher). */
+  projectId?: string;
 }
 
 // Wraps a VaultStore so every write (set/delete) notifies a listener. NodeHost
