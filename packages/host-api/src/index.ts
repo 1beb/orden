@@ -14,6 +14,18 @@ export interface HostCapabilities {
    * (e.g. the in-browser host).
    */
   filesRoot?: string;
+  /**
+   * Absolute path the host persists its vault into. The web shows it in
+   * settings so the user knows where their data lives. Absent for the
+   * in-browser host, whose vault is the browser's own storage.
+   */
+  vaultRoot?: string;
+  /**
+   * True when the host can pop a native directory chooser (files.pickDirectory).
+   * The project modal shows a "Browse…" button only then. Absent/false on the
+   * in-browser host and on hosts with no picker tool installed.
+   */
+  pickDirectory?: boolean;
 }
 
 export interface Identity {
@@ -38,6 +50,10 @@ export interface Project {
   id: string;
   name: string;
   source: ProjectSource;
+  /** Per-project default agent the launchers pre-select. Absent = ask each time. */
+  defaultAgent?: "claude" | "opencode";
+  /** Per-project cwd agents launch in. Absent = use the source path / global default. */
+  workingDir?: string;
 }
 
 export interface ProjectRegistry {
@@ -55,6 +71,13 @@ export interface FileSource {
   list(projectId: string, glob?: string): Promise<FileEntry[]>;
   read(projectId: string, path: string): Promise<string>;
   write(projectId: string, path: string, content: string): Promise<void>;
+  /**
+   * Open a native directory chooser on the host and resolve to the selected
+   * absolute path, or null when cancelled / unsupported. A browser can't produce
+   * a real filesystem path, so the project modal's "Browse…" button routes here.
+   * Gated by capabilities().pickDirectory — false hosts hide the button.
+   */
+  pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null>;
 }
 
 export type SessionState =

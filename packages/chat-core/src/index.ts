@@ -2,6 +2,7 @@
 // build a ChatBackend without reaching into internal module paths.
 export { createChatBackend } from "./engine";
 export { AdapterRegistry, defaultRegistry } from "./registry";
+export { VaultReducer } from "./reduceToVault";
 
 export type ChatHarness = "claude" | "opencode";
 

@@ -23,15 +23,25 @@ export function markFor(agent: Agent): string {
 // agent session — e.g. on a kanban card / project row that has no session yet.
 // `onPick(agent)` fires on click; pointer events are stopped so it doesn't also
 // trigger an enclosing card click / drag.
-export function agentLauncher(onPick: (agent: Agent) => void): HTMLElement {
+//
+// `defaultAgent` (a project's default) emphasizes one mark: it sorts first and
+// gets the `is-default` class, so the project's preferred agent reads at a
+// glance. Both marks stay clickable — it's a hint, not a restriction.
+export function agentLauncher(
+  onPick: (agent: Agent) => void,
+  defaultAgent?: Agent,
+): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "agent-launch";
   const mk = (svg: string, agent: Agent, name: string): HTMLButtonElement => {
     const b = document.createElement("button");
     b.className = "agent-launch__btn";
+    if (agent === defaultAgent) b.classList.add("is-default");
     b.innerHTML = svg; // static, author-controlled literal
-    b.title = `Start ${name} session`;
-    b.setAttribute("aria-label", `Start ${name} session`);
+    const label =
+      agent === defaultAgent ? `Start ${name} session (default)` : `Start ${name} session`;
+    b.title = label;
+    b.setAttribute("aria-label", label);
     b.addEventListener("mousedown", (e) => e.stopPropagation());
     b.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -39,6 +49,10 @@ export function agentLauncher(onPick: (agent: Agent) => void): HTMLElement {
     });
     return b;
   };
-  wrap.append(mk(CLAUDE_MARK, "claude", "Claude"), mk(OPENCODE_MARK, "opencode", "opencode"));
+  const claude = mk(CLAUDE_MARK, "claude", "Claude");
+  const opencode = mk(OPENCODE_MARK, "opencode", "opencode");
+  // The default agent's mark comes first.
+  if (defaultAgent === "opencode") wrap.append(opencode, claude);
+  else wrap.append(claude, opencode);
   return wrap;
 }

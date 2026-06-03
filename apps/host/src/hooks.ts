@@ -168,6 +168,20 @@ export async function handleHookRequest(
       res.writeHead(400, { "content-type": "application/json" }).end('{"error":"bad state"}');
       return;
     }
+
+    // Plugin-driven transition (opencode kanban plugin): the payload carries
+    // orden_session_id, so we can look up the session directly without mapping
+    // through conversationId. The plugin also sends the opencode session id
+    // on session.created so we can persist the mapping for the poller.
+    const ordenSessionId = (payload as Record<string, unknown>).orden_session_id as
+      | string
+      | undefined;
+    if (ordenSessionId) {
+      await applyStateBySessionId(host, ordenSessionId, state, sessionId);
+      ok();
+      return;
+    }
+
     if (sessionId) {
       if (state === "blocked") {
         // Stop edge — gated on in-flight subagents (see applyStop).
@@ -199,6 +213,34 @@ export async function applyState(host: Host, claudeSessionId: string, state: str
   if (!card) return;
   // "complete" is terminal and user/LLM-owned: never let an automatic hook
   // (e.g. a trailing Stop) knock a just-completed card back to blocked.
+  if (card.state === "complete") return;
+  if (card.state !== state) {
+    await host.vault.set("cards", card.id, { ...card, state });
+  }
+}
+
+// Plugin-driven transition: the opencode kanban plugin passes the orden session
+// ID directly (via orden_session_id), so we don't need the conversationId lookup.
+// On the first event (session.created) the plugin also hands us the opencode
+// session id — persist it as conversationId so the poller (and future reattach)
+// can use it immediately instead of waiting for discovery.
+export async function applyStateBySessionId(
+  host: Host,
+  ordenSessionId: string,
+  state: string,
+  opencodeSessionId?: string,
+): Promise<void> {
+  if (opencodeSessionId) {
+    const ses = await host.vault.get<{ conversationId?: string; [k: string]: unknown }>(
+      "sessions",
+      ordenSessionId,
+    );
+    if (ses && !ses.conversationId) {
+      await host.vault.set("sessions", ordenSessionId, { ...ses, conversationId: opencodeSessionId });
+    }
+  }
+  const card = await cardForSession(host.vault, ordenSessionId);
+  if (!card) return;
   if (card.state === "complete") return;
   if (card.state !== state) {
     await host.vault.set("cards", card.id, { ...card, state });

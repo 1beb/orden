@@ -15,7 +15,6 @@ import {
 import {
   getProject,
   listProjects,
-  updateProject,
   DEFAULT_PROJECT_ID,
   type Project,
 } from "./projects";
@@ -29,6 +28,7 @@ import {
   type Agent,
 } from "./sessions";
 import { openDialog } from "./modal";
+import { openProjectModal } from "./projectModal";
 import { makeOutlineEditor } from "./outlineEditor";
 import { openCardModal } from "./cardModal";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
@@ -224,15 +224,19 @@ function projectHeader(
   editBtn.className = "project-menu__item";
   editBtn.textContent = "Edit details";
 
-  // The inline edit form, hidden until "Edit details" is chosen.
-  const form = editForm(project, meta, heading, syncMeta, onProjectChanged);
-
+  // "Edit details" opens the shared add/edit modal in edit mode. On save it
+  // refreshes the title/meta in place and notifies the caller (sidebar/title).
   editBtn.addEventListener("click", () => {
     closeMenu();
-    titleRow.hidden = true;
-    meta.hidden = true;
-    form.hidden = false;
-    form.focus();
+    openProjectModal({
+      mode: "edit",
+      project,
+      onSaved: (updated) => {
+        heading.textContent = updated.name;
+        syncMeta();
+        onProjectChanged?.();
+      },
+    });
   });
   menu.append(editBtn);
 
@@ -253,76 +257,8 @@ function projectHeader(
   cogWrap.className = "project-cog-wrap";
   cogWrap.append(cog, menu);
   titleRow.append(heading, cogWrap);
-  wrap.append(titleRow, meta, form);
-  // Show/hide the form's restore of the title row on cancel/save.
-  form.addEventListener("project-edit-done", () => {
-    titleRow.hidden = false;
-    syncMeta();
-    form.hidden = true;
-  });
+  wrap.append(titleRow, meta);
   return wrap;
-}
-
-// Inline name (+ path, for local projects) editor. Emits a "project-edit-done"
-// event on its own element when the user saves or cancels, so the header can
-// restore the title row. Saving persists via updateProject and notifies the
-// caller to refresh the sidebar/title.
-function editForm(
-  project: Project,
-  _meta: HTMLElement,
-  heading: HTMLElement,
-  syncMeta: () => void,
-  onProjectChanged?: () => void,
-): HTMLElement {
-  const form = document.createElement("form");
-  form.className = "project-edit";
-  form.hidden = true;
-
-  const nameInput = document.createElement("input");
-  nameInput.className = "project-edit__input";
-  nameInput.placeholder = "Project name";
-  nameInput.value = project.name;
-
-  const pathInput = document.createElement("input");
-  pathInput.className = "project-edit__input";
-  pathInput.placeholder = "Folder path";
-  const isLocal = project.source.kind === "local";
-  if (isLocal) pathInput.value = (project.source as { path: string }).path;
-
-  const save = document.createElement("button");
-  save.type = "submit";
-  save.className = "project-edit__save";
-  save.textContent = "Save";
-
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.className = "project-edit__cancel";
-  cancel.textContent = "Cancel";
-
-  const done = (): void => {
-    form.dispatchEvent(new CustomEvent("project-edit-done"));
-  };
-  cancel.addEventListener("click", () => {
-    nameInput.value = project.name;
-    if (isLocal) pathInput.value = (project.source as { path: string }).path;
-    done();
-  });
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = nameInput.value.trim();
-    if (!name) return; // a project must keep a name
-    updateProject(project.id, { name, path: isLocal ? pathInput.value : undefined });
-    heading.textContent = project.name;
-    syncMeta();
-    onProjectChanged?.();
-    done();
-  });
-
-  form.append(nameInput, ...(isLocal ? [pathInput] : []), save, cancel);
-  // Focusing the form focuses the name field (header calls form.focus()).
-  form.addEventListener("focus", () => nameInput.focus());
-  Object.defineProperty(form, "focus", { value: () => nameInput.focus() });
-  return form;
 }
 
 // The remove confirmation flow. Counts the project's cards/sessions, offers
@@ -404,7 +340,8 @@ function addBar(
   });
   row.append(input, addBtn);
 
-  // The brand marks add the item and start a session on it in one action.
+  // The brand marks add the item and start a session on it in one action. The
+  // project's default agent (if set) is emphasized in the launcher.
   if (onStartSession) {
     row.append(
       agentLauncher((agent) => {
@@ -412,7 +349,7 @@ function addBar(
         if (!item) return;
         onStartSession(item, agent);
         refreshItems(); // show the new item's open button
-      }),
+      }, getProject(projectId)?.defaultAgent),
     );
   }
   return row;
@@ -741,7 +678,9 @@ function rowLeader(
       lead.append(b);
     }
   } else if (onStartSession) {
-    lead.append(agentLauncher((agent) => onStartSession(item, agent)));
+    lead.append(
+      agentLauncher((agent) => onStartSession(item, agent), getProject(item.projectId)?.defaultAgent),
+    );
   }
   return lead;
 }
@@ -851,7 +790,12 @@ function itemsWidget(
           onChange();
           render();
         });
-        row.append(lead, title, select, projSel);
+        // Status + project pickers ride in their own cluster so they sit at the
+        // row's right on desktop but drop onto a line under the title on mobile.
+        const meta = document.createElement("div");
+        meta.className = "issue-row-meta";
+        meta.append(select, projSel);
+        row.append(lead, title, meta);
         details.append(row);
       }
       list.append(details);

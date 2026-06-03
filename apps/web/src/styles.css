@@ -21,6 +21,10 @@
      inheriting --app-font so the glyph comes from a symbol-capable face. */
   --icon-font: -apple-system, "Segoe UI Symbol", "Noto Sans Symbols 2",
     "Noto Sans Symbols", system-ui, "Apple Symbols", sans-serif;
+  /* Text-size multiplier driven by the Settings "Text size" slider (fonts.ts
+     sets it to size/16). Every font-size is `calc(<px> * var(--font-scale))`,
+     so the whole app's type scales proportionally while layout/padding holds. */
+  --font-scale: 1;
 }
 
 * {
@@ -35,7 +39,7 @@ body {
 
 body {
   font-family: var(--app-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
-  font-size: var(--app-font-size, 16px);
+  font-size: calc(16px * var(--font-scale));
   line-height: 1.6;
   color: var(--ink);
   background: var(--bg);
@@ -96,7 +100,7 @@ body {
   border-radius: 10px;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 500;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
   opacity: 0;
@@ -125,7 +129,7 @@ body {
   justify-content: center;
   /* symbol/system font so ☰ / ›_ don't inherit a prose font that condenses them */
   font-family: var(--icon-font);
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   line-height: 1;
   width: 30px;
   height: 30px;
@@ -192,7 +196,7 @@ body {
   background: #f4f4f2;
   border-right: 1px solid var(--line);
   overflow: hidden;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -215,7 +219,7 @@ body {
 
 .nav-cog {
   font: inherit;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   line-height: 1;
   padding: 5px 10px;
   border: 1px solid transparent;
@@ -249,12 +253,12 @@ body {
 
 .settings-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   margin-bottom: 10px;
 }
 
 .settings-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -267,7 +271,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 5px 4px;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   cursor: pointer;
 }
 
@@ -280,7 +284,7 @@ body {
 .settings-select {
   width: 100%;
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -319,9 +323,18 @@ body {
   letter-spacing: normal;
 }
 
+/* read-only vault path: monospace, wraps long absolute paths instead of clipping */
+.settings-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted);
+  word-break: break-all;
+  user-select: text;
+}
+
 .nav-brand {
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   padding: 4px 8px 14px;
 }
 
@@ -345,7 +358,7 @@ body {
 }
 
 .nav-badge {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   background: var(--accent-soft);
   color: var(--accent);
@@ -358,7 +371,7 @@ body {
 }
 
 .nav-section-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -391,7 +404,7 @@ body {
 }
 
 .nav-file-meta {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -400,7 +413,7 @@ body {
 
 .nav-file-empty {
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--muted);
 }
 
@@ -412,7 +425,7 @@ body {
 
 .nav-proj-name::before {
   content: "▾ ";
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
 }
 
 .nav-sess {
@@ -458,7 +471,7 @@ body {
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
   /* Chrome, not prose — a label plus controls. Suppress the text caret/selection
      so the header never looks editable. */
@@ -477,7 +490,7 @@ body {
 }
 
 .sess-state {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -506,7 +519,7 @@ body {
   color: var(--muted);
   /* symbol/system font so ← renders at natural proportions, not condensed */
   font-family: var(--icon-font);
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale));
   line-height: 1;
   width: 26px;
   height: 26px;
@@ -560,7 +573,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   font-weight: 700;
   background: var(--accent-soft);
   color: var(--accent);
@@ -576,7 +589,7 @@ body {
 .sess-empty {
   padding: 16px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .sess-newform {
   display: flex;
@@ -587,7 +600,7 @@ body {
 }
 .sess-input {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 7px 9px;
   border-radius: 6px;
   border: 1px solid var(--line);
@@ -597,7 +610,7 @@ body {
 .sess-create {
   align-self: flex-start;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   padding: 5px 14px;
   border: none;
@@ -641,7 +654,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -680,14 +693,14 @@ li.sess-done-head {
   min-width: 0;
 }
 .sess-card-title {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sess-card-proj {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   margin-top: 2px;
   overflow: hidden;
@@ -703,7 +716,7 @@ li.sess-done-head {
   color: var(--muted);
   /* symbol/system font so ✓ / ✕ render at natural proportions, not condensed */
   font-family: var(--icon-font);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   width: 22px;
   height: 22px;
   border-radius: 6px;
@@ -742,7 +755,7 @@ li.sess-done-head {
   background: transparent;
   padding: 5px 12px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   color: #6b7682;
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -773,15 +786,19 @@ li.sess-done-head {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 .chat-msg {
   padding: 6px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   line-height: 1.5;
 }
 .chat-msg.user {
@@ -796,30 +813,222 @@ li.sess-done-head {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Tool: a flat container — one inset (the body box). No nested second border. */
 .chat-tool {
-  border: 1px solid var(--border, #e5e3df);
-  border-radius: 6px;
-  padding: 4px 6px;
-  margin: 4px 0;
-  font-size: 12px;
+  margin: 6px 0;
+  font-size: calc(12px * var(--font-scale));
 }
 .chat-tool-header {
   cursor: pointer;
   display: flex;
   gap: 6px;
   align-items: center;
+  margin-bottom: 4px;
 }
 .chat-tool-badge {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   text-transform: uppercase;
   color: #6b7682;
 }
-.chat-tool-input,
-.chat-tool-output {
-  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+/* The single inset. */
+.chat-tool-body {
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 8px;
+  background: #faf9f8;
+  padding: 10px;
+}
+/* File read collapses to one muted line: Read(path). */
+.chat-tool-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  padding: 2px 0;
+}
+/* Inner content carries no box of its own — just type. */
+.chat-tool-cmd,
+.chat-tool-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  margin: 4px 0 0;
+  margin: 0;
+}
+.chat-tool-output {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(11.5px * var(--font-scale));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted, #6b7280);
+  max-height: 240px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border, #e5e3df);
+}
+.chat-tool-desc {
+  font-size: calc(11.5px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  margin-top: 4px;
+}
+/* Edit/Write diff — file path, then -/+ lines. */
+.chat-diff-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(11.5px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  margin-bottom: 4px;
+}
+.chat-diff-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(11.5px * var(--font-scale));
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.chat-diff-block + .chat-diff-block {
+  margin-top: 6px;
+}
+.chat-diff-del {
+  color: #b3261e;
+}
+.chat-diff-add {
+  color: #1a7f37;
+}
+
+/* Thinking block */
+.chat-thinking {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding: 2px 0 2px 10px;
+  margin: 4px 0;
+}
+.chat-thinking-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--accent);
+}
+.chat-thinking-meta {
+  color: var(--muted, #6b7280);
+  font-size: calc(11px * var(--font-scale));
+}
+.chat-thinking-body {
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* Todos */
+.chat-todos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chat-todo {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: calc(12.5px * var(--font-scale));
+  padding: 1px 0;
+}
+.chat-todo-mark {
+  width: 1em;
+  color: var(--muted, #6b7280);
+}
+.chat-todo-completed .chat-todo-text {
+  color: var(--muted, #6b7280);
+  text-decoration: line-through;
+}
+.chat-todo-in_progress .chat-todo-mark {
+  color: var(--accent);
+}
+.chat-todo-in_progress .chat-todo-text {
+  font-weight: 500;
+}
+
+/* TaskCreate */
+.chat-task-subject {
+  font-weight: 500;
+  font-size: calc(12.5px * var(--font-scale));
+}
+.chat-task-desc {
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  margin-top: 2px;
+}
+
+/* AskUserQuestion */
+.chat-question {
+  margin: 2px 0 6px;
+}
+.chat-question-text {
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.chat-question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-question-option {
+  font: inherit;
+  font-size: calc(12.5px * var(--font-scale));
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.chat-question-option:hover {
+  background: var(--accent-soft);
+}
+
+/* Markdown inside a text part */
+.chat-md-p {
+  margin: 0 0 8px;
+}
+.chat-md-p:last-child {
+  margin-bottom: 0;
+}
+.chat-md-h {
+  margin: 8px 0 4px;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+}
+.chat-md-list {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+/* Soften bold — default 700 reads as shouting in chat. */
+.chat-md strong {
+  font-weight: 550;
+}
+.chat-md-inline-code {
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--muted) 14%, #fff);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.chat-md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.5;
+  background: #1e1e2e;
+  color: #e6e6f0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.chat-md-code code {
+  background: none;
+  padding: 0;
 }
 .chat-permissions:not(:empty) {
   padding: 6px 8px;
@@ -830,45 +1039,169 @@ li.sess-done-head {
   border-radius: 6px;
   padding: 6px 8px;
   margin-bottom: 6px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
 }
 .chat-perm-actions {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
+.chat-perm-allow,
+.chat-perm-deny {
+  height: 28px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: filter 0.15s ease, background 0.15s ease;
+}
+.chat-perm-allow {
+  color: #fff;
+  background: var(--accent);
+}
+.chat-perm-allow:hover {
+  filter: brightness(1.08);
+}
+.chat-perm-deny {
+  color: var(--muted, #6b7280);
+  background: #fff;
+  border-color: var(--border, #e5e3df);
+}
+.chat-perm-deny:hover {
+  background: #f3f2f0;
+}
+.chat-perm-allow:disabled,
+.chat-perm-deny:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Composer: a centered column — big message box on top, then a bar with the
+   model picker bottom-left and Send bottom-right. */
 .chat-composer {
   display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  padding: 6px 8px;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 16px 16px;
   border-top: 1px solid var(--border, #e5e3df);
+  background: var(--bg, #fbfbfa);
+  box-sizing: border-box;
+}
+.chat-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* Model picker — a quiet pill with a custom caret, not a raw <select>. */
+.chat-model-select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 36px;
+  max-width: 180px;
+  padding: 0 26px 0 10px;
+  font: inherit;
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.chat-model-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border, #e5e3df));
+}
+/* Tool expand/collapse — a quiet pill beside the model picker. */
+.chat-tool-toggle {
+  height: 36px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--muted, #6b7280);
+  background-color: #fff;
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.chat-tool-toggle:hover {
+  color: var(--text, #1f2328);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border, #e5e3df));
 }
 .chat-input-wrap {
   position: relative;
-  flex: 1;
+  min-width: 0;
 }
 .chat-input {
   width: 100%;
-  resize: none;
+  resize: vertical;
   font: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.5;
+  min-height: 84px;
+  max-height: 280px;
+  padding: 12px 14px;
   border: 1px solid var(--border, #e5e3df);
-  border-radius: 6px;
+  border-radius: 12px;
+  background: #fff;
   box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-input::placeholder {
+  color: color-mix(in srgb, var(--muted, #6b7280) 70%, transparent);
+}
+.chat-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Send — a filled accent pill matching the app's primary buttons. */
+.chat-send {
+  height: 36px;
+  margin-left: auto; /* always bottom-right, even if the model picker is absent */
+  padding: 0 16px;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+.chat-send:hover {
+  filter: brightness(1.08);
+}
+.chat-send:active {
+  filter: brightness(0.95);
+}
+.chat-send:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .chat-command-palette {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% + 6px);
   left: 0;
   right: 0;
   background: #fff;
   border: 1px solid var(--border, #e5e3df);
-  border-radius: 6px;
+  border-radius: 9px;
   max-height: 180px;
   overflow-y: auto;
   z-index: 5;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 .chat-command-item {
   display: block;
@@ -876,9 +1209,9 @@ li.sess-done-head {
   text-align: left;
   border: none;
   background: transparent;
-  padding: 5px 8px;
+  padding: 7px 10px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   cursor: pointer;
 }
 .chat-command-item:hover {
@@ -887,7 +1220,7 @@ li.sess-done-head {
 .chat-starting,
 .chat-error {
   padding: 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: #6b7682;
 }
 .chat-error {
@@ -896,7 +1229,9 @@ li.sess-done-head {
 
 .term-body {
   margin: 0;
-  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.6;
   color: #c7ccd1;
   white-space: pre-wrap;
   word-break: break-word;
@@ -937,7 +1272,7 @@ li.sess-done-head {
 
 #topbar .doc-title {
   flex: 1;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
   color: var(--muted);
 }
@@ -967,7 +1302,7 @@ li.sess-done-head {
   justify-content: center;
   /* symbol/system font so ⌕ renders at natural proportions, not condensed */
   font-family: var(--icon-font);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   line-height: 1;
 }
 .omnisearch-input {
@@ -977,7 +1312,7 @@ li.sess-done-head {
   outline: none;
   background: none;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--ink);
 }
 .omnisearch-input::placeholder {
@@ -1007,7 +1342,7 @@ li.sess-done-head {
 
 .annotator-pill {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 500;
   padding: 6px 14px;
   border: none;
@@ -1054,7 +1389,7 @@ li.sess-done-head {
 .annotator-toggle button {
   flex: 1;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1076,7 +1411,7 @@ li.sess-done-head {
 
 .annotator-note {
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   resize: vertical;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1096,7 +1431,7 @@ li.sess-done-head {
 
 .annotator-actions button {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 5px 14px;
   border-radius: 6px;
   cursor: pointer;
@@ -1127,12 +1462,12 @@ li.sess-done-head {
 }
 
 .ProseMirror h1 {
-  font-size: 28px;
+  font-size: calc(28px * var(--font-scale));
   margin: 0 0 16px;
 }
 
 .ProseMirror h2 {
-  font-size: 20px;
+  font-size: calc(20px * var(--font-scale));
   margin: 28px 0 8px;
 }
 
@@ -1186,7 +1521,7 @@ li.sess-done-head {
   padding: 12px 18px;
   border-bottom: 1px solid var(--line);
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
 }
 
 /* document map (outline) block */
@@ -1202,7 +1537,7 @@ li.sess-done-head {
 }
 
 .block-toggle {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   line-height: 1;
   width: 18px;
   height: 18px;
@@ -1226,7 +1561,7 @@ li.sess-done-head {
 
 .block-hide {
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 500;
   color: var(--muted);
   background: none;
@@ -1245,7 +1580,7 @@ li.sess-done-head {
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--accent);
   background: var(--accent-soft);
   border: none;
@@ -1279,7 +1614,7 @@ li.sess-done-head {
 #docmap-list li {
   padding: 3px 8px;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--ink);
   cursor: pointer;
   white-space: nowrap;
@@ -1321,7 +1656,7 @@ li.sess-done-head {
 /* primary annotation action — solid accent (Send) / neutral (Approve) pill */
 .panel-send {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   padding: 4px 14px;
   border: 1px solid var(--accent);
@@ -1350,7 +1685,7 @@ li.sess-done-head {
 
 .panel-copy {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 500;
   padding: 4px 12px;
   border: 1px solid var(--line);
@@ -1401,7 +1736,7 @@ li.sess-done-head {
 }
 
 #annotation-list .quote {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--muted);
   font-style: italic;
   margin-bottom: 4px;
@@ -1411,7 +1746,7 @@ li.sess-done-head {
 }
 
 #annotation-list .note {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
 }
 
 /* row header: status chip + hover action */
@@ -1424,7 +1759,7 @@ li.sess-done-head {
 }
 
 .chip {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1456,7 +1791,7 @@ li.sess-done-head {
 
 .row-action {
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -1488,7 +1823,7 @@ li.sess-done-head {
 }
 
 .orphan-note {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: #b91c1c;
   font-style: italic;
   margin-top: 4px;
@@ -1496,7 +1831,7 @@ li.sess-done-head {
 
 #annotation-list li.panel-sep {
   list-style: none;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1554,7 +1889,7 @@ li.sess-done-head {
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
 }
 
 .preview-text {
@@ -1563,7 +1898,9 @@ li.sess-done-head {
   border: none;
   resize: none;
   padding: 16px 18px;
-  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.55;
   color: var(--ink);
   background: #fbfbfa;
   white-space: pre-wrap;
@@ -1581,7 +1918,7 @@ li.sess-done-head {
 
 .preview-actions button {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 7px 16px;
   border-radius: 7px;
   cursor: pointer;
@@ -1606,7 +1943,7 @@ li.sess-done-head {
 .dialog__message {
   margin: 0;
   padding: 16px 18px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   line-height: 1.5;
   color: var(--ink);
 }
@@ -1620,7 +1957,7 @@ li.sess-done-head {
 }
 .dialog__btn {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 7px 14px;
   border-radius: 7px;
   cursor: pointer;
@@ -1752,7 +2089,7 @@ li.sess-done-head {
   gap: 10px;
   max-width: 720px;
   margin: 0 auto 16px;
-  font-size: 22px;
+  font-size: calc(22px * var(--font-scale));
   font-weight: 700;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -1761,7 +2098,7 @@ li.sess-done-head {
   border: none;
   background: none;
   color: var(--muted);
-  font-size: 22px;
+  font-size: calc(22px * var(--font-scale));
   line-height: 1;
   padding: 0 6px;
   border-radius: 6px;
@@ -1786,7 +2123,7 @@ li.sess-done-head {
 .journal-day-head {
   max-width: 720px;
   margin: 12px auto 6px;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   font-weight: 700;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -1826,11 +2163,11 @@ li.sess-done-head {
 
 .orden-board__header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale));
 }
 
 .orden-board__needs-action {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   color: #b91c1c;
   background: #fee2e2;
@@ -1860,14 +2197,14 @@ li.sess-done-head {
 }
 
 .orden-column__title {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   text-transform: capitalize;
   color: var(--ink);
 }
 
 .orden-column__count {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
 }
 
@@ -1882,7 +2219,7 @@ li.sess-done-head {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 
 .orden-column__cards {
@@ -1913,7 +2250,7 @@ li.sess-done-head {
   padding-top: 12px;
 }
 .backlinks-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1925,7 +2262,7 @@ li.sess-done-head {
   padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 .backlink:hover {
   background: var(--accent-soft);
@@ -1948,7 +2285,7 @@ li.sess-done-head {
 .pages-title {
   max-width: 760px;
   margin: 0 auto 16px;
-  font-size: 22px;
+  font-size: calc(22px * var(--font-scale));
   font-weight: 700;
 }
 .pages-empty {
@@ -1961,11 +2298,11 @@ li.sess-done-head {
   margin: 0 auto;
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
 }
 .pages-table th {
   text-align: left;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -2005,7 +2342,7 @@ li.sess-done-head {
   font-weight: 500;
 }
 .nav-proj-meta {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -2015,7 +2352,7 @@ li.sess-done-head {
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--muted);
   background: none;
   border: 1px dashed var(--line);
@@ -2029,38 +2366,6 @@ li.sess-done-head {
   color: var(--ink);
   background: #fff;
 }
-#add-project-form[hidden] {
-  display: none;
-}
-.nav-input {
-  width: 100%;
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  margin-bottom: 4px;
-}
-.nav-form-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-.nav-form-btn {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-}
-.nav-form-btn.primary {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
-}
-
 /* project page (issue tracker) */
 #view-project.active {
   display: block;
@@ -2079,7 +2384,7 @@ li.sess-done-head {
 .project-title {
   max-width: 760px;
   margin: 0 auto 4px;
-  font-size: 22px;
+  font-size: calc(22px * var(--font-scale));
   font-weight: 700;
 }
 .project-header .project-title {
@@ -2089,7 +2394,7 @@ li.sess-done-head {
 .project-meta {
   max-width: 760px;
   margin: 0 auto 18px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--muted);
 }
 .project-header .project-meta {
@@ -2106,7 +2411,7 @@ li.sess-done-head {
   border: 0;
   background: none;
   cursor: pointer;
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale));
   line-height: 1;
   color: var(--muted);
   padding: 4px 6px;
@@ -2139,7 +2444,7 @@ li.sess-done-head {
   background: none;
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 7px 10px;
   border-radius: 6px;
   color: var(--ink);
@@ -2158,40 +2463,121 @@ li.sess-done-head {
 }
 
 /* Inline edit form (name + path). */
-.project-edit {
+/* add/edit project modal (reuses .preview-overlay / .preview-modal base) */
+.preview-modal.project-modal {
+  width: 480px;
+}
+.project-modal__body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  overflow-y: auto;
 }
-.project-edit[hidden] {
-  display: none;
+.project-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.project-edit__input {
-  flex: 1 1 200px;
+.project-modal__label {
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  color: var(--ink);
+}
+.project-modal__hint {
+  font-size: calc(11px * var(--font-scale));
+  color: var(--muted);
+}
+.project-modal__input {
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
 }
-.project-edit__save,
-.project-edit__cancel {
+.project-modal__input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+.project-modal__path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.project-modal__path-row .project-modal__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.project-modal__browse {
+  flex: none;
   font: inherit;
-  font-size: 13px;
-  padding: 7px 14px;
+  font-size: calc(12px * var(--font-scale));
+  padding: 0 12px;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  white-space: nowrap;
 }
-.project-edit__save {
+.project-modal__browse:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.project-modal__browse:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.project-modal__advanced {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.project-modal__advanced > summary {
+  cursor: pointer;
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+}
+.project-modal__advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.project-modal__advanced > summary::before {
+  content: "▸ ";
+}
+.project-modal__advanced[open] > summary::before {
+  content: "▾ ";
+}
+.project-modal__advanced > .project-modal__field {
+  margin-top: 12px;
+}
+.project-modal__error {
+  margin: 0;
+  font-size: calc(12px * var(--font-scale));
+  color: #b91c1c;
+}
+.project-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.project-modal__btn {
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  padding: 7px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+}
+.project-modal__btn--primary {
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
-}
-.project-edit__cancel {
-  background: #fff;
-  color: var(--muted);
 }
 .project-add {
   max-width: 760px;
@@ -2212,14 +2598,14 @@ li.sess-done-head {
 .project-add-input {
   flex: 1;
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
 }
 .project-add-btn {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   padding: 7px 16px;
   border: 1px solid var(--ink);
   border-radius: 7px;
@@ -2240,12 +2626,12 @@ li.sess-done-head {
   list-style: revert;
 }
 .issue-group-state {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
   text-transform: capitalize;
 }
 .issue-group-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   margin-left: 4px;
 }
@@ -2297,10 +2683,17 @@ li.sess-done-head {
   width: 12px;
   height: 12px;
 }
+/* status + project pickers, clustered so they stay together when wrapping. */
+.issue-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
 .issue-state,
 .issue-project {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 3px 6px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2314,6 +2707,17 @@ li.sess-done-head {
   max-width: 130px;
   color: var(--muted);
 }
+/* On narrow screens the row runs out of width, so let the status + project
+   pickers wrap onto their own line beneath the card title. */
+@media (max-width: 860px) {
+  .issue-row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .issue-row-meta {
+    flex-basis: 100%;
+  }
+}
 
 /* mission-control widgets: a single full-width column of stacked sections, each
    with a clear heading. Constrained to the same reading column as the title. */
@@ -2322,7 +2726,7 @@ li.sess-done-head {
   margin: 0 auto 28px;
 }
 .project-widget-head {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2347,7 +2751,7 @@ li.sess-done-head {
 }
 .project-widget-head--summary::before {
   content: "▸";
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   color: var(--muted);
   transition: transform 0.1s ease;
 }
@@ -2359,7 +2763,7 @@ li.sess-done-head {
   border-bottom: none;
 }
 .project-widget-empty {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--muted);
   margin: 4px 0;
 }
@@ -2375,7 +2779,7 @@ li.sess-done-head {
 /* File explorer widget (file-backed project pages) */
 .project-file-search {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   width: 100%;
   box-sizing: border-box;
   padding: 7px 10px;
@@ -2404,7 +2808,7 @@ li.sess-done-head {
 }
 .project-file-chip {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 12px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -2422,7 +2826,7 @@ li.sess-done-head {
 }
 .project-file-ext {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 8px;
   border-radius: 7px;
   border: 1px solid var(--line);
@@ -2443,7 +2847,7 @@ li.sess-done-head {
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -2461,7 +2865,7 @@ li.sess-done-head {
   white-space: nowrap;
 }
 .project-file-meta {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2480,7 +2884,7 @@ li.sess-done-head {
   cursor: pointer;
   padding: 5px 8px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   color: var(--ink);
   user-select: none;
 }
@@ -2490,7 +2894,7 @@ li.sess-done-head {
 .project-tree-dir-head::before {
   content: "▸";
   color: var(--muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   transition: transform 0.1s ease;
 }
 .project-tree-dir[open] > .project-tree-dir-head::before {
@@ -2503,7 +2907,7 @@ li.sess-done-head {
   font-weight: 600;
 }
 .project-tree-dir-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
 }
 /* Indent a folder's contents one step in from its header. */
@@ -2523,7 +2927,7 @@ li.sess-done-head {
   background: var(--panel-bg);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--font-scale));
   line-height: 1.55;
   tab-size: 2;
 }
@@ -2577,16 +2981,21 @@ li.sess-done-head {
   object-fit: contain;
 }
 
-/* Rendered-HTML viewer: a sandboxed iframe filling the center view. */
+/* Rendered-HTML viewer: a sandboxed iframe inset slightly from the panel edge.
+   The 3px inset + subtle framed border signals this is an embedded view, not an
+   editable surface. box-sizing keeps the padding inside the fixed view height. */
 #view-html {
   overflow: hidden;
-  padding: 0;
+  padding: 3px;
+  box-sizing: border-box;
 }
 .html-view {
   width: 100%;
   height: 100%;
-  border: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
   background: #fff;
+  box-sizing: border-box;
 }
 
 /* Topbar Rendered/Code toggle, shown only when viewing an HTML file. */
@@ -2594,7 +3003,7 @@ li.sess-done-head {
   flex: none;
   margin-left: 4px;
   padding: 2px 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid transparent;
@@ -2643,6 +3052,14 @@ li.sess-done-head {
   color: #fff;
   border-color: var(--accent);
 }
+/* The project's default agent: a filled mark with an accent ring, so it reads
+   as the preferred one to launch. The other mark stays hollow/clickable. */
+.agent-launch__btn.is-default {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
 .agent-launch__btn svg {
   display: block;
   width: 12px;
@@ -2654,12 +3071,12 @@ li.sess-done-head {
   cursor: pointer;
 }
 .orden-card__title {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
 }
 /* Project label/selector under the card title — styled as plain small-caps text
    (native select chrome stripped) but reassignable inline. */
 .orden-card__project {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   color: var(--muted);
   margin-top: 3px;
   font-variant: small-caps;
@@ -2694,7 +3111,7 @@ li.sess-done-head {
 }
 .orden-board__filter-chip {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 12px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -2712,7 +3129,7 @@ li.sess-done-head {
 }
 .orden-board__filter-project {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 8px;
   border-radius: 7px;
   border: 1px solid var(--line);
@@ -2722,7 +3139,7 @@ li.sess-done-head {
 }
 .orden-board__filter-clear {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 10px;
   border: none;
   background: transparent;
@@ -2741,7 +3158,7 @@ li.sess-done-head {
 }
 .orden-card__due,
 .orden-card__sesscount {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   border-radius: 999px;
@@ -2776,7 +3193,7 @@ li.sess-done-head {
   min-width: 0;
   font: inherit;
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   color: var(--ink);
   border: 1px solid transparent;
   border-radius: 6px;
@@ -2798,7 +3215,7 @@ li.sess-done-head {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   line-height: 1;
 }
 .card-modal__close:hover {
@@ -2820,14 +3237,14 @@ li.sess-done-head {
   gap: 3px;
 }
 .card-modal__field-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
 }
 .card-modal__field-input {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2835,7 +3252,7 @@ li.sess-done-head {
   color: var(--ink);
 }
 .card-modal__section-head {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -2844,7 +3261,7 @@ li.sess-done-head {
   margin-bottom: 8px;
 }
 .card-modal__empty {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--muted);
   margin: 0 0 8px;
 }
@@ -2873,7 +3290,7 @@ li.sess-done-head {
   flex: 1;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale));
   border: none;
   background: transparent;
   color: var(--ink);
@@ -2888,7 +3305,7 @@ li.sess-done-head {
 }
 .card-modal__sess-remove {
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   border: 1px solid var(--line);
   background: #fff;
   color: var(--muted);
@@ -2905,7 +3322,7 @@ li.sess-done-head {
   width: 100%;
   margin-top: 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   line-height: 1.5;
   color: var(--ink);
   border: 1px solid var(--line);
@@ -2921,7 +3338,7 @@ li.sess-done-head {
   margin-top: 4px;
 }
 .card-modal__sess-new-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   color: var(--muted);
 }
 .card-modal__footer {
@@ -2933,7 +3350,7 @@ li.sess-done-head {
 }
 .card-modal__delete {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale));
   border: 1px solid var(--line);
   background: #fff;
   color: #b91c1c;

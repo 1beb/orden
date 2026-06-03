@@ -60,8 +60,9 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
   const bar = el("div", "chat-composer-bar");
   const modelSelect = el("select", "chat-model-select");
   modelSelect.setAttribute("aria-label", "Model");
+  const toolToggle = button("", "chat-tool-toggle");
   const sendBtn = button("Send", "chat-send");
-  bar.append(modelSelect, sendBtn);
+  bar.append(modelSelect, toolToggle, sendBtn);
 
   composer.append(inputWrap, bar);
   root.append(list, permArea, composer);
@@ -121,6 +122,12 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     if (!text) return;
     input.value = "";
     palette.hidden = true;
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      parts: [{ type: "text", text }],
+    };
+    store.addMessage(userMsg);
     void client.send(sessionId, text);
   }
   sendBtn.addEventListener("click", doSend);
@@ -152,6 +159,35 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     .catch(() => {
       modelSelect.hidden = true;
     });
+
+  // ---- Tool expand/collapse toggle ----
+  // null = each tool uses its own default (expanded except TaskUpdate).
+  // true/false = user has forced every tool card open/closed.
+  let toolsExpanded: boolean | null = null;
+  function toolDefaultOpen(name: string): boolean {
+    return name !== "TaskUpdate";
+  }
+  function updateToggleLabel() {
+    // null or true reads as "expanded" — so the button offers to collapse.
+    const expandedView = toolsExpanded !== false;
+    toolToggle.textContent = expandedView ? "⊟ Collapse tools" : "⊞ Expand tools";
+    toolToggle.title = expandedView
+      ? "Collapse all tool calls"
+      : "Expand all tool calls";
+  }
+  function applyToolExpansion() {
+    if (toolsExpanded == null) return;
+    const open = toolsExpanded;
+    list.querySelectorAll<HTMLDetailsElement>("details.chat-tool").forEach((d) => {
+      d.open = open;
+    });
+  }
+  toolToggle.addEventListener("click", () => {
+    toolsExpanded = toolsExpanded === false ? true : false;
+    applyToolExpansion();
+    updateToggleLabel();
+  });
+  updateToggleLabel();
 
   const asObj = (v: unknown): Record<string, unknown> =>
     v && typeof v === "object" ? (v as Record<string, unknown>) : {};
@@ -187,8 +223,9 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
 
     const card = el("details", "chat-tool");
     // Expanded by default — except TaskUpdate, which carries only a status and is
-    // noise without the task description, so it stays collapsed.
-    card.open = part.name !== "TaskUpdate";
+    // noise without the task description, so it stays collapsed. Once the user hits
+    // the composer toggle, that choice (toolsExpanded) overrides the default.
+    card.open = toolsExpanded == null ? toolDefaultOpen(part.name) : toolsExpanded;
     const summary = el("summary", "chat-tool-header");
     const nameEl = el("span", "chat-tool-name");
     nameEl.textContent = part.name;

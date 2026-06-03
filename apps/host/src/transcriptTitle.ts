@@ -6,11 +6,28 @@
 // where <encoded-cwd> is the absolute cwd with every "/" and "." replaced by "-"
 // (e.g. /home/b/projects/orden -> -home-b-projects-orden). Verified against the
 // real ~/.claude/projects directory on disk (Claude Code v2.1.x).
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
+
+// Has Claude actually written this session's transcript to disk yet? A
+// conversationId is persisted at MINT time (the scoped MCP endpoint + state
+// hooks bind to it before the agent runs), but Claude writes
+// ~/.claude/projects/<encoded-cwd>/<id>.jsonl only once the session does real
+// work. A session opened but never given a turn — or killed as untouched before
+// its first turn — leaves the id pointing at a file that never existed. Callers
+// use this to avoid `--resume`-ing a ghost conversation, which exits instantly.
+export const claudeTranscriptExists = (cwd: string, sessionId: string): boolean => {
+  try {
+    return existsSync(
+      join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`),
+    );
+  } catch {
+    return false;
+  }
+};
 
 // Claude's own session title appears in the transcript as JSONL lines shaped
 //   {"type":"ai-title","aiTitle":"...","sessionId":"..."}

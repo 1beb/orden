@@ -114,6 +114,13 @@ class LocalFiles implements FileSource {
   async write(_projectId: string, _path: string, _content: string): Promise<void> {
     throw new Error("BrowserHost: file write unsupported");
   }
+
+  // No real filesystem in the browser, so no native picker (capabilities()
+  // reports pickDirectory absent, so the UI never offers it). Null is the
+  // "cancelled / unsupported" contract.
+  async pickDirectory(): Promise<string | null> {
+    return null;
+  }
 }
 
 class LocalSessions implements SessionManager {
