@@ -138,13 +138,17 @@ export function mountDomAnnotator(opts: {
     hide();
   }
 
+  // Dismissal must listen in the realm where the clicks happen: for an owned-HTML
+  // iframe that's the iframe's own document, not the parent. For the in-page code
+  // viewer root.ownerDocument IS the parent document, so behaviour is unchanged.
+  const clickDoc = root.ownerDocument ?? document;
   root.addEventListener("mouseup", onMouseUp);
-  document.addEventListener("mousedown", onDocMouseDown);
+  clickDoc.addEventListener("mousedown", onDocMouseDown);
 
   return {
     destroy() {
       root.removeEventListener("mouseup", onMouseUp);
-      document.removeEventListener("mousedown", onDocMouseDown);
+      clickDoc.removeEventListener("mousedown", onDocMouseDown);
       el.remove();
     },
   };

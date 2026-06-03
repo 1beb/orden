@@ -606,8 +606,13 @@ function teardownActiveText(): void {
   activeText.annotator.destroy();
   clearHighlights(activeText.win);
   activeText = null;
-  activePanelSource = null;
-  reRenderActiveSource = () => {};
+  // Only surrender the shared panel state if no image view has already claimed
+  // it. On image→code the new opener sets activePanelSource before the
+  // view-switch teardown runs; clearing unconditionally would null it out.
+  if (!activeImage) {
+    activePanelSource = null;
+    reRenderActiveSource = () => {};
+  }
   refreshSourceSend();
 }
 
@@ -773,8 +778,12 @@ function teardownActiveImage(): void {
   if (!activeImage) return;
   activeImage.teardown();
   activeImage = null;
-  activePanelSource = null;
-  reRenderActiveSource = () => {};
+  // Symmetric to teardownActiveText: don't clobber the panel source a text
+  // opener (code/html) may have just claimed during an image→code/html switch.
+  if (!activeText) {
+    activePanelSource = null;
+    reRenderActiveSource = () => {};
+  }
   refreshSourceSend();
 }
 
@@ -1080,6 +1089,11 @@ viewStore.subscribe((v) => {
     viewEls[name].classList.toggle("active", name === v);
   }
   viewArea.classList.toggle("no-panel", !ANNOTATABLE_VIEWS.has(v));
+  // The review Approve/Copy buttons act on the ProseMirror review doc; hide them
+  // on the other annotatable viewers (code/image/html) so they can't deliver the
+  // wrong (stale review) annotations. The source-view Send button is gated
+  // separately by refreshSourceSend().
+  viewArea.classList.toggle("source-view", ANNOTATABLE_VIEWS.has(v) && v !== "review");
   const titles: Record<View, string> = {
     review: currentDocTitle,
     code: currentDocTitle,

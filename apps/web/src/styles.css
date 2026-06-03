@@ -202,6 +202,13 @@ body {
   display: none;
 }
 
+/* On the non-review annotatable viewers (code/image/html) the review-only
+   Approve/Copy actions are hidden — only the source-view Send button applies. */
+#view-area.source-view #primary-action,
+#view-area.source-view #copy-feedback {
+  display: none;
+}
+
 /* left navigation rail */
 #leftnav {
   background: #f4f4f2;
