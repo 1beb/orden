@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -7,6 +7,7 @@ import type {
   HarnessAdapter,
   HarnessDriver,
   ModelOption,
+  Project,
   SlashCommand,
 } from "@orden/host-api";
 import { NodeHost } from "../src/nodeHost";
@@ -101,6 +102,66 @@ describe("NodeHost", () => {
     const me = await host.identity.me();
     expect(me).not.toBeNull();
     expect(typeof me!.id).toBe("string");
+  });
+});
+
+describe("NodeHost per-project files", () => {
+  // Verifies the real "projects" vault ns end-to-end (not stub): a NodeHost with
+  // a filesRoot serves the legacy "repo" id from that root AND serves a local
+  // project's own root resolved from a real "projects" record.
+  test('files.list resolves "repo" to filesRoot and a local project to its source.path', async () => {
+    const filesRoot = await mkdtemp(join(tmpdir(), "orden-repo-"));
+    await writeFile(join(filesRoot, "repo.md"), "# Repo");
+
+    const projRoot = await mkdtemp(join(tmpdir(), "orden-proj-"));
+    await writeFile(join(projRoot, "doc.md"), "# Doc");
+
+    const fileHost = new NodeHost({ vaultRoot: root, filesRoot });
+    const project: Project = {
+      id: "p1",
+      name: "P",
+      source: { kind: "local", path: projRoot },
+    };
+    await fileHost.vault.set("projects", "p1", project);
+
+    const repoFiles = await fileHost.files.list("repo");
+    expect(repoFiles.map((f) => f.path)).toEqual(["repo.md"]);
+
+    const projFiles = await fileHost.files.list("p1");
+    expect(projFiles.map((f) => f.path)).toEqual(["doc.md"]);
+
+    await rm(filesRoot, { recursive: true, force: true });
+    await rm(projRoot, { recursive: true, force: true });
+  });
+
+  test("MultiRootWatcher delivers a projectId-tagged files change on an in-root edit", async () => {
+    const filesRoot = await mkdtemp(join(tmpdir(), "orden-repo-"));
+    const projRoot = await mkdtemp(join(tmpdir(), "orden-proj-"));
+
+    const fileHost = new NodeHost({ vaultRoot: root, filesRoot });
+    await fileHost.vault.set("projects", "p1", {
+      id: "p1",
+      name: "P",
+      source: { kind: "local", path: projRoot },
+    } satisfies Project);
+
+    // Give the watcher's refresh() (fired on the projects write) time to arm.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const changes: { ns: string; key: string; projectId?: string }[] = [];
+    fileHost.onChange((c) => changes.push(c));
+
+    await writeFile(join(projRoot, "note.md"), "# Note");
+
+    // fs.watch + 120ms debounce in MultiRootWatcher; allow a generous window.
+    await new Promise((r) => setTimeout(r, 600));
+
+    expect(
+      changes.some((c) => c.ns === "files" && c.projectId === "p1" && c.key === "note.md"),
+    ).toBe(true);
+
+    await rm(filesRoot, { recursive: true, force: true });
+    await rm(projRoot, { recursive: true, force: true });
   });
 });
 
