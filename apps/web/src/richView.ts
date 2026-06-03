@@ -18,16 +18,21 @@ export function renderImageView(container: HTMLElement, doc: { title: string; pa
   container.append(img);
 }
 
+// Returns the iframe so callers can hook its `load` event and reach contentDocument
+// (owned files render same-origin, so the parent can annotate inside them — Task 8).
 export function renderHtmlView(
   container: HTMLElement,
-  doc: { title: string; content: string },
-): void {
+  doc: { title: string; content: string; owned?: boolean },
+): HTMLIFrameElement {
   container.replaceChildren();
   const frame = document.createElement("iframe");
   frame.className = "html-view";
   frame.title = doc.title;
-  // null-origin sandbox: scripts run, but with no access to app origin state.
-  frame.setAttribute("sandbox", "allow-scripts");
+  // Owned (on-disk, trusted) HTML renders same-origin so the parent can reach
+  // contentDocument to annotate it. External pages stay null-origin: scripts run
+  // but with no access to app origin state (cookies, vault, localStorage).
+  frame.setAttribute("sandbox", doc.owned ? "allow-scripts allow-same-origin" : "allow-scripts");
   frame.srcdoc = doc.content;
   container.append(frame);
+  return frame;
 }
