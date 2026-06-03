@@ -9,7 +9,8 @@ import { listProjects } from "./projects";
 import { agentLauncher } from "./agentMarks";
 import { setSessionProject, type Agent } from "./sessions";
 import { openCardModal } from "./cardModal";
-import { loadSettings } from "./settings";
+import { renderIssueGroups } from "./issueList";
+import { loadSettings, saveSettings, type KanbanView } from "./settings";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
@@ -77,6 +78,8 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   container.replaceChildren();
   container.classList.add("orden-board");
 
+  const view = loadSettings().kanbanView;
+
   const header = document.createElement("div");
   header.className = "orden-board__header";
   const h2 = document.createElement("h2");
@@ -88,6 +91,27 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     badge.textContent = `${needs} needs action`;
     header.append(badge);
   }
+  // Segmented Board | List toggle, pinned to the header's right. The choice is
+  // persisted so the tab reopens in the same layout.
+  const toggle = document.createElement("div");
+  toggle.className = "orden-board__view-toggle";
+  toggle.setAttribute("role", "group");
+  const mkView = (label: string, mode: KanbanView): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "orden-board__view-btn";
+    b.classList.toggle("is-active", view === mode);
+    b.setAttribute("aria-pressed", String(view === mode));
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      if (view === mode) return;
+      void saveSettings({ kanbanView: mode });
+      rerender();
+    });
+    return b;
+  };
+  toggle.append(mkView("Board", "board"), mkView("List", "list"));
+  header.append(toggle);
   container.append(header);
 
   // Filter bar: two toggle chips + a project picker. Toggling re-renders.
@@ -140,6 +164,47 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   container.append(bar);
 
   const today = todayISO();
+
+  // Schedule a single re-render at the soonest moment a still-visible completed
+  // card crosses its TTL and falls off, so an idle board drops it without
+  // waiting for the next interaction. Each render reschedules for the next.
+  const scheduleFade = (): void => {
+    let soonestFade = Infinity;
+    for (const i of items) {
+      if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
+      const fadeAt = i.completedAt + ttlMs;
+      if (fadeAt > nowMs && fadeAt < soonestFade) soonestFade = fadeAt;
+    }
+    if (soonestFade !== Infinity) {
+      fadeTimer = setTimeout(rerender, soonestFade - nowMs + 50);
+    }
+  };
+
+  if (view === "list") {
+    // Same grouped issue list as the project page, but across all projects
+    // (honoring the board's filters and lifecycle group order). Completed cards
+    // age off after the configured dwell time, mirroring the Complete column.
+    const visible = items.filter((i) => !isExpiredComplete(i, nowMs, ttlMs));
+    const list = document.createElement("div");
+    list.className = "issue-list orden-board__list";
+    if (visible.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "project-widget-empty";
+      empty.textContent = "No cards match the current filters.";
+      list.append(empty);
+    } else {
+      renderIssueGroups(list, visible, {
+        states: STATES,
+        onMutate: rerender,
+        onStartSession: deps.onStartSession,
+        onOpenSession: deps.onOpenSession,
+      });
+    }
+    container.append(list);
+    scheduleFade();
+    return needs;
+  }
+
   const columns = document.createElement("div");
   columns.className = "orden-board__columns";
   for (const state of STATES) {
@@ -264,18 +329,7 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   }
   container.append(columns);
 
-  // Schedule a single re-render at the soonest moment a still-visible completed
-  // card will cross its TTL and fall off. Each render reschedules for the next.
-  let soonestFade = Infinity;
-  for (const i of items) {
-    if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
-    const fadeAt = i.completedAt + ttlMs;
-    if (fadeAt > nowMs && fadeAt < soonestFade) soonestFade = fadeAt;
-  }
-  if (soonestFade !== Infinity) {
-    fadeTimer = setTimeout(rerender, soonestFade - nowMs + 50);
-  }
-
+  scheduleFade();
   return needs;
 }
 

@@ -7,9 +7,6 @@ import type { FileEntry } from "@orden/host-api";
 import {
   itemsByProject,
   addItem,
-  setItemState,
-  setItemProject,
-  cardSessionIds,
   type Item,
 } from "./cards";
 import {
@@ -18,19 +15,16 @@ import {
   DEFAULT_PROJECT_ID,
   type Project,
 } from "./projects";
-import { agentLauncher, markFor } from "./agentMarks";
+import { agentLauncher } from "./agentMarks";
 import { loadSettings } from "./settings";
 import {
-  sessionsForCard,
-  setSessionProject,
-  isSessionComplete,
   listSessions,
   type Agent,
 } from "./sessions";
 import { openDialog } from "./modal";
 import { openProjectModal } from "./projectModal";
 import { makeOutlineEditor } from "./outlineEditor";
-import { openCardModal } from "./cardModal";
+import { renderIssueGroups } from "./issueList";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
 // The project page surfaces what needs attention first, so it uses its own
@@ -66,14 +60,6 @@ export function projectPageHasFocus(): boolean {
   const tag = el.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
-
-// Capitalized labels for group headers and the state picker.
-const STATE_LABELS: Record<CardState, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
-};
 
 // The notes Page for a project is keyed deterministically by project id, not by
 // name: a distinct key (`notes:<id>`) so it (a) survives a project rename and
@@ -703,41 +689,6 @@ function widget(
 
 // --- Items by state (issue tracker + active sessions, combined) -----------
 
-// A leading control for an item row. If the item has linked session(s), render
-// one brand-mark button per session that opens it directly (the active-session
-// affordance, folded onto the row). Otherwise render the Claude/opencode
-// launcher to start a session on it.
-function rowLeader(
-  item: Item,
-  onStartSession?: (item: Item, agent: Agent) => void,
-  onOpenSession?: (id: string) => void,
-): HTMLElement {
-  const lead = document.createElement("span");
-  lead.className = "issue-row-lead";
-  const sessions = sessionsForCard(item);
-  if (sessions.length > 0) {
-    for (const s of sessions) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "issue-sess-open";
-      if (isSessionComplete(s)) b.classList.add("is-complete");
-      b.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
-      b.title = `Open ${s.agent} session: ${s.title}`;
-      b.setAttribute("aria-label", b.title);
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onOpenSession?.(s.id);
-      });
-      lead.append(b);
-    }
-  } else if (onStartSession) {
-    lead.append(
-      agentLauncher((agent) => onStartSession(item, agent), getProject(item.projectId)?.defaultAgent),
-    );
-  }
-  return lead;
-}
-
 function itemsWidget(
   projectId: string,
   onChange: () => void,
@@ -768,91 +719,23 @@ function itemsWidget(
     if (soonestDrop !== Infinity) {
       dropTimer = setTimeout(render, soonestDrop - nowMs + 50);
     }
-    list.replaceChildren();
     if (items.length === 0) {
+      list.replaceChildren();
       const empty = document.createElement("p");
       empty.className = "project-widget-empty";
       empty.textContent = "No items yet. Add one above.";
       list.append(empty);
       return;
     }
-    for (const state of STATES) {
-      const group = items.filter((i) => i.state === state);
-      if (group.length === 0) continue;
-      const details = document.createElement("details");
-      details.className = "issue-group";
-      // Completed cards can pile up; show the group but keep it furled until the
-      // user opens it. Every other state defaults open.
-      details.open = state !== "complete";
-      const summary = document.createElement("summary");
-      summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${STATE_LABELS[state]}</span> <span class="issue-group-count">${group.length}</span>`;
-      details.append(summary);
-      for (const item of group) {
-        const row = document.createElement("div");
-        row.className = "issue-row";
-        // Leading control: open the linked session(s) directly, or — if none —
-        // launch one. This is what folds Active sessions into the row.
-        const lead = rowLeader(item, onStartSession, onOpenSession);
-        // Click the title to open the card's detail modal (same modal the
-        // kanban board opens). Mutations there refresh this list;
-        // onStart/onOpen fall back to no-ops if the page didn't wire them.
-        const title = document.createElement("button");
-        title.type = "button";
-        title.className = "issue-title";
-        title.textContent = item.title;
-        title.addEventListener("click", () => {
-          openCardModal(item.id, {
-            onStartSession: (it, agent) => onStartSession?.(it, agent),
-            onOpenSession: (id) => onOpenSession?.(id),
-            onChange: () => {
-              onChange();
-              render();
-            },
-          });
-        });
-        const select = document.createElement("select");
-        select.className = "issue-state";
-        for (const s of STATES) {
-          const opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = STATE_LABELS[s];
-          opt.selected = s === item.state;
-          select.append(opt);
-        }
-        select.addEventListener("change", () => {
-          setItemState(item.id, select.value as CardState);
-          onChange();
-          render();
-        });
-        // Move the card to another project (it then leaves this page's list).
-        const projSel = document.createElement("select");
-        projSel.className = "issue-project";
-        projSel.title = "Project";
-        for (const p of listProjects()) {
-          const opt = document.createElement("option");
-          opt.value = p.id;
-          opt.textContent = p.name;
-          opt.selected = p.id === item.projectId;
-          projSel.append(opt);
-        }
-        projSel.addEventListener("change", () => {
-          setItemProject(item.id, projSel.value);
-          // Move the linked sessions too, so they follow the card off this page
-          // instead of stranding under its old project.
-          for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
-          onChange();
-          render();
-        });
-        // Status + project pickers ride in their own cluster so they sit at the
-        // row's right on desktop but drop onto a line under the title on mobile.
-        const meta = document.createElement("div");
-        meta.className = "issue-row-meta";
-        meta.append(select, projSel);
-        row.append(lead, title, meta);
-        details.append(row);
-      }
-      list.append(details);
-    }
+    renderIssueGroups(list, items, {
+      states: STATES,
+      onMutate: () => {
+        onChange();
+        render();
+      },
+      onStartSession,
+      onOpenSession,
+    });
   };
 
   body.append(list);

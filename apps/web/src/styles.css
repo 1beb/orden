@@ -2199,6 +2199,39 @@ li.sess-done-head {
   padding: 2px 10px;
 }
 
+/* Segmented Board | List view toggle, pinned to the header's right. */
+.orden-board__view-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+.orden-board__view-btn {
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+  padding: 4px 14px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.orden-board__view-btn:hover {
+  color: var(--ink);
+}
+.orden-board__view-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The list view reuses the project page's .issue-list; cap its width so rows
+   don't stretch across the full board area. */
+.orden-board__list {
+  max-width: 760px;
+}
+
 .orden-board__columns {
   display: flex;
   gap: 12px;
@@ -2664,7 +2697,7 @@ li.sess-done-head {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px 8px 24px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--line);
 }
 .issue-title {
