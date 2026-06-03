@@ -1,11 +1,13 @@
-// GET /repo-file/<repo-relative-path> → raw file bytes. The web app's image
-// viewer points <img src> here, because the RPC files.read() is utf8-only and
-// would corrupt binary content. Text files (e.g. HTML source) still go through
-// RPC; this route exists for bytes that must arrive intact.
+// GET /repo-file/<projectId>/<repo-relative-path> → raw file bytes. The web app's
+// image viewer points <img src> here, because the RPC files.read() is utf8-only
+// and would corrupt binary content. Text files (e.g. HTML source) still go
+// through RPC; this route exists for bytes that must arrive intact. The first
+// path segment selects the project whose root the rest is resolved under.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join, relative, sep, extname } from "node:path";
 import { readFile } from "node:fs/promises";
+import type { ProjectRootResolver } from "./projectRoots";
 
 const PREFIX = "/repo-file/";
 
@@ -22,18 +24,30 @@ export function repoFileMime(path: string): string {
   return MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
 }
 
-// Resolve a /repo-file/ URL to an absolute path under `root`, or null if the
-// url isn't under the prefix, is empty, or escapes the root via traversal.
-export function resolveRepoFile(root: string, url: string): string | null {
+// Resolve a /repo-file/<projectId>/<rel> URL to an absolute path, or null if the
+// url isn't under the prefix, lacks a projectId/rel, names an unknown project, or
+// escapes that project's root via traversal. The first path segment is the
+// projectId; the rest is the repo-relative path, each decoded separately.
+export async function resolveRepoFile(
+  resolve: ProjectRootResolver,
+  url: string,
+): Promise<string | null> {
   const path = url.split("?")[0];
   if (!path.startsWith(PREFIX)) return null;
+  const remainder = path.slice(PREFIX.length);
+  const slash = remainder.indexOf("/");
+  if (slash < 0) return null; // need both a projectId segment and a rel path
+  let projectId: string;
   let rel: string;
   try {
-    rel = decodeURIComponent(path.slice(PREFIX.length));
+    projectId = decodeURIComponent(remainder.slice(0, slash));
+    rel = decodeURIComponent(remainder.slice(slash + 1));
   } catch {
     return null; // malformed percent-encoding
   }
-  if (!rel) return null;
+  if (!projectId || !rel) return null;
+  const root = await resolve(projectId);
+  if (!root) return null;
   const full = join(root, rel);
   const back = relative(root, full);
   if (back === "" || back.startsWith("..") || back.startsWith(sep + "..")) return null;
@@ -43,13 +57,13 @@ export function resolveRepoFile(root: string, url: string): string | null {
 // Serve a repo file as raw bytes. Returns true if it handled the request (the
 // url was under /repo-file/), false to let the caller fall through.
 export async function handleRepoFileRequest(
-  root: string,
+  resolve: ProjectRootResolver,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<boolean> {
   const url = req.url ?? "";
   if (!url.split("?")[0].startsWith(PREFIX)) return false;
-  const full = resolveRepoFile(root, url);
+  const full = await resolveRepoFile(resolve, url);
   if (!full) {
     res.writeHead(403).end("forbidden");
     return true;

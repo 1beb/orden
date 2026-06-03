@@ -1,35 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { resolveRepoFile, repoFileMime } from "../src/repoFileRoute";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveRepoFile, repoFileMime, handleRepoFileRequest } from "../src/repoFileRoute";
+import type { ProjectRootResolver } from "../src/projectRoots";
 
-const ROOT = "/srv/repo";
+// A tmp dir standing in for project "pa"'s files root, with one real file.
+const ROOT = mkdtempSync(join(tmpdir(), "repo-file-"));
+writeFileSync(join(ROOT, "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+// Fake resolver: only "pa" resolves; everything else is undefined.
+const resolve: ProjectRootResolver = async (id) => (id === "pa" ? ROOT : undefined);
 
 describe("resolveRepoFile", () => {
-  it("resolves a plain repo-relative path under the root", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/docs/a.png")).toBe("/srv/repo/docs/a.png");
+  it("resolves a plain repo-relative path under the project's root", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/docs/a.png")).toBe(
+      join(ROOT, "docs/a.png"),
+    );
   });
 
-  it("decodes percent-encoded path segments", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/my%20notes/x.png")).toBe("/srv/repo/my notes/x.png");
+  it("decodes percent-encoded path segments", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/my%20notes/x.png")).toBe(
+      join(ROOT, "my notes/x.png"),
+    );
   });
 
-  it("strips a query string", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/a.png?v=2")).toBe("/srv/repo/a.png");
+  it("strips a query string", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/a.png?v=2")).toBe(join(ROOT, "a.png"));
   });
 
-  it("rejects a path that escapes the root via ..", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/../../etc/passwd")).toBeNull();
+  it("returns null for an unknown project id", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/nope/a.png")).toBeNull();
   });
 
-  it("rejects an encoded traversal escape", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/%2e%2e/%2e%2e/etc/passwd")).toBeNull();
+  it("rejects a path that escapes the root via ..", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/../escape")).toBeNull();
   });
 
-  it("returns null when the url is not under the /repo-file/ prefix", () => {
-    expect(resolveRepoFile(ROOT, "/something/else")).toBeNull();
+  it("rejects an encoded traversal escape", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/%2e%2e/%2e%2e/etc/passwd")).toBeNull();
   });
 
-  it("returns null for an empty file path", () => {
-    expect(resolveRepoFile(ROOT, "/repo-file/")).toBeNull();
+  it("rejects malformed percent-encoding in the path", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/%zz.png")).toBeNull();
+  });
+
+  it("returns null when the url is not under the /repo-file/ prefix", async () => {
+    expect(await resolveRepoFile(resolve, "/something/else")).toBeNull();
+  });
+
+  it("returns null when the project id is missing", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/")).toBeNull();
+  });
+
+  it("returns null when the rel path is missing", async () => {
+    expect(await resolveRepoFile(resolve, "/repo-file/pa")).toBeNull();
+    expect(await resolveRepoFile(resolve, "/repo-file/pa/")).toBeNull();
   });
 });
 
@@ -49,5 +75,68 @@ describe("repoFileMime", () => {
 
   it("falls back to octet-stream for unknown extensions", () => {
     expect(repoFileMime("a.bin")).toBe("application/octet-stream");
+  });
+});
+
+// Minimal mock req/res to exercise the handler's status codes.
+function mockRes() {
+  const res = {
+    statusCode: 0,
+    headers: {} as Record<string, string>,
+    body: undefined as Buffer | string | undefined,
+    writeHead(code: number, headers?: Record<string, string>) {
+      this.statusCode = code;
+      if (headers) this.headers = headers;
+      return this;
+    },
+    end(body?: Buffer | string) {
+      this.body = body;
+      return this;
+    },
+  };
+  return res;
+}
+
+describe("handleRepoFileRequest", () => {
+  it("returns false for urls not under the prefix", async () => {
+    const res = mockRes();
+    const handled = await handleRepoFileRequest(resolve, { url: "/other" } as never, res as never);
+    expect(handled).toBe(false);
+    expect(res.statusCode).toBe(0);
+  });
+
+  it("serves 200 with mime for a real file", async () => {
+    const res = mockRes();
+    const handled = await handleRepoFileRequest(
+      resolve,
+      { url: "/repo-file/pa/a.png" } as never,
+      res as never,
+    );
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(Buffer.isBuffer(res.body)).toBe(true);
+  });
+
+  it("returns 403 when the resolver yields no root", async () => {
+    const res = mockRes();
+    const handled = await handleRepoFileRequest(
+      resolve,
+      { url: "/repo-file/nope/a.png" } as never,
+      res as never,
+    );
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("returns 404 for a missing file under a known project", async () => {
+    const res = mockRes();
+    const handled = await handleRepoFileRequest(
+      resolve,
+      { url: "/repo-file/pa/missing.png" } as never,
+      res as never,
+    );
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(404);
   });
 });

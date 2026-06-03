@@ -19,6 +19,7 @@ import { reapCompletedCard } from "./cardReaper";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 import { handleRepoFileRequest } from "./repoFileRoute";
+import { makeProjectRootResolver } from "./projectRoots";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
 const repoRoot = resolve(here, "../../..");
@@ -28,6 +29,10 @@ const vaultRoot = process.env.ORDEN_VAULT ?? join(homedir(), ".orden", "vault");
 const filesRoot = process.env.ORDEN_FILES_ROOT ?? repoRoot;
 const webDist = process.env.ORDEN_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
 const host = new NodeHost({ vaultRoot, filesRoot });
+
+// Resolve a projectId to its files root for the /repo-file/ byte route ("repo"
+// aliases filesRoot for back-compat; local projects use their source.path).
+const resolveRoot = makeProjectRootResolver(host, filesRoot);
 
 // Launch-on-create reactor: the MCP session_create tool flags new sessions with
 // pendingLaunch when auto-launch is on. Watch the vault, clear the flag, and
@@ -133,7 +138,7 @@ function makeServer() {
       return;
     }
     if (req.url && req.url.startsWith("/repo-file/")) {
-      void handleRepoFileRequest(filesRoot, req, res);
+      void handleRepoFileRequest(resolveRoot, req, res);
       return;
     }
     void serveStatic(req, res);
