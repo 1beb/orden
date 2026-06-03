@@ -1,7 +1,17 @@
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+
+// Under vitest's worker pool os.homedir() is pinned to the real home and ignores
+// a runtime $HOME change, and node:os exports are non-configurable so vi.spyOn
+// can't patch homedir(). Mock the module instead, with a hoisted mutable holder
+// the buildCommand tests point at a throwaway home (empty = real homedir).
+const osHome = vi.hoisted(() => ({ dir: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => osHome.dir || actual.homedir() };
+});
 import {
   mcpConfigArg,
   settingsArg,
@@ -152,12 +162,15 @@ describe("buildCommand (claude resume vs mint)", () => {
   let home: string;
 
   // Point claude's transcript lookup at a throwaway HOME so a test can make a
-  // conversation "exist" (or not) without touching the real ~/.claude.
+  // conversation "exist" (or not) without touching the real ~/.claude. The mocked
+  // os.homedir() (see top of file) reads osHome.dir.
   function setup(): void {
     home = mkdtempSync(join(tmpdir(), "orden-home-"));
     process.env.HOME = home;
+    osHome.dir = home;
   }
   afterEach(() => {
+    osHome.dir = "";
     if (home) rmSync(home, { recursive: true, force: true });
     if (ORIGINAL_HOME === undefined) delete process.env.HOME;
     else process.env.HOME = ORIGINAL_HOME;
