@@ -76,6 +76,31 @@ describe("mountDomAnnotator (smoke)", () => {
     inst.destroy();
   });
 
+  it("shifts the pill by a provided rectOffset", () => {
+    const root = document.createElement("div");
+    const p = document.createElement("p");
+    p.textContent = "hello world";
+    root.append(p);
+    document.body.append(root);
+
+    const inst = mountDomAnnotator({
+      root,
+      getSelection: () => window.getSelection(),
+      onCreate: vi.fn(),
+      rectOffset: () => ({ x: 100, y: 50 }),
+    });
+
+    selectContents(p);
+    root.dispatchEvent(new Event("mouseup", { bubbles: true }));
+
+    // happy-dom getBoundingClientRect is all-zeros, so the pill position is purely
+    // the offset: left=0+100, top=0+50.
+    const host = document.body.querySelector<HTMLDivElement>(".annotator")!;
+    expect(host.style.left).toBe("100px");
+    expect(host.style.top).toBe("50px");
+    inst.destroy();
+  });
+
   it("Cancel dismisses without calling onCreate", () => {
     const root = document.createElement("div");
     const p = document.createElement("p");

@@ -14,8 +14,13 @@ export function mountDomAnnotator(opts: {
   root: Element; // the text container to watch for selections
   getSelection: () => Selection | null; // usually () => window.getSelection(); iframe passes its own
   onCreate: (range: Range, note: string) => void; // called on Save with a CLONED range
+  // A range inside an iframe returns coords relative to the IFRAME viewport, not
+  // the parent's. Pass the iframe's top-left (in parent coords) to shift the pill
+  // back into parent space. Default 0 (in-page viewer needs no offset).
+  rectOffset?: () => { x: number; y: number };
 }): DomAnnotator {
   const { root, getSelection, onCreate } = opts;
+  const rectOffset = opts.rectOffset ?? (() => ({ x: 0, y: 0 }));
 
   const el = document.createElement("div");
   el.className = "annotator";
@@ -36,8 +41,9 @@ export function mountDomAnnotator(opts: {
   }
 
   function position(rect: { left: number; top: number; bottom: number }) {
-    el.style.left = `${rect.left}px`;
-    el.style.top = `${rect.top}px`;
+    const off = rectOffset();
+    el.style.left = `${rect.left + off.x}px`;
+    el.style.top = `${rect.top + off.y}px`;
     void rect.bottom;
   }
 
