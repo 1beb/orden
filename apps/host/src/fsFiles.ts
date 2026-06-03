@@ -1,14 +1,14 @@
-// FileSource over the real filesystem, rooted at a directory. Lists every file
-// (repo-relative, skipping heavy/dot dirs) and reads/writes them. projectId is
-// ignored for now (single root); multi-project mapping comes with H2.2.
+// FileSource over the real filesystem. Each projectId resolves (via a
+// ProjectRootResolver) to its own absolute root; list/read/write are scoped to
+// that root and reject paths escaping it.
 
 import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
-import { watch, type FSWatcher } from "node:fs";
 import { join, relative, dirname, sep } from "node:path";
 import type { FileSource, FileEntry } from "@orden/host-api";
+import type { ProjectRootResolver } from "./projectRoots";
 import { pickDirectory } from "./pickDirectory";
 
-const SKIP_DIRS = new Set([
+export const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
   "dist",
@@ -28,11 +28,19 @@ function titleOf(path: string, content?: string): string {
 }
 
 export class FsFiles implements FileSource {
-  constructor(private readonly root: string) {}
+  constructor(private readonly resolveRoot: ProjectRootResolver) {}
 
-  private resolveInRoot(path: string): string {
-    const full = join(this.root, path);
-    const rel = relative(this.root, full);
+  // Resolve a project's root, throwing when it has none — used by read/write,
+  // which (unlike list) cannot silently no-op on a missing root.
+  private async rootFor(projectId: string): Promise<string> {
+    const root = await this.resolveRoot(projectId);
+    if (!root) throw new Error(`FsFiles: no root for project ${projectId}`);
+    return root;
+  }
+
+  private resolveInRoot(root: string, path: string): string {
+    const full = join(root, path);
+    const rel = relative(root, full);
     if (rel.startsWith("..") || rel.startsWith(sep + "..")) {
       throw new Error(`FsFiles: path escapes root: ${path}`);
     }
@@ -51,12 +59,14 @@ export class FsFiles implements FileSource {
     }
   }
 
-  async list(_projectId: string, _glob?: string): Promise<FileEntry[]> {
+  async list(projectId: string, _glob?: string): Promise<FileEntry[]> {
+    const root = await this.resolveRoot(projectId);
+    if (!root) return [];
     const abs: string[] = [];
-    await this.walk(this.root, abs);
+    await this.walk(root, abs);
     const entries = await Promise.all(
       abs.map(async (file) => {
-        const path = relative(this.root, file).split(sep).join("/");
+        const path = relative(root, file).split(sep).join("/");
         // Only markdown earns a content read (for its H1 title); other files are
         // labeled by filename, so we never slurp a binary just to list it.
         const content = file.endsWith(".md") ? await readFile(file, "utf8") : undefined;
@@ -66,12 +76,14 @@ export class FsFiles implements FileSource {
     return entries.sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  async read(_projectId: string, path: string): Promise<string> {
-    return readFile(this.resolveInRoot(path), "utf8");
+  async read(projectId: string, path: string): Promise<string> {
+    const root = await this.rootFor(projectId);
+    return readFile(this.resolveInRoot(root, path), "utf8");
   }
 
-  async write(_projectId: string, path: string, content: string): Promise<void> {
-    const full = this.resolveInRoot(path);
+  async write(projectId: string, path: string, content: string): Promise<void> {
+    const root = await this.rootFor(projectId);
+    const full = this.resolveInRoot(root, path);
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, content, "utf8");
   }
@@ -80,36 +92,5 @@ export class FsFiles implements FileSource {
   // user can pick a folder anywhere when creating a project.
   pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null> {
     return pickDirectory(opts);
-  }
-
-  // Watch the root for file changes (recursive) and report repo-relative paths.
-  // Coalesces bursts per-path (editors write in several syscalls). The returned
-  // FSWatcher is unref'd so it never keeps the process alive on its own.
-  watch(onChange: (path: string) => void): FSWatcher {
-    const timers = new Map<string, NodeJS.Timeout>();
-    const watcher = watch(this.root, { recursive: true }, (_event, filename) => {
-      if (!filename) return;
-      const rel = filename.toString().split(sep).join("/");
-      if (rel.split("/").some((seg) => SKIP_DIRS.has(seg) || seg.startsWith("."))) return;
-      const prev = timers.get(rel);
-      if (prev) clearTimeout(prev);
-      timers.set(
-        rel,
-        setTimeout(() => {
-          timers.delete(rel);
-          onChange(rel);
-        }, 120).unref(),
-      );
-    });
-    // Node's recursive watcher walks the whole tree to arm itself, including
-    // node_modules; a build artifact dir (e.g. node-gyp's node_gyp_bins) that
-    // vanishes mid-scandir emits a transient ENOENT. Without a handler that
-    // 'error' event is unhandled and crashes the host. Swallow it so the
-    // watcher (and process) survive churn under node_modules.
-    watcher.on("error", (err) => {
-      console.warn(`[fsFiles] watch error (ignored): ${(err as Error).message}`);
-    });
-    watcher.unref();
-    return watcher;
   }
 }

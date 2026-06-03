@@ -18,7 +18,6 @@ import type {
   HostCapabilities,
   Project,
   ProjectSource,
-  FileEntry,
   Session,
   SessionState,
   ChatBackend,
@@ -28,7 +27,9 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
-import { hasDirectoryPicker, pickDirectory } from "./pickDirectory";
+import { makeProjectRootResolver, listLocalProjectRoots } from "./projectRoots";
+import { MultiRootWatcher } from "./multiRootWatcher";
+import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
 import { makeOpencodeAdapter } from "./chat/adapters/opencode";
@@ -72,26 +73,11 @@ class StubProjects implements ProjectRegistry {
   }
 }
 
-class StubFiles implements FileSource {
-  async list(_projectId: string, _glob?: string): Promise<FileEntry[]> {
-    throw new Error("NodeHost: files.list not implemented yet (H2)");
-  }
-  async read(_projectId: string, _path: string): Promise<string> {
-    throw new Error("NodeHost: files.read not implemented yet (H2)");
-  }
-  async write(_projectId: string, _path: string, _content: string): Promise<void> {
-    throw new Error("NodeHost: files.write not implemented yet (H2)");
-  }
-  // The directory picker is filesystem-wide, not root-scoped, so it works even
-  // when no filesRoot is configured (the StubFiles case).
-  pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null> {
-    return pickDirectory(opts);
-  }
-}
-
 export interface VaultChange {
   ns: string;
   key: string;
+  /** For `files` changes: which project's file changed (set by the watcher). */
+  projectId?: string;
 }
 
 // Wraps a VaultStore so every write (set/delete) notifies a listener. NodeHost
@@ -150,15 +136,25 @@ export class NodeHost implements Host {
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
-    const files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
-    this.files = files;
-    // Repo .md edits (by us, an agent, git, anything) push a "files" change on
-    // the same feed the vault uses, so an open doc in the UI live-reloads.
-    if (files instanceof FsFiles) {
-      files.watch((path) => {
-        for (const listener of this.changeListeners) listener({ ns: "files", key: path });
-      });
-    }
+    // FsFiles serves every project from its own root (resolved per call from the
+    // "projects" vault ns); "repo" aliases filesRoot, and an unresolvable id
+    // degrades to empty lists / throwing reads, so this works even with no
+    // filesRoot (the former StubFiles case) — no stub needed.
+    this.files = new FsFiles(makeProjectRootResolver(this, opts.filesRoot));
+    // Watch every local project's root: an in-root edit (by us, an agent, git,
+    // anything) pushes a projectId-tagged "files" change on the same feed the
+    // vault uses, so an open doc in the UI live-reloads. The watched set is
+    // vault-driven, so re-derive it whenever the "projects" ns changes.
+    // No teardown: like the chat engine below, the watcher is held alive by the
+    // changeListeners closure and intentionally runs for the host process
+    // lifetime — never stop()-ed (no dispose API, matching this constructor).
+    const watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
+      for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
+    });
+    void watcher.start();
+    this.onChange((c) => {
+      if (c.ns === "projects") void watcher.refresh();
+    });
     // Sessions run agents on the host; writes go through the emitting vault so
     // transcript + card updates stream live to the UI.
     this.sessions = new NodeSessions({

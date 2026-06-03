@@ -1,0 +1,33 @@
+// Resolve an orden projectId to the absolute filesystem root its files live
+// under, reading the shared "projects" vault namespace (the same records the web
+// writes). Local projects resolve to their source.path; the legacy "repo" id
+// aliases the host's configured filesRoot for back-compat; everything else
+// (ephemeral/ssh/s3/unknown) has no local root and resolves to undefined.
+import type { Host, Project } from "@orden/host-api";
+
+export type ProjectRootResolver = (projectId: string) => Promise<string | undefined>;
+
+export function makeProjectRootResolver(
+  host: Pick<Host, "vault">,
+  filesRoot: string | undefined,
+): ProjectRootResolver {
+  return async (projectId: string) => {
+    if (projectId === "repo") return filesRoot;
+    const rec = await host.vault.get<Project>("projects", projectId);
+    if (rec?.source.kind === "local") return rec.source.path;
+    return undefined;
+  };
+}
+
+// Enumerate every local project's id + absolute filesystem root from the
+// "projects" vault ns. Same "local project → source.path" rule as the resolver
+// above, but for the whole set at once (the watcher needs the full root list).
+export async function listLocalProjectRoots(
+  host: Pick<Host, "vault">,
+): Promise<Array<{ id: string; root: string }>> {
+  const ids = await host.vault.list("projects");
+  const recs = await Promise.all(ids.map((id) => host.vault.get<Project>("projects", id)));
+  return recs.flatMap((p) =>
+    p && p.source.kind === "local" ? [{ id: p.id, root: p.source.path }] : [],
+  );
+}

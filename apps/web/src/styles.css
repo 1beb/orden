@@ -379,6 +379,30 @@ body {
   padding: 0 8px 6px;
 }
 
+/* Recent files: a collapsible nav section, closed by default. The summary
+   doubles as the section title; swap the default disclosure marker for a
+   triangle that rotates open (mirrors the foldable project widget). */
+.nav-files-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.nav-files-summary::-webkit-details-marker {
+  display: none;
+}
+.nav-files-summary::before {
+  content: "▸";
+  font-size: calc(10px * var(--font-scale));
+  color: var(--muted);
+  transition: transform 0.1s ease;
+}
+.nav-files[open] > .nav-files-summary::before {
+  transform: rotate(90deg);
+}
+
 .nav-file {
   display: flex;
   flex-direction: column;
