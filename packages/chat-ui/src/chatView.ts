@@ -4,6 +4,7 @@ import type {
   ChatPart,
   ModelOption,
   PermissionRequest,
+  QuestionAnswer,
   SlashCommand,
 } from "@orden/chat-core";
 import type { ChatStore } from "./chatStore";
@@ -156,6 +157,13 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
   const asObj = (v: unknown): Record<string, unknown> =>
     v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 
+  // Pending AskUserQuestion selections, keyed by the question tool's id, so they
+  // survive the full re-render the change feed triggers (the user may pick across
+  // several questions before submitting). `null` = that question is unanswered.
+  // A toolId is dropped from the map once its answer is submitted/sent.
+  const questionSel = new Map<string, (QuestionAnswer | null)[]>();
+  const questionBusy = new Set<string>(); // toolIds with an in-flight answer
+
   // ---- Rendering: thinking (not collapsible — always shown) ----
   function renderThinking(part: Extract<ChatPart, { type: "thinking" }>): HTMLElement {
     const card = el("div", "chat-thinking");
@@ -289,9 +297,9 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
       body.append(t);
       return;
     }
-    // AskUserQuestion: render the question(s) + selectable options.
+    // AskUserQuestion: render the question(s) as an interactive answer card.
     if (part.name === "AskUserQuestion" && Array.isArray(input.questions)) {
-      body.append(renderQuestions(input.questions));
+      body.append(renderQuestionCard(part, input.questions));
       return;
     }
     // Generic: pretty-printed JSON input.
@@ -316,29 +324,269 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     return ul;
   }
 
-  function renderQuestions(questions: unknown[]): HTMLElement {
+  interface NormOption {
+    label: string;
+    description: string;
+    preview: string;
+  }
+  interface NormQuestion {
+    header: string;
+    question: string;
+    multiSelect: boolean;
+    options: NormOption[];
+  }
+  function normalizeQuestion(raw: unknown): NormQuestion {
+    const q = asObj(raw);
+    const options = (Array.isArray(q.options) ? q.options : []).map((oraw): NormOption => {
+      const o = asObj(oraw);
+      return {
+        label: String(o.label ?? ""),
+        description: typeof o.description === "string" ? o.description : "",
+        preview: typeof o.preview === "string" ? o.preview : "",
+      };
+    });
+    return {
+      header: typeof q.header === "string" ? q.header : "",
+      question: String(q.question ?? q.header ?? ""),
+      multiSelect: q.multiSelect === true,
+      options,
+    };
+  }
+
+  // The AskUserQuestion answer card. For a mirrored terminal session (the client
+  // exposes answerQuestion) it's fully interactive — pick options / toggle
+  // multiSelect / type an "Other" answer / decline with "Chat about this" — and
+  // submitting drives the live TUI menu via keystrokes. For a session without
+  // that capability it falls back to sending the chosen option label as a message.
+  function renderQuestionCard(
+    part: Extract<ChatPart, { type: "tool" }>,
+    rawQuestions: unknown[],
+  ): HTMLElement {
+    const toolId = part.toolId;
+    const qs = rawQuestions.map(normalizeQuestion);
+    const live = typeof client.answerQuestion === "function";
+    const answered = part.state === "done" || part.state === "error";
     const wrap = el("div", "chat-questions");
-    for (const raw of questions) {
-      const q = asObj(raw);
+
+    // Shared bits: a question's header chip + text.
+    const headerOf = (q: NormQuestion): HTMLElement => {
       const qEl = el("div", "chat-question");
-      const qText = el("div", "chat-question-text");
-      qText.textContent = String(q.question ?? q.header ?? "");
-      qEl.append(qText);
-      const optWrap = el("div", "chat-question-options");
-      const opts = Array.isArray(q.options) ? q.options : [];
-      for (const oraw of opts) {
-        const o = asObj(oraw);
-        const label = String(o.label ?? "");
-        const b = button(label, "chat-question-option");
-        if (typeof o.description === "string" && o.description) b.title = o.description;
-        // Live session: clicking sends the chosen label as the answer.
-        b.addEventListener("click", () => void client.send(sessionId, label));
-        optWrap.append(b);
+      if (q.header) {
+        const chip = el("span", "chat-question-header");
+        chip.textContent = q.header;
+        qEl.append(chip);
       }
+      const qText = el("div", "chat-question-text");
+      qText.textContent = q.question;
+      qEl.append(qText);
+      return qEl;
+    };
+
+    // Fallback (no live answer channel): the old behavior — option buttons that
+    // send the label as a plain message. Keeps non-mirrored sessions working.
+    if (!live) {
+      for (const q of qs) {
+        const qEl = headerOf(q);
+        const optWrap = el("div", "chat-question-options");
+        for (const o of q.options) {
+          const b = button(o.label, "chat-question-option");
+          if (o.description) b.title = o.description;
+          b.addEventListener("click", () => void client.send(sessionId, o.label));
+          optWrap.append(b);
+        }
+        qEl.append(optWrap);
+        wrap.append(qEl);
+      }
+      return wrap;
+    }
+
+    // Answered: render read-only; the chosen answer shows in the tool output below.
+    if (answered) {
+      wrap.classList.add("chat-questions-answered");
+      for (const q of qs) {
+        const qEl = headerOf(q);
+        qEl.append(renderOptionsReadonly(q));
+        wrap.append(qEl);
+      }
+      return wrap;
+    }
+
+    // ---- Interactive ----
+    const sel = ensureSel(toolId, qs.length);
+    const busy = questionBusy.has(toolId);
+    // A lone single-select question can submit the instant an option is clicked.
+    const immediate = qs.length === 1 && !qs[0].multiSelect;
+
+    const submitBtn = button("Submit", "chat-question-submit");
+    const chatBtn = button("Chat about this", "chat-question-chat");
+
+    function valid(a: QuestionAnswer | null): boolean {
+      if (!a) return false;
+      if (a.kind === "multi") return a.indexes.length > 0;
+      if (a.kind === "other") return a.text.trim().length > 0;
+      return true;
+    }
+    function refreshSubmit() {
+      submitBtn.disabled = busy || !sel.every(valid);
+    }
+
+    async function deliver(response: Parameters<NonNullable<typeof client.answerQuestion>>[2]) {
+      if (questionBusy.has(toolId)) return;
+      questionBusy.add(toolId);
+      submitBtn.disabled = true;
+      chatBtn.disabled = true;
+      try {
+        await client.answerQuestion!(sessionId, toolId, response);
+        questionSel.delete(toolId); // answered — drop the staged selection
+      } catch {
+        questionBusy.delete(toolId); // let the user retry
+        submitBtn.disabled = false;
+        chatBtn.disabled = false;
+      }
+    }
+    function submit() {
+      if (!sel.every(valid)) return;
+      void deliver({ kind: "submit", answers: sel as QuestionAnswer[] });
+    }
+
+    qs.forEach((q, qi) => {
+      const qEl = headerOf(q);
+      const optWrap = el("div", "chat-question-options");
+      // Track this question's single-select buttons so we can move the highlight.
+      const optButtons: HTMLButtonElement[] = [];
+      const otherInput = el("input", "chat-question-other");
+      otherInput.type = "text";
+      otherInput.placeholder = "Type your own answer…";
+
+      function clearOptionHighlight() {
+        for (const b of optButtons) b.classList.remove("selected");
+      }
+
+      q.options.forEach((o, oi) => {
+        const row = el("div", "chat-question-option-row");
+        const num = el("span", "chat-question-num");
+        num.textContent = String(oi + 1);
+        row.append(num);
+
+        if (q.multiSelect) {
+          const lbl = el("label", "chat-question-check");
+          const box = el("input");
+          box.type = "checkbox";
+          const cur = sel[qi];
+          box.checked = cur?.kind === "multi" && cur.indexes.includes(oi);
+          box.addEventListener("change", () => {
+            const prev = sel[qi];
+            const set = new Set(prev?.kind === "multi" ? prev.indexes : []);
+            if (box.checked) set.add(oi);
+            else set.delete(oi);
+            sel[qi] = { kind: "multi", indexes: [...set].sort((a, b) => a - b) };
+            refreshSubmit();
+          });
+          lbl.append(box, optionBody(o));
+          row.append(lbl);
+        } else {
+          const b = el("button", "chat-question-option");
+          b.type = "button";
+          b.append(optionBody(o));
+          const cur = sel[qi];
+          if (cur?.kind === "option" && cur.index === oi) b.classList.add("selected");
+          b.addEventListener("click", () => {
+            otherInput.value = "";
+            clearOptionHighlight();
+            b.classList.add("selected");
+            sel[qi] = { kind: "option", index: oi };
+            refreshSubmit();
+            if (immediate) submit();
+          });
+          optButtons.push(b);
+          row.append(b);
+        }
+        optWrap.append(row);
+      });
+
+      // "Other" free-text row — typing here selects it (and clears any option pick).
+      const cur0 = sel[qi];
+      if (cur0?.kind === "other") otherInput.value = cur0.text;
+      otherInput.addEventListener("input", () => {
+        const text = otherInput.value;
+        if (text.trim()) {
+          clearOptionHighlight();
+          sel[qi] = { kind: "other", text };
+        } else if (sel[qi]?.kind === "other") {
+          sel[qi] = null;
+        }
+        refreshSubmit();
+      });
+      const otherRow = el("div", "chat-question-option-row chat-question-other-row");
+      const otherNum = el("span", "chat-question-num");
+      otherNum.textContent = String(q.options.length + 1);
+      otherRow.append(otherNum, otherInput);
+      optWrap.append(otherRow);
+
       qEl.append(optWrap);
       wrap.append(qEl);
-    }
+    });
+
+    // Actions: Submit (hidden in immediate mode — a click already submits) + the
+    // "Chat about this" escape, which declines and drops focus into the composer.
+    const actions = el("div", "chat-question-actions");
+    submitBtn.disabled = true;
+    submitBtn.addEventListener("click", submit);
+    chatBtn.disabled = busy;
+    chatBtn.addEventListener("click", () => {
+      void deliver({ kind: "chat" });
+      input.focus();
+    });
+    // Submit is always present (a lone single-select also auto-submits on click,
+    // but "Other" / multiSelect / multi-question need the explicit button).
+    actions.append(submitBtn, chatBtn);
+    wrap.append(actions);
+
+    refreshSubmit();
     return wrap;
+  }
+
+  // An option's label (with optional description + preview), shared by the
+  // interactive and read-only renderers.
+  function optionBody(o: { label: string; description: string; preview: string }): HTMLElement {
+    const body = el("span", "chat-question-option-body");
+    const lab = el("span", "chat-question-option-label");
+    lab.textContent = o.label;
+    body.append(lab);
+    if (o.description) {
+      const d = el("span", "chat-question-option-desc");
+      d.textContent = o.description;
+      body.append(d);
+    }
+    if (o.preview) {
+      const p = el("pre", "chat-question-preview");
+      p.textContent = o.preview;
+      body.append(p);
+    }
+    return body;
+  }
+
+  function renderOptionsReadonly(q: NormQuestion): HTMLElement {
+    const optWrap = el("div", "chat-question-options");
+    q.options.forEach((o, oi) => {
+      const row = el("div", "chat-question-option-row");
+      const num = el("span", "chat-question-num");
+      num.textContent = String(oi + 1);
+      row.append(num, optionBody(o));
+      optWrap.append(row);
+    });
+    return optWrap;
+  }
+
+  // Staged selections for a question tool, created lazily and sized to the
+  // question count. Reused across re-renders so picks aren't lost.
+  function ensureSel(toolId: string, n: number): (QuestionAnswer | null)[] {
+    let s = questionSel.get(toolId);
+    if (!s || s.length !== n) {
+      s = new Array(n).fill(null);
+      questionSel.set(toolId, s);
+    }
+    return s;
   }
 
   function renderMessage(msg: ChatMessage): HTMLElement {
