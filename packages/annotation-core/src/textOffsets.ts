@@ -36,14 +36,16 @@ function locate(block: Element, target: number): TextPoint {
 export function rangeFromOffsets(block: Element, start: number, end: number): Range {
   const a = locate(block, start);
   const b = locate(block, end);
-  const range = document.createRange();
+  // block.ownerDocument is non-null for any attached element; an iframe node lives
+  // in the iframe's document, so its Range must come from that realm, not global.
+  const range = block.ownerDocument!.createRange();
   range.setStart(a.node, a.offset);
   range.setEnd(b.node, b.offset);
   return range;
 }
 
 export function offsetsFromRange(block: Element, range: Range): { start: number; end: number } {
-  const before = document.createRange();
+  const before = block.ownerDocument!.createRange();
   before.selectNodeContents(block);
   before.setEnd(range.startContainer, range.startOffset);
   const start = before.toString().length;

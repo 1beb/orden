@@ -4,7 +4,7 @@ import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
 import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
-import { sendFeedback } from "@orden/annotation-core";
+import { sendFeedback, assignBlockIds } from "@orden/annotation-core";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
@@ -49,9 +49,19 @@ import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
-import { renderCodeView } from "./codeView";
+import { renderCodeView, assignCodeBlockIds } from "./codeView";
+import { AnnotationStore } from "./annotationStore";
+import { fileSource } from "./viewerSource";
+import { paintHighlights, setActiveHighlight, clearHighlights, ensureHighlightStyles } from "./textOverlay";
+import { renderSourcePanel } from "./sourcePanel";
+import { toAnnotationSendInput } from "./annotationDeliveryMap";
+import { buildTextAnnotation } from "./textAnnotation";
+import { mountDomAnnotator } from "./domAnnotator";
+import { buildNoteComposer } from "./noteComposer";
+import type { Source } from "@orden/annotation-core";
 import { viewerFor } from "./codeHighlight";
 import { renderImageView, renderHtmlView } from "./richView";
+import { normalizeRect, renderRegionBoxes, buildRegionAnnotation } from "./regionOverlay";
 import {
   hydrateRecentFiles,
   recordRecentFile,
@@ -87,6 +97,7 @@ import "./styles.css";
 // stores before the rest of the module runs (top-level await — Vite supports it
 // in the entry module).
 const host = await getHost();
+const annotationStore = new AnnotationStore(host.vault);
 async function hydrateAll(): Promise<void> {
   await Promise.all([
     hydrateSettings(host),
@@ -97,9 +108,14 @@ async function hydrateAll(): Promise<void> {
     hydrateCards(host),
     hydrateSessions(host),
     hydrateRecentFiles(host),
+    annotationStore.hydrate(),
   ]);
 }
 await hydrateAll();
+// Resolve the current identity once (host is ready post-hydrate). New text
+// annotations are stamped with this creator; falls back to a local placeholder.
+const meIdentity = await host.identity.me();
+const me = { kind: "human" as const, id: meIdentity?.id ?? "me" };
 // Sweep dead "Untitled" stub sessions left by prior runs (touched or not) so they
 // don't linger in the active list. Boot-only: hydrateAll also runs on reconnect,
 // where reaping could nuke a freshly-started, not-yet-titled session.
@@ -173,6 +189,7 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const listEl = document.querySelector<HTMLUListElement>("#annotation-list")!;
 const primaryBtn = document.querySelector<HTMLButtonElement>("#primary-action")!;
 const copyBtn = document.querySelector<HTMLButtonElement>("#copy-feedback")!;
+const sourceSendBtn = document.querySelector<HTMLButtonElement>("#source-send")!;
 
 app.dataset.target = feedbackTarget;
 
@@ -244,12 +261,15 @@ wireFurl(annotationsBlock, "#annotations-toggle", ".block-label");
 // Hide/show whole panel sections (outline, annotations). When hidden, a
 // "Show X" button surfaces above the settings cog. Works in every layout. When
 // both are hidden, the right column collapses so the document reclaims it.
-const mainSection = document.querySelector<HTMLElement>("#main")!;
+// #panel is a persistent sibling of the views inside #view-area; the collapse
+// (both sections hidden) is driven by a class on #view-area so it hides the
+// panel across every viewer, not just the review view.
+const viewArea = document.querySelector<HTMLElement>("#view-area")!;
 function syncPanelColumn(): void {
   const bothHidden =
     docmap.classList.contains("section-hidden") &&
     annotationsBlock.classList.contains("section-hidden");
-  mainSection.classList.toggle("panels-collapsed", bothHidden);
+  viewArea.classList.toggle("panels-collapsed", bothHidden);
 }
 function wireHideShow(
   section: HTMLElement,
@@ -575,6 +595,351 @@ function onUpdate(): void {
   persistReview();
 }
 
+// --- Text-annotation wiring for non-prose viewers (code today; html/owned-body
+// in Task 8). The code panel reuses the SAME `#annotation-list` element as the
+// review panel, so entering review re-runs renderPanel() and leaving a text view
+// tears the annotator down to avoid stale highlights/state leaking across views.
+// `win` is the realm whose CSS.highlights the active text painted into — the parent
+// for the code viewer, the iframe's contentWindow for owned HTML. Teardown clears
+// that SAME realm so highlights don't leak across views.
+let activeText: { source: Source; root: Element; annotator: { destroy(): void }; win: Window } | null = null;
+
+function teardownActiveText(): void {
+  if (!activeText) return;
+  activeText.annotator.destroy();
+  clearHighlights(activeText.win);
+  activeText = null;
+  // Only surrender the shared panel state if no image view has already claimed
+  // it. On image→code the new opener sets activePanelSource before the
+  // view-switch teardown runs; clearing unconditionally would null it out.
+  if (!activeImage) {
+    activePanelSource = null;
+    reRenderActiveSource = () => {};
+  }
+  refreshSourceSend();
+}
+
+// The source-view (code/image/html) Send affordance lives separately from the
+// review panel's #primary-action/#copy buttons so it can't tangle their state.
+// `activePanelSource` is the source whose annotations the panel currently shows;
+// set by the text/image openers' rerender, cleared on their teardown.
+let activePanelSource: Source | null = null;
+
+// Show the source Send button only on an annotatable source view (code/image/html)
+// when the active source has at least one OPEN annotation. Hidden in review and on
+// non-source views, leaving the review Approve/Copy buttons untouched.
+function refreshSourceSend(): void {
+  const v = viewStore.get();
+  const isSourceView = v === "code" || v === "image" || v === "html";
+  const open = activePanelSource
+    ? annotationStore.forSource(activePanelSource).filter((a) => a["orden:status"] === "open")
+    : [];
+  sourceSendBtn.hidden = !(isSourceView && activePanelSource !== null && open.length > 0);
+}
+
+// Deliver the active source's OPEN annotations to the agent working that plan via
+// the host. A not-linked result is a normal outcome (arbitrary files often have no
+// session), not an error — surface it as a toast and leave the annotations open.
+async function sendSourceAnnotations(): Promise<void> {
+  const source = activePanelSource;
+  if (!source) return;
+  const open = annotationStore.forSource(source).filter((a) => a["orden:status"] === "open");
+  if (open.length === 0) return;
+  const planDoc = source.kind === "file" ? source.vaultPath : source.url;
+  sourceSendBtn.disabled = true;
+  try {
+    const result = await host.sessions.annotationSend(toAnnotationSendInput(source, open));
+    if (result.ok) {
+      for (const a of open) {
+        annotationStore.replace(source, a.id, { ...a, "orden:status": "sent" });
+      }
+      // Re-render the live source panel so it reflects the new "sent" status.
+      reRenderActiveSource();
+      showToast(`Sent ${open.length} annotation${open.length === 1 ? "" : "s"} to ${result.target}`);
+    } else {
+      showToast(`No agent session linked to ${planDoc} — annotation saved`);
+    }
+  } catch {
+    showToast("Couldn't deliver — saved locally");
+  } finally {
+    sourceSendBtn.disabled = false;
+    refreshSourceSend();
+  }
+}
+
+// Re-render the live source panel after a status change. Each opener owns its own
+// rerender closure; we re-invoke it by re-opening the panel through the stored hook.
+let reRenderActiveSource: () => void = () => {};
+
+sourceSendBtn.addEventListener("click", () => void sendSourceAnnotations());
+
+// Wire a rendered text root (code / plain-text / owned-HTML body) to the store,
+// panel, overlay, and selection annotator. `getSelection` lets an iframe pass its
+// own document's selection (Task 8); the in-page code viewer passes window's.
+// `opts.win`/`opts.rectOffset` target an iframe realm: ranges, the Highlight
+// constructor, and CSS.highlights all come from `win`, and the pill is shifted by
+// `rectOffset` into parent coords. The in-page code viewer passes no opts (parent
+// realm, zero offset). `opts.injectStyles` adds the ::highlight rules for an iframe
+// document, which doesn't load the app stylesheet.
+function openAnnotatableText(
+  root: Element,
+  source: Source,
+  getSelection: () => Selection | null,
+  opts?: {
+    win?: Window;
+    rectOffset?: () => { x: number; y: number };
+    injectStyles?: boolean;
+  },
+): void {
+  teardownActiveText();
+
+  const win = opts?.win ?? (window as Window);
+  if (opts?.injectStyles && root.ownerDocument) ensureHighlightStyles(root.ownerDocument);
+
+  const rerender = (): void => {
+    const anns = annotationStore.forSource(source);
+    const placed = paintHighlights(root, anns, win);
+    const byId = new Map(placed.map((p) => [p.id, p.range] as const));
+    renderSourcePanel(listEl, anns, {
+      onSelect: (id) => {
+        const r = byId.get(id) ?? null;
+        setActiveHighlight(r, win);
+        r?.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "smooth" });
+      },
+      onDelete: (id) => {
+        annotationStore.remove(source, id);
+        rerender();
+      },
+    });
+    refreshSourceSend();
+  };
+
+  activePanelSource = source;
+  reRenderActiveSource = rerender;
+
+  const annotator = mountDomAnnotator({
+    root,
+    getSelection,
+    rectOffset: opts?.rectOffset,
+    onCreate: (range, note) => {
+      const ann = buildTextAnnotation({ source, range, root, note, creator: me });
+      if (!ann) return;
+      annotationStore.add(source, ann);
+      rerender();
+    },
+  });
+
+  activeText = { source, root, annotator, win };
+  rerender();
+}
+
+// Render a repo code/plain-text file and wire it for annotation. Shared by the
+// initial open path and the change-feed reload path so both stay in lockstep.
+async function showCodeFile(path: string, title: string, content: string): Promise<void> {
+  const root = renderCodeView(viewEls.code, { title, path, content });
+  assignCodeBlockIds(root);
+  const source = await fileSource(path, content, title);
+  openAnnotatableText(root, source, () => window.getSelection());
+}
+
+// Render an OWNED repo HTML file in a same-origin iframe and wire it for annotation
+// against the iframe's document. Shared by the initial open path and the change-feed
+// reload path. Owned files come from the repo, so they render with allow-same-origin
+// and the parent reaches contentDocument to paint highlights / read selections there.
+// NOTE: rendered-DOM text offsets differ from HTML-source offsets, so an annotation
+// made here won't resolve if the same file is later opened as source (and vice-versa);
+// they coexist in the store and orphan gracefully in the other mode (no mode key yet).
+async function showHtmlFile(path: string, title: string, content: string): Promise<void> {
+  // Compute the source up front so the async-fired load handler stays synchronous.
+  const source = await fileSource(path, content, title);
+  const frame = renderHtmlView(viewEls.html, { title, content, owned: true });
+  frame.addEventListener("load", () => {
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) return;
+    assignBlockIds(doc.body); // generic core ids — real HTML has block elements
+    openAnnotatableText(doc.body, source, () => win.getSelection(), {
+      win: win as unknown as Window,
+      rectOffset: () => {
+        const r = frame.getBoundingClientRect();
+        return { x: r.left, y: r.top };
+      },
+      injectStyles: true, // the iframe doc doesn't load the app stylesheet
+    });
+  });
+}
+
+// --- Image region-annotation wiring (Task 9). Images have no text to select, so
+// this is a SEPARATE path from openAnnotatableText: a drag over the image draws a
+// rectangle, a small floating composer captures a note, and the region is stored
+// as a normalized 0..1 rect that re-paints as an overlay box at any display size.
+// Like the text path it shares the single `#annotation-list`; leaving the image
+// view tears its drag/resize listeners + boxes down so nothing leaks across views.
+let activeImage: { teardown(): void } | null = null;
+
+function teardownActiveImage(): void {
+  if (!activeImage) return;
+  activeImage.teardown();
+  activeImage = null;
+  // Symmetric to teardownActiveText: don't clobber the panel source a text
+  // opener (code/html) may have just claimed during an image→code/html switch.
+  if (!activeText) {
+    activePanelSource = null;
+    reRenderActiveSource = () => {};
+  }
+  refreshSourceSend();
+}
+
+async function showImageFile(projectId: string, path: string, title: string): Promise<void> {
+  const { img, layer, wrap } = renderImageView(viewEls.image, { title, path, projectId });
+  const source = await fileSource(path, path); // binary: hash the path (see viewerSource)
+
+  // Switching into a fresh image view tears down any prior text OR image annotator.
+  teardownActiveText();
+  teardownActiveImage();
+
+  let activeId: string | null = null;
+
+  const displaySize = (): { w: number; h: number } => ({ w: img.clientWidth, h: img.clientHeight });
+
+  const rerender = (): void => {
+    const anns = annotationStore.forSource(source);
+    renderRegionBoxes(layer, anns, displaySize(), {
+      activeId,
+      onSelect: (id) => {
+        activeId = id;
+        rerender();
+      },
+    });
+    renderSourcePanel(listEl, anns, {
+      onSelect: (id) => {
+        activeId = id;
+        rerender();
+      },
+      onDelete: (id) => {
+        annotationStore.remove(source, id);
+        if (activeId === id) activeId = null;
+        rerender();
+      },
+    });
+    refreshSourceSend();
+  };
+
+  activePanelSource = source;
+  reRenderActiveSource = rerender;
+
+  // A tiny floating composer anchored near the drag rect: textarea + Save/Cancel.
+  let composer: HTMLDivElement | null = null;
+  const closeComposer = (): void => {
+    composer?.remove();
+    composer = null;
+  };
+  const openComposer = (
+    at: { x: number; y: number },
+    onSave: (note: string) => void,
+  ): void => {
+    closeComposer();
+    const { el: box, focus } = buildNoteComposer({
+      placeholder: "Note for this region…",
+      extraClass: "region-composer",
+      onSave: (note) => {
+        closeComposer();
+        if (note) onSave(note);
+        else rerender(); // empty note -> drop the draft box
+      },
+      onCancel: () => {
+        closeComposer();
+        rerender();
+      },
+    });
+    box.style.position = "absolute";
+    box.style.left = `${at.x}px`;
+    box.style.top = `${at.y}px`;
+    wrap.append(box);
+    composer = box;
+    focus();
+  };
+
+  // Drag-to-create: track from mousedown on the image, draw a draft box, and on
+  // mouseup (if the drag is more than a few px) open the composer for a note.
+  let dragStart: { x: number; y: number } | null = null;
+  let draft: HTMLDivElement | null = null;
+
+  const pointIn = (e: MouseEvent): { x: number; y: number } => {
+    const r = img.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return;
+    if (composer) return; // don't start a new drag while a composer is open
+    closeComposer();
+    dragStart = pointIn(e);
+    draft = document.createElement("div");
+    draft.className = "region-box is-draft";
+    draft.style.position = "absolute";
+    layer.append(draft);
+  };
+  const onMove = (e: MouseEvent): void => {
+    if (!dragStart || !draft) return;
+    const p = pointIn(e);
+    const left = Math.min(dragStart.x, p.x);
+    const top = Math.min(dragStart.y, p.y);
+    draft.style.left = `${left}px`;
+    draft.style.top = `${top}px`;
+    draft.style.width = `${Math.abs(p.x - dragStart.x)}px`;
+    draft.style.height = `${Math.abs(p.y - dragStart.y)}px`;
+  };
+  const onUp = (e: MouseEvent): void => {
+    if (!dragStart) return;
+    const start = dragStart;
+    dragStart = null;
+    draft?.remove();
+    draft = null;
+    const p = pointIn(e);
+    const left = Math.min(start.x, p.x);
+    const top = Math.min(start.y, p.y);
+    const w = Math.abs(p.x - start.x);
+    const h = Math.abs(p.y - start.y);
+    if (w < 5 || h < 5) {
+      rerender(); // treat as a click — clear any stray draft
+      return;
+    }
+    const size = displaySize();
+    const rect = normalizeRect({ x: left, y: top, w, h }, size);
+    openComposer({ x: left, y: top + h }, (note) => {
+      const ann = buildRegionAnnotation({ source, rect, note, creator: me });
+      annotationStore.add(source, ann);
+      activeId = ann.id;
+      rerender();
+    });
+  };
+
+  wrap.addEventListener("mousedown", onDown);
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+
+  // The displayed image size changes on window resize; re-lay-out the boxes.
+  const onResize = (): void => rerender();
+  window.addEventListener("resize", onResize);
+  // First paint may precede image load (clientWidth = 0); repaint once it loads.
+  img.addEventListener("load", onResize);
+
+  activeImage = {
+    teardown: () => {
+      wrap.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("resize", onResize);
+      img.removeEventListener("load", onResize);
+      closeComposer();
+      layer.replaceChildren();
+    },
+  };
+
+  rerender();
+}
+
 // Dev seed: apply a few sample annotations on load so the page shows highlights
 // and a populated panel immediately. Remove once persistence (Phase 2) lands.
 function findPhrase(phrase: string): { from: number; to: number } | null {
@@ -692,11 +1057,22 @@ document.addEventListener("orden:open-page", (e) => {
   if (name) openPage(name);
 });
 
+// Views whose content can carry annotations — the only ones that show the
+// annotations panel. Board/index views (journal, kanban, pages, project) aren't
+// annotatable surfaces, so the panel hides there instead of sitting empty.
+const ANNOTATABLE_VIEWS = new Set<View>(["review", "code", "image", "html"]);
+
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
     viewEls[name].classList.toggle("active", name === v);
   }
+  viewArea.classList.toggle("no-panel", !ANNOTATABLE_VIEWS.has(v));
+  // The review Approve/Copy buttons act on the ProseMirror review doc; hide them
+  // on the other annotatable viewers (code/image/html) so they can't deliver the
+  // wrong (stale review) annotations. The source-view Send button is gated
+  // separately by refreshSourceSend().
+  viewArea.classList.toggle("source-view", ANNOTATABLE_VIEWS.has(v) && v !== "review");
   const titles: Record<View, string> = {
     review: currentDocTitle,
     code: currentDocTitle,
@@ -716,6 +1092,18 @@ viewStore.subscribe((v) => {
   if (v !== "html" && v !== "code") htmlToggle.hidden = true;
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
+  // Text-annotation lifecycle: the code, html, and review views share the single
+  // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
+  // annotator + highlights — clearing the SAME realm it painted into (parent for
+  // code, the iframe for html). Entering review re-renders the review panel into
+  // the shared list. (A text view's own panel is rendered by openAnnotatableText
+  // via showCodeFile/showHtmlFile on open.)
+  if (v !== "code" && v !== "html") teardownActiveText();
+  if (v !== "image") teardownActiveImage();
+  if (v === "review") renderPanel();
+  // Hide the source Send button outside source views (and show it when a source
+  // view with open annotations is active); never touches the review buttons.
+  refreshSourceSend();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
 
@@ -999,11 +1387,11 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
     viewStore.set("review");
   } else {
     if (kind === "image") {
-      renderImageView(viewEls.image, { title, path, projectId }); // bytes load via /repo-file/<projectId>/
+      await showImageFile(projectId, path, title); // bytes load via /repo-file/<projectId>/
     } else if (kind === "html") {
-      renderHtmlView(viewEls.html, { title, content: await host.files.read(projectId, path) });
+      await showHtmlFile(path, title, await host.files.read(projectId, path));
     } else {
-      renderCodeView(viewEls.code, { title, path, content: await host.files.read(projectId, path) });
+      await showCodeFile(path, title, await host.files.read(projectId, path));
     }
     viewTitle.textContent = title;
     viewStore.set(kind as View);
@@ -1267,13 +1655,13 @@ onVaultChange((ns, key, projectId) => {
         if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
           const kind = viewerFor(key, effectiveHtmlRender(key));
           if (kind === "image") {
-            renderImageView(viewEls.image, { title: currentDocTitle, path: key, projectId });
+            await showImageFile(projectId, key, currentDocTitle);
           } else if (kind === "html") {
             const content = await host.files.read(projectId, key);
-            renderHtmlView(viewEls.html, { title: currentDocTitle, content });
+            await showHtmlFile(key, currentDocTitle, content);
           } else if (kind === "code") {
             const content = await host.files.read(projectId, key);
-            renderCodeView(viewEls.code, { title: currentDocTitle, path: key, content });
+            await showCodeFile(key, currentDocTitle, content);
           } else if (!view.hasFocus()) {
             const markdown = await host.files.read(projectId, key);
             loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });

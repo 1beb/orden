@@ -18,6 +18,7 @@ import {
   type DeliverableAnnotation,
 } from "@orden/mcp";
 import { tmuxNameFor, launchDetached } from "./terminal";
+import type { KeyOp } from "./chat/questionKeystrokes";
 
 const exec = promisify(execFile);
 
@@ -35,6 +36,9 @@ export interface PaneOps {
   isLive(sessionId: string): Promise<boolean>;
   /** Type `text` into the live pane as a literal, then submit (Enter). */
   sendText(sessionId: string, text: string): Promise<void>;
+  /** Send a raw keystroke sequence (literals + named keys) to the live pane —
+   *  used to drive claude's interactive AskUserQuestion menu. No trailing Enter. */
+  sendKeys(sessionId: string, ops: KeyOp[]): Promise<void>;
   /** (Re)launch the session's detached agent — picks up a queued initialPrompt. */
   relaunch(sessionId: string): Promise<void>;
 }
@@ -59,6 +63,20 @@ export function defaultPaneOps(host: Host, defaultCwd: string): PaneOps {
       // send-keys Enter submits it — the TUI queues it for the agent's turn.
       await exec("tmux", ["send-keys", "-t", target, "-l", text]);
       await exec("tmux", ["send-keys", "-t", target, "Enter"]);
+    },
+    async sendKeys(sessionId, ops) {
+      const target = tmuxNameFor(sessionId);
+      // One send-keys per op, in order: a literal goes through `-l` (no key-name
+      // interpretation, so digits/text are typed verbatim); a named key (Enter,
+      // Right) is sent by name so tmux maps it to the control sequence. claude's
+      // menu reacts to each keypress, so the ordering here is the choreography.
+      for (const op of ops) {
+        if (op.type === "literal") {
+          await exec("tmux", ["send-keys", "-t", target, "-l", op.value]);
+        } else {
+          await exec("tmux", ["send-keys", "-t", target, op.name]);
+        }
+      }
     },
     async relaunch(sessionId) {
       await launchDetached(host, defaultCwd, sessionId);

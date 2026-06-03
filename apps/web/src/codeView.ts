@@ -4,6 +4,7 @@
 
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github.css";
+import { BLOCK_ID_ATTR, computeBlockId } from "@orden/annotation-core";
 import { isCodeFile, languageForPath, splitHighlightedLines } from "./codeHighlight";
 
 export { isCodeFile };
@@ -28,7 +29,7 @@ function highlight(path: string, content: string): string {
 export function renderCodeView(
   container: HTMLElement,
   doc: { title: string; path: string; content: string },
-): void {
+): HTMLElement {
   container.replaceChildren();
   const lines = splitHighlightedLines(highlight(doc.path, doc.content));
   // A trailing newline yields a final empty line; drop it so the gutter count
@@ -57,4 +58,17 @@ export function renderCodeView(
 
   pre.append(code);
   container.append(pre);
+  return container;
+}
+
+// Tag ONLY the `.code-src` spans with a block id, so each code line's source text
+// is its own annotation anchor. Deliberately skips `<pre>`, `.code-line` divs, and
+// `.code-gutter` spans — tagging those (as assignBlockIds would) folds the gutter
+// line-number into the block's textContent and contaminates selector offsets.
+export function assignCodeBlockIds(root: Element): void {
+  for (const src of Array.from(root.querySelectorAll(".code-src"))) {
+    if (!src.hasAttribute(BLOCK_ID_ATTR)) {
+      src.setAttribute(BLOCK_ID_ATTR, computeBlockId(src));
+    }
+  }
 }

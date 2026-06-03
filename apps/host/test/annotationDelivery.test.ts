@@ -35,6 +35,7 @@ function fakeOps(live: boolean) {
     async sendText(sessionId, text) {
       calls.sent.push({ sessionId, text });
     },
+    async sendKeys() {},
     async relaunch(sessionId) {
       calls.relaunched.push(sessionId);
     },
@@ -73,6 +74,7 @@ describe("queueToSession", () => {
       async sendText() {
         throw new Error("tmux blew up");
       },
+      async sendKeys() {},
       async relaunch() {},
     };
     const r = await queueToSession(host, "s1", "x", ops);
@@ -104,6 +106,7 @@ describe("annotationSend", () => {
       async sendText(sessionId: string, text: string) {
         sentTo.push({ sessionId, text });
       },
+      async sendKeys() {},
       async relaunch() {},
     };
     const r = await annotationSend(
