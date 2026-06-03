@@ -50,7 +50,14 @@ import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
-import { renderCodeView } from "./codeView";
+import { renderCodeView, assignCodeBlockIds } from "./codeView";
+import { AnnotationStore } from "./annotationStore";
+import { fileSource } from "./viewerSource";
+import { paintHighlights, setActiveHighlight, clearHighlights } from "./textOverlay";
+import { renderSourcePanel } from "./sourcePanel";
+import { buildTextAnnotation } from "./textAnnotation";
+import { mountDomAnnotator } from "./domAnnotator";
+import type { Source } from "@orden/annotation-core";
 import { viewerFor } from "./codeHighlight";
 import { renderImageView, renderHtmlView } from "./richView";
 import {
@@ -86,6 +93,7 @@ import "./styles.css";
 // stores before the rest of the module runs (top-level await — Vite supports it
 // in the entry module).
 const host = await getHost();
+const annotationStore = new AnnotationStore(host.vault);
 async function hydrateAll(): Promise<void> {
   await Promise.all([
     hydrateSettings(host),
@@ -96,9 +104,14 @@ async function hydrateAll(): Promise<void> {
     hydrateCards(host),
     hydrateSessions(host),
     hydrateRecentFiles(host),
+    annotationStore.hydrate(),
   ]);
 }
 await hydrateAll();
+// Resolve the current identity once (host is ready post-hydrate). New text
+// annotations are stamped with this creator; falls back to a local placeholder.
+const meIdentity = await host.identity.me();
+const me = { kind: "human" as const, id: meIdentity?.id ?? "me" };
 // Sweep dead "Untitled" stub sessions left by prior runs (touched or not) so they
 // don't linger in the active list. Boot-only: hydrateAll also runs on reconnect,
 // where reaping could nuke a freshly-started, not-yet-titled session.
@@ -576,6 +589,70 @@ function onUpdate(): void {
   persistReview();
 }
 
+// --- Text-annotation wiring for non-prose viewers (code today; html/owned-body
+// in Task 8). The code panel reuses the SAME `#annotation-list` element as the
+// review panel, so entering review re-runs renderPanel() and leaving a text view
+// tears the annotator down to avoid stale highlights/state leaking across views.
+let activeText: { source: Source; root: Element; annotator: { destroy(): void } } | null = null;
+
+function teardownActiveText(): void {
+  if (!activeText) return;
+  activeText.annotator.destroy();
+  clearHighlights();
+  activeText = null;
+}
+
+// Wire a rendered text root (code / plain-text / owned-HTML body) to the store,
+// panel, overlay, and selection annotator. `getSelection` lets an iframe pass its
+// own document's selection (Task 8); the in-page code viewer passes window's.
+function openAnnotatableText(
+  root: Element,
+  source: Source,
+  getSelection: () => Selection | null,
+): void {
+  teardownActiveText();
+
+  const rerender = (): void => {
+    const anns = annotationStore.forSource(source);
+    const placed = paintHighlights(root, anns);
+    const byId = new Map(placed.map((p) => [p.id, p.range] as const));
+    renderSourcePanel(listEl, anns, {
+      onSelect: (id) => {
+        const r = byId.get(id) ?? null;
+        setActiveHighlight(r);
+        r?.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "smooth" });
+      },
+      onDelete: (id) => {
+        annotationStore.remove(source, id);
+        rerender();
+      },
+    });
+  };
+
+  const annotator = mountDomAnnotator({
+    root,
+    getSelection,
+    onCreate: (range, note) => {
+      const ann = buildTextAnnotation({ source, range, root, note, creator: me });
+      if (!ann) return;
+      annotationStore.add(source, ann);
+      rerender();
+    },
+  });
+
+  activeText = { source, root, annotator };
+  rerender();
+}
+
+// Render a repo code/plain-text file and wire it for annotation. Shared by the
+// initial open path and the change-feed reload path so both stay in lockstep.
+async function showCodeFile(path: string, title: string, content: string): Promise<void> {
+  const root = renderCodeView(viewEls.code, { title, path, content });
+  assignCodeBlockIds(root);
+  const source = await fileSource(path, content, title);
+  openAnnotatableText(root, source, () => window.getSelection());
+}
+
 // Dev seed: apply a few sample annotations on load so the page shows highlights
 // and a populated panel immediately. Remove once persistence (Phase 2) lands.
 function findPhrase(phrase: string): { from: number; to: number } | null {
@@ -720,6 +797,12 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
+  // Text-annotation lifecycle: the code view and the review view share the single
+  // `#annotation-list`. Leaving the code view tears down its annotator + highlights;
+  // entering review re-renders the review panel into the shared list. (The code
+  // view's own panel is rendered by openAnnotatableText/showCodeFile on open.)
+  if (v !== "code") teardownActiveText();
+  if (v === "review") renderPanel();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
 
@@ -1010,7 +1093,7 @@ async function openRepoFile(path: string): Promise<void> {
     } else if (kind === "html") {
       renderHtmlView(viewEls.html, { title, content: await host.files.read("repo", path) });
     } else {
-      renderCodeView(viewEls.code, { title, path, content: await host.files.read("repo", path) });
+      await showCodeFile(path, title, await host.files.read("repo", path));
     }
     viewTitle.textContent = title;
     viewStore.set(kind as View);
@@ -1293,7 +1376,7 @@ onVaultChange((ns, key) => {
             renderHtmlView(viewEls.html, { title: currentDocTitle, content });
           } else if (kind === "code") {
             const content = await host.files.read("repo", key);
-            renderCodeView(viewEls.code, { title: currentDocTitle, path: key, content });
+            await showCodeFile(key, currentDocTitle, content);
           } else if (!view.hasFocus()) {
             const markdown = await host.files.read("repo", key);
             loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });

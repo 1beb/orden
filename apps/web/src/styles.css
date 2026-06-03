@@ -2566,7 +2566,9 @@ li.sess-done-head {
   color: var(--muted);
   background: var(--bg);
   border-right: 1px solid var(--line);
+  /* Line numbers aren't content — keep them out of text selections/annotations. */
   user-select: none;
+  -webkit-user-select: none;
   position: sticky;
   left: 0;
 }
