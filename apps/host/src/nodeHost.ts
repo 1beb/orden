@@ -129,6 +129,7 @@ export class NodeHost implements Host {
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
   private readonly vaultRoot: string;
+  private readonly watcher: MultiRootWatcher;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
@@ -145,15 +146,15 @@ export class NodeHost implements Host {
     // anything) pushes a projectId-tagged "files" change on the same feed the
     // vault uses, so an open doc in the UI live-reloads. The watched set is
     // vault-driven, so re-derive it whenever the "projects" ns changes.
-    // No teardown: like the chat engine below, the watcher is held alive by the
-    // changeListeners closure and intentionally runs for the host process
-    // lifetime — never stop()-ed (no dispose API, matching this constructor).
-    const watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
+    // In production the watcher runs for the host process lifetime; stop() exists
+    // mainly so tests (which spin up many hosts) can release the fs.watch handle
+    // instead of leaking one inotify instance per host until the limit is hit.
+    this.watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
       for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
     });
-    void watcher.start();
+    void this.watcher.start();
     this.onChange((c) => {
-      if (c.ns === "projects") void watcher.refresh();
+      if (c.ns === "projects") void this.watcher.refresh();
     });
     // Sessions run agents on the host; writes go through the emitting vault so
     // transcript + card updates stream live to the UI.
@@ -179,6 +180,12 @@ export class NodeHost implements Host {
   onChange(listener: (change: VaultChange) => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
+  }
+
+  /** Release the project-root file watcher. Not needed in production (one host,
+   *  process lifetime); used by tests to avoid leaking fs.watch instances. */
+  stop(): void {
+    this.watcher.stop();
   }
 
   capabilities(): HostCapabilities {

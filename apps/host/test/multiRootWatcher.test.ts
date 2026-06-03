@@ -5,6 +5,17 @@ import { join } from "node:path";
 import { MultiRootWatcher } from "../src/multiRootWatcher";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Poll until `pred` holds (or time out). fs.watch delivery latency varies with
+// machine load — a fixed delay flakes under a full parallel suite — so positive
+// "the event fired" assertions wait for the condition instead of a wall-clock
+// guess. Absence assertions still use a fixed delay (you can't poll for a non-event).
+const waitFor = async (pred: () => boolean, timeout = 3000, step = 20): Promise<void> => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (pred()) return;
+    await delay(step);
+  }
+};
 const dirs: string[] = [];
 const mkroot = () => {
   const d = mkdtempSync(join(tmpdir(), "mrw-"));
@@ -26,7 +37,7 @@ describe("MultiRootWatcher", () => {
     );
     await w.start();
     writeFileSync(join(a, "x.md"), "hi");
-    await delay(400);
+    await waitFor(() => seen.some(([id, p]) => id === "pa" && p === "x.md"));
     expect(seen).toContainEqual(["pa", "x.md"]);
     w.stop();
   });
@@ -44,7 +55,7 @@ describe("MultiRootWatcher", () => {
     roots.push({ id: "pb", root: b });
     await w.refresh();
     writeFileSync(join(b, "y.md"), "yo");
-    await delay(400);
+    await waitFor(() => seen.some(([id, p]) => id === "pb" && p === "y.md"));
     expect(seen).toContainEqual(["pb", "y.md"]);
     w.stop();
   });
@@ -84,7 +95,7 @@ describe("MultiRootWatcher", () => {
     roots[0] = { id: "pa", root: a2 };
     await w.refresh();
     writeFileSync(join(a2, "moved.md"), "x");
-    await delay(400);
+    await waitFor(() => seen.some(([id, p]) => id === "pa" && p === "moved.md"));
     expect(seen).toContainEqual(["pa", "moved.md"]);
     w.stop();
   });
@@ -120,7 +131,7 @@ describe("MultiRootWatcher", () => {
     writeFileSync(join(a, "node_modules", "pkg", "f.md"), "x");
     writeFileSync(join(a, ".secret"), "x");
     writeFileSync(join(a, "keep.md"), "x");
-    await delay(400);
+    await waitFor(() => seen.some(([id, p]) => id === "pa" && p === "keep.md"));
     // The kept sibling fired.
     expect(seen).toContainEqual(["pa", "keep.md"]);
     // Nothing under node_modules or any dotfile leaked through.

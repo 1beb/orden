@@ -5,8 +5,17 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, ChatVault } from "@orden/chat-core";
+
+// TranscriptMirror resolves the transcript path from os.homedir(). Under vitest
+// workers, os.homedir() does not reflect a runtime process.env.HOME reassignment,
+// so mock node:os to read it live — letting the test point the mirror at a temp
+// home. Everything else (tmpdir, etc.) keeps the real implementation.
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => process.env.HOME ?? actual.homedir() };
+});
 import { encodeCwd } from "../../src/transcriptTitle";
 import { TranscriptMirror } from "../../src/chat/transcriptMirror";
 
