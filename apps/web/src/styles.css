@@ -209,6 +209,12 @@ body {
   display: none;
 }
 
+/* The Outline is built from the review doc's headings; code/image/html have no
+   outline of their own, so hide it there rather than show a stale one. */
+#view-area.source-view #docmap {
+  display: none;
+}
+
 /* left navigation rail */
 #leftnav {
   background: #f4f4f2;
