@@ -33,6 +33,13 @@ describe("resolveRepoFile", () => {
     expect(await resolveRepoFile(resolve, "/repo-file/nope/a.png")).toBeNull();
   });
 
+  it("returns null (does not reject) when the resolver throws", async () => {
+    const throwingResolver: ProjectRootResolver = async () => {
+      throw new Error("vault boom");
+    };
+    expect(await resolveRepoFile(throwingResolver, "/repo-file/pa/a.png")).toBeNull();
+  });
+
   it("rejects a path that escapes the root via ..", async () => {
     expect(await resolveRepoFile(resolve, "/repo-file/pa/../escape")).toBeNull();
   });

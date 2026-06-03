@@ -46,9 +46,17 @@ export async function resolveRepoFile(
     return null; // malformed percent-encoding
   }
   if (!projectId || !rel) return null;
-  const root = await resolve(projectId);
+  let root: string | undefined;
+  try {
+    root = await resolve(projectId);
+  } catch {
+    return null; // resolver threw (e.g. corrupt projects record) → deny, don't hang
+  }
   if (!root) return null;
   const full = join(root, rel);
+  // An absolute-looking rel (e.g. a decoded leading slash) is intentionally
+  // treated as root-relative: join(root, "/x") yields root/x — contained, not an
+  // escape — so the silent rewrite below is safe, not a traversal hole.
   const back = relative(root, full);
   if (back === "" || back.startsWith("..") || back.startsWith(sep + "..")) return null;
   return full;
