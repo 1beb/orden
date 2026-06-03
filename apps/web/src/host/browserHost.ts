@@ -100,7 +100,11 @@ class LocalProjects implements ProjectRegistry {
 }
 
 class LocalFiles implements FileSource {
-  // Single implicit repo project; projectId is ignored for now.
+  // Per-project file roots are a NodeHost-only capability (a NodeHost has a
+  // real filesystem and resolves projectId to a per-project root). The browser
+  // has no real filesystem, so projectId is ignored: list/read serve the single
+  // implicit set backed by the in-browser file store (../files), and write is
+  // unsupported.
   async list(_projectId: string, _glob?: string): Promise<FileEntry[]> {
     return listFiles().map((f) => ({ path: f.path, title: f.title }));
   }
