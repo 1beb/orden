@@ -4,6 +4,8 @@
 // it floats an "Annotate" pill at the selection; clicking it opens an inline note
 // composer; Save invokes onCreate with a CLONED range that survives focus changes.
 
+import { buildNoteComposer } from "./noteComposer";
+
 export interface DomAnnotator {
   destroy(): void;
 }
@@ -78,36 +80,14 @@ export function mountDomAnnotator(opts: {
   function showComposer() {
     if (!captured) return;
     mode = "composer";
-
-    const box = document.createElement("div");
-    box.className = "annotator-composer";
-
-    const ta = document.createElement("textarea");
-    ta.className = "annotator-note";
-    ta.placeholder = "Add a note…";
-    ta.rows = 3;
-
-    const actions = document.createElement("div");
-    actions.className = "annotator-actions";
-    const cancel = document.createElement("button");
-    cancel.textContent = "Cancel";
-    cancel.className = "ghost";
-    const save = document.createElement("button");
-    save.textContent = "Save";
-    save.className = "primary";
-    cancel.addEventListener("click", () => hide());
-    save.addEventListener("click", () => commit(ta.value));
-    actions.append(cancel, save);
-
-    ta.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit(ta.value);
-      if (e.key === "Escape") hide();
+    const composer = buildNoteComposer({
+      placeholder: "Add a note…",
+      onSave: (note) => commit(note),
+      onCancel: () => hide(),
     });
-
-    box.append(ta, actions);
-    el.replaceChildren(box);
+    el.replaceChildren(composer.el);
     el.style.display = "block";
-    ta.focus();
+    composer.focus();
   }
 
   function commit(value: string) {

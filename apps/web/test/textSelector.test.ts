@@ -19,7 +19,7 @@ describe("selectorsForRange", () => {
     const textNode = p.firstChild!;
     range.setStart(textNode, 4); // "quick"
     range.setEnd(textNode, 9);
-    const sels = selectorsForRange(range, root);
+    const sels = selectorsForRange(range);
     // Quote context is a raw 32-char window (same convention as anchor.ts), so the
     // suffix over-reaches past one word — assert a prefix-of like anchor.test.ts does.
     expect(sels[0]).toMatchObject({ type: "text-quote", exact: "quick", prefix: "the " });
@@ -33,7 +33,7 @@ describe("selectorsForRange", () => {
     const range = document.createRange();
     range.setStart(root.querySelector("p")!.firstChild!, 1);
     range.collapse(true);
-    expect(selectorsForRange(range, root)).toEqual([]);
+    expect(selectorsForRange(range)).toEqual([]);
   });
 
   it("produces offsets that round-trip through resolveSelectors", () => {
@@ -45,7 +45,7 @@ describe("selectorsForRange", () => {
     range.setStart(tail, 1); // skip leading space -> "gamma"
     range.setEnd(tail, 6);
     expect(range.toString()).toBe("gamma");
-    const sels = selectorsForRange(range, root);
+    const sels = selectorsForRange(range);
     expect(sels[0]).toMatchObject({ type: "text-quote", exact: "gamma" });
     const resolved = resolveSelectors(sels, root);
     expect(resolved).not.toBeNull();

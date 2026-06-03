@@ -58,6 +58,7 @@ import { renderSourcePanel } from "./sourcePanel";
 import { toAnnotationSendInput } from "./annotationDeliveryMap";
 import { buildTextAnnotation } from "./textAnnotation";
 import { mountDomAnnotator } from "./domAnnotator";
+import { buildNoteComposer } from "./noteComposer";
 import type { Source } from "@orden/annotation-core";
 import { viewerFor } from "./codeHighlight";
 import { renderImageView, renderHtmlView } from "./richView";
@@ -836,49 +837,25 @@ async function showImageFile(path: string, title: string): Promise<void> {
     onSave: (note: string) => void,
   ): void => {
     closeComposer();
-    const box = document.createElement("div");
-    box.className = "annotator-composer region-composer";
+    const { el: box, focus } = buildNoteComposer({
+      placeholder: "Note for this region…",
+      extraClass: "region-composer",
+      onSave: (note) => {
+        closeComposer();
+        if (note) onSave(note);
+        else rerender(); // empty note -> drop the draft box
+      },
+      onCancel: () => {
+        closeComposer();
+        rerender();
+      },
+    });
     box.style.position = "absolute";
     box.style.left = `${at.x}px`;
     box.style.top = `${at.y}px`;
-    const ta = document.createElement("textarea");
-    ta.className = "annotator-note";
-    ta.placeholder = "Note for this region…";
-    ta.rows = 3;
-    const actions = document.createElement("div");
-    actions.className = "annotator-actions";
-    const save = document.createElement("button");
-    save.className = "primary";
-    save.textContent = "Save";
-    const cancel = document.createElement("button");
-    cancel.className = "ghost";
-    cancel.textContent = "Cancel";
-    actions.append(cancel, save);
-    box.append(ta, actions);
     wrap.append(box);
     composer = box;
-    ta.focus();
-    const commit = (): void => {
-      const note = ta.value.trim();
-      closeComposer();
-      if (note) onSave(note);
-      else rerender(); // drop the draft box
-    };
-    save.addEventListener("click", commit);
-    cancel.addEventListener("click", () => {
-      closeComposer();
-      rerender();
-    });
-    ta.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        commit();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        closeComposer();
-        rerender();
-      }
-    });
+    focus();
   };
 
   // Drag-to-create: track from mousedown on the image, draw a draft box, and on

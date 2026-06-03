@@ -56,7 +56,7 @@ describe("assignCodeBlockIds", () => {
     });
     assignCodeBlockIds(root);
     const range = rangeOverText(root, "beta");
-    const sels = selectorsForRange(range, root);
+    const sels = selectorsForRange(range);
     const resolved = resolveSelectors(sels, root);
     expect(resolved).not.toBeNull();
     expect(resolved!.toString()).toBe("beta");

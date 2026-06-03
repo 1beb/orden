@@ -13,7 +13,9 @@ function closestBlock(node: Node): Element | null {
 // Convert a non-collapsed selection Range into [text-quote, text-position] fallbacks.
 // Offsets are into the block's concatenated textContent (via offsetsFromRange), so
 // the text-position selector round-trips through resolveSelectors.
-export function selectorsForRange(range: Range, _root: Element): Selector[] {
+// Anchoring is block-relative (it walks up to the nearest block-id'd ancestor),
+// so no root argument is needed.
+export function selectorsForRange(range: Range): Selector[] {
   if (range.collapsed) return [];
 
   const block = closestBlock(range.startContainer);

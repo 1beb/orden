@@ -17,7 +17,7 @@ export function buildTextAnnotation(input: {
   creator: { kind: "human" | "agent"; id: string };
   audience?: OrdenAudience;
 }): OrdenAnnotation | null {
-  const selector = selectorsForRange(input.range, input.root);
+  const selector = selectorsForRange(input.range);
   if (selector.length === 0) return null;
   return createOrdenAnnotation({
     source: input.source,
