@@ -32,6 +32,7 @@ export class MultiRootWatcher {
 
   // Open watchers for the current local roots. Idempotent: delegates to the
   // same diff logic as refresh(), so a second start() never double-watches.
+  // Resets `stopped`, so calling start() after stop() revives the watcher (restart-in-place).
   async start(): Promise<void> {
     this.stopped = false;
     await this.refresh();

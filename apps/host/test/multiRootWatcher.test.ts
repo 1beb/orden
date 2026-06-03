@@ -104,9 +104,10 @@ describe("MultiRootWatcher", () => {
     w.stop(); // double-stop is safe
   });
 
-  test("skips node_modules / dotfiles", async () => {
+  test("filter discriminates: keeps a sibling, skips node_modules / dotfiles", async () => {
     const a = mkroot();
-    // Create node_modules before start() so the recursive watcher arms over it.
+    // Create node_modules before start() so the recursive watcher arms over it
+    // — proving the skip is the filter, not arming order.
     mkdirSync(join(a, "node_modules", "pkg"), { recursive: true });
     const seen: Array<[string, string]> = [];
     const w = new MultiRootWatcher(
@@ -114,10 +115,18 @@ describe("MultiRootWatcher", () => {
       (id, p) => seen.push([id, p]),
     );
     await w.start();
+    // Skipped paths and a kept sibling, all written together so the kept event
+    // proves the watcher is live and the filter discriminates (not silence).
     writeFileSync(join(a, "node_modules", "pkg", "f.md"), "x");
     writeFileSync(join(a, ".secret"), "x");
+    writeFileSync(join(a, "keep.md"), "x");
     await delay(400);
-    expect(seen).toEqual([]);
+    // The kept sibling fired.
+    expect(seen).toContainEqual(["pa", "keep.md"]);
+    // Nothing under node_modules or any dotfile leaked through.
+    expect(
+      seen.some(([, p]) => p.includes("node_modules") || p.startsWith(".") || p === ".secret"),
+    ).toBe(false);
     w.stop();
   });
 });
