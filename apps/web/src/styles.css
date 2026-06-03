@@ -2595,6 +2595,39 @@ li.sess-done-head {
   max-width: 100%;
   height: auto;
   object-fit: contain;
+  display: block;
+}
+
+/* Image region annotations (Task 9): the wrapper is sized to the displayed image
+   so the absolute overlay layer aligns exactly with it. The layer is
+   pointer-transparent so drag-to-create works on empty image; boxes opt back in. */
+.image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.region-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.region-box {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: pointer;
+  border: 2px solid var(--accent, #6d28d9);
+  background: color-mix(in srgb, var(--accent, #6d28d9) 12%, transparent);
+}
+.region-box.is-active {
+  border-width: 3px;
+  background: color-mix(in srgb, var(--accent, #6d28d9) 28%, transparent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+/* Transient box drawn while dragging out a new region. */
+.region-box.is-draft {
+  pointer-events: none;
+  border-style: dashed;
 }
 
 /* Rendered-HTML viewer: a sandboxed iframe filling the center view. */

@@ -9,13 +9,27 @@ export function repoFileUrl(path: string): string {
   return `/repo-file/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-export function renderImageView(container: HTMLElement, doc: { title: string; path: string }): void {
+// Renders the image wrapped in a positioned container so absolute region-boxes
+// can layer over it (Task 9). Returns the wrapper, the <img>, and the overlay
+// `layer` the caller paints region boxes into. The layer is pointer-transparent
+// (so drag-to-create on empty image works); individual `.region-box` children
+// re-enable pointer events to stay clickable (see styles.css).
+export function renderImageView(
+  container: HTMLElement,
+  doc: { title: string; path: string },
+): { wrap: HTMLDivElement; img: HTMLImageElement; layer: HTMLDivElement } {
   container.replaceChildren();
+  const wrap = document.createElement("div");
+  wrap.className = "image-wrap";
   const img = document.createElement("img");
   img.className = "image-view";
   img.src = repoFileUrl(doc.path);
   img.alt = doc.title;
-  container.append(img);
+  const layer = document.createElement("div");
+  layer.className = "region-layer";
+  wrap.append(img, layer);
+  container.append(wrap);
+  return { wrap, img, layer };
 }
 
 // Returns the iframe so callers can hook its `load` event and reach contentDocument

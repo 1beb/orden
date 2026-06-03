@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repoFileUrl, renderHtmlView } from "../src/richView";
+import { repoFileUrl, renderHtmlView, renderImageView } from "../src/richView";
 
 describe("repoFileUrl", () => {
   it("builds a /repo-file/ url from a repo-relative path", () => {
@@ -12,6 +12,19 @@ describe("repoFileUrl", () => {
 
   it("encodes characters that would break the url", () => {
     expect(repoFileUrl("a?b/c#d.png")).toBe("/repo-file/a%3Fb/c%23d.png");
+  });
+});
+
+describe("renderImageView", () => {
+  it("returns the img and overlay layer, with the img src set to the repo-file url", () => {
+    const container = document.createElement("div");
+    const { img, layer, wrap } = renderImageView(container, { title: "t", path: "docs/a.png" });
+    expect(img).toBeInstanceOf(HTMLImageElement);
+    expect(layer.classList.contains("region-layer")).toBe(true);
+    expect(img.getAttribute("src")).toBe("/repo-file/docs/a.png");
+    expect(wrap.contains(img)).toBe(true);
+    expect(wrap.contains(layer)).toBe(true);
+    expect(container.contains(wrap)).toBe(true);
   });
 });
 
