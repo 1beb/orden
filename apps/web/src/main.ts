@@ -1019,7 +1019,7 @@ async function openRepoFile(path: string): Promise<void> {
   }
   updateHtmlToggle(path);
   setActiveFile(path);
-  recordRecentFile(path);
+  recordRecentFile("repo", path); // Task 9 wires the real per-file projectId
   renderRecentFiles();
 }
 
@@ -1043,7 +1043,7 @@ function renderRecentFiles(): void {
     recentList.append(hint);
     return;
   }
-  for (const path of recents) {
+  for (const { path } of recents) {
     const a = document.createElement("a");
     a.className = "nav-file";
     a.dataset.path = path;
