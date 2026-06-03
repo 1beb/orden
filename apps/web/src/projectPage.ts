@@ -91,18 +91,24 @@ export function renderProjectPage(
   container: HTMLElement,
   projectId: string,
   onChange: () => void,
+  // The callbacks below are optional in spirit (each use is guarded in the body
+  // / by the sole caller), but typed `T | undefined` rather than `?` so the
+  // now-required `listFiles` can follow them without tripping TS's rule that a
+  // required parameter can't come after an optional one. The only caller
+  // (main.ts renderProject) always passes all of them positionally.
   // Start an agent session from an existing card that has no conversation yet.
-  onStartSession?: (item: Item, agent: Agent) => void,
+  onStartSession: ((item: Item, agent: Agent) => void) | undefined,
   // Open an existing session in the sessions panel.
-  onOpenSession?: (id: string) => void,
+  onOpenSession: ((id: string) => void) | undefined,
   // Start a NEW project-scoped session (not tied to any card).
-  onNewSession?: (agent: Agent) => void,
+  onNewSession: ((agent: Agent) => void) | undefined,
   // Open a repo file in the review/document view (file-backed projects only).
-  onOpenFile?: (path: string) => void,
+  onOpenFile: ((path: string) => void) | undefined,
   // Fetch THIS project's own files (path + title), lazily on render. The host
   // serves files per project now, so the page asks for its own list rather than
-  // receiving one global repo array.
-  listFiles?: (projectId: string) => Promise<FileEntry[]>,
+  // receiving one global repo array. Required: the Files widget is its whole
+  // reason to exist and the sole caller always passes it.
+  listFiles: (projectId: string) => Promise<FileEntry[]>,
   // Called after an in-place edit (rename / re-path) so the caller can refresh
   // the sidebar list and the view title to match.
   onProjectChanged?: () => void,
@@ -436,7 +442,7 @@ let filesSectionOpen = false;
 // not populate the new DOM. `section.isConnected` is the minimal robust guard.
 function filesWidget(
   projectId: string,
-  listFiles?: (projectId: string) => Promise<FileEntry[]>,
+  listFiles: (projectId: string) => Promise<FileEntry[]>,
   onOpenFile?: (path: string) => void,
 ): HTMLElement {
   const { section, body } = widget("Files", {
@@ -452,14 +458,29 @@ function filesWidget(
   loading.textContent = "Loading…";
   body.append(loading);
 
-  if (!listFiles) return section;
-
-  void listFiles(projectId).then((repoFiles) => {
-    // Bail if this section was detached before the fetch resolved (page
-    // re-rendered, or the user navigated to a different project).
-    if (!section.isConnected) return;
-    renderFilesBody(body, projectId, repoFiles, onOpenFile);
-  });
+  // The isConnected guard below relies on renderProjectPage rebuilding a fresh
+  // `section` each call (via container.replaceChildren()), so a stale fetch can
+  // only ever target its own now-detached section — never the live one. If that
+  // invariant ever changes (e.g. DOM reuse across renders), this needs a
+  // per-render generation token instead.
+  void listFiles(projectId)
+    .then((repoFiles) => {
+      // Bail if this section was detached before the fetch resolved (page
+      // re-rendered, or the user navigated to a different project).
+      if (!section.isConnected) return;
+      renderFilesBody(body, projectId, repoFiles, onOpenFile);
+    })
+    .catch(() => {
+      // The list call can reject (host down, dropped connection, unreadable
+      // root, server throw). Same detachment guard, then show an error state
+      // instead of hanging on "Loading…" forever.
+      if (!section.isConnected) return;
+      body.replaceChildren();
+      const err = document.createElement("p");
+      err.className = "project-widget-empty";
+      err.textContent = "Couldn't load files.";
+      body.append(err);
+    });
   return section;
 }
 
