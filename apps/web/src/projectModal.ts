@@ -1,0 +1,239 @@
+// The add/edit project modal. One component for both flows (mode "create" |
+// "edit"), built on the shared .preview-overlay / .preview-modal shell so it
+// matches the card/confirm dialogs. It replaces two divergent, cramped paths:
+// the sidebar add-project form (main.ts) and the inline editForm (projectPage).
+//
+// Scope (local nodehost projects): name + folder path + a couple of session
+// defaults (default agent, optional working-dir override). ssh/s3 sources and
+// per-project file scoping are deferred — see the brainstorm in this PR.
+import {
+  addProject,
+  updateProject,
+  canPickDirectory,
+  pickDirectory,
+  type Project,
+} from "./projects";
+import type { Agent } from "./sessions";
+
+export interface ProjectModalOptions {
+  mode: "create" | "edit";
+  // The project being edited (required for mode "edit"; ignored for "create").
+  project?: Project;
+  // Called with the created/updated project after a successful save, so the
+  // caller can refresh the sidebar list / page / title.
+  onSaved?: (project: Project) => void;
+}
+
+const AGENT_OPTIONS: { value: "" | Agent; label: string }[] = [
+  { value: "", label: "Ask each time" },
+  { value: "claude", label: "Claude" },
+  { value: "opencode", label: "opencode" },
+];
+
+// Build a labeled field (label + control) for the modal body.
+function field(labelText: string, control: HTMLElement, hint?: string): HTMLElement {
+  const wrap = document.createElement("label");
+  wrap.className = "project-modal__field";
+  const label = document.createElement("span");
+  label.className = "project-modal__label";
+  label.textContent = labelText;
+  wrap.append(label, control);
+  if (hint) {
+    const h = document.createElement("span");
+    h.className = "project-modal__hint";
+    h.textContent = hint;
+    wrap.append(h);
+  }
+  return wrap;
+}
+
+export function openProjectModal(opts: ProjectModalOptions): void {
+  const editing = opts.mode === "edit" ? opts.project : undefined;
+  // Whether this project has a folder path to edit. New projects are always
+  // local; editing an ephemeral project (e.g. Homeroom) hides the path field.
+  const isLocal = editing ? editing.source.kind === "local" : true;
+  const currentPath =
+    editing && editing.source.kind === "local" ? editing.source.path : "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "preview-overlay";
+
+  let settled = false;
+  const close = (): void => {
+    if (settled) return;
+    settled = true;
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKey);
+
+  const modal = document.createElement("div");
+  modal.className = "preview-modal project-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+
+  const header = document.createElement("header");
+  header.textContent = opts.mode === "create" ? "Add project" : "Edit project";
+  modal.append(header);
+
+  const form = document.createElement("form");
+  form.className = "project-modal__body";
+
+  // --- Name (required) ---
+  const nameInput = document.createElement("input");
+  nameInput.className = "project-modal__input";
+  nameInput.placeholder = "Project name";
+  nameInput.value = editing?.name ?? "";
+  form.append(field("Name", nameInput));
+
+  // --- Folder path (local only; required when shown) ---
+  const pathInput = document.createElement("input");
+  pathInput.className = "project-modal__input";
+  pathInput.placeholder = "/path/to/project";
+  pathInput.value = currentPath;
+  // A native "Browse…" folder chooser, shown only when the host supports it
+  // (local nodehost with zenity/kdialog). The browser can't produce a real
+  // filesystem path, so this routes through the host.
+  const pathRow = document.createElement("div");
+  pathRow.className = "project-modal__path-row";
+  pathRow.append(pathInput);
+  if (canPickDirectory()) {
+    const browse = document.createElement("button");
+    browse.type = "button";
+    browse.className = "project-modal__browse";
+    browse.textContent = "Browse…";
+    browse.addEventListener("click", async () => {
+      browse.disabled = true;
+      try {
+        const picked = await pickDirectory(pathInput.value.trim() || undefined);
+        if (picked) {
+          pathInput.value = picked;
+          // Fire input so the working-dir placeholder tracks the new path.
+          pathInput.dispatchEvent(new Event("input"));
+        }
+      } finally {
+        browse.disabled = false;
+      }
+    });
+    pathRow.append(browse);
+  }
+  if (isLocal) {
+    form.append(
+      field("Folder path", pathRow, "Where the project lives — agents launch here by default."),
+    );
+  }
+
+  // --- Default agent ---
+  const agentSel = document.createElement("select");
+  agentSel.className = "project-modal__input";
+  for (const o of AGENT_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = o.value;
+    opt.textContent = o.label;
+    opt.selected = (editing?.defaultAgent ?? "") === o.value;
+    agentSel.append(opt);
+  }
+  form.append(field("Default agent", agentSel, "Pre-selected when you start a session here."));
+
+  // --- Advanced: working-directory override ---
+  const advanced = document.createElement("details");
+  advanced.className = "project-modal__advanced";
+  // Open it if a non-default working dir is already set, so it's not hidden.
+  advanced.open = !!editing?.workingDir;
+  const summary = document.createElement("summary");
+  summary.textContent = "Advanced";
+  advanced.append(summary);
+
+  const wdInput = document.createElement("input");
+  wdInput.className = "project-modal__input";
+  wdInput.value = editing?.workingDir ?? "";
+  const syncWdPlaceholder = (): void => {
+    wdInput.placeholder = (isLocal ? pathInput.value.trim() : "") || "Defaults to the folder path";
+  };
+  syncWdPlaceholder();
+  pathInput.addEventListener("input", syncWdPlaceholder);
+  advanced.append(
+    field(
+      "Working directory",
+      wdInput,
+      "Override the cwd agents launch in. Stored now; host honoring is deferred.",
+    ),
+  );
+  form.append(advanced);
+
+  // --- Validation message ---
+  const error = document.createElement("p");
+  error.className = "project-modal__error";
+  error.hidden = true;
+  form.append(error);
+
+  // --- Actions ---
+  const actions = document.createElement("div");
+  actions.className = "project-modal__actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "project-modal__btn";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", close);
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.className = "project-modal__btn project-modal__btn--primary";
+  save.textContent = opts.mode === "create" ? "Add project" : "Save";
+  actions.append(cancel, save);
+  form.append(actions);
+
+  const showError = (msg: string): void => {
+    error.textContent = msg;
+    error.hidden = false;
+  };
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) {
+      showError("A project needs a name.");
+      nameInput.focus();
+      return;
+    }
+    const path = pathInput.value.trim();
+    if (isLocal && !path) {
+      showError("A local project needs a folder path.");
+      pathInput.focus();
+      return;
+    }
+    const defaultAgent = (agentSel.value || null) as Agent | null;
+    const workingDir = wdInput.value.trim() || null;
+
+    let saved: Project;
+    if (opts.mode === "create") {
+      saved = addProject(
+        name,
+        { kind: "local", path },
+        { defaultAgent: defaultAgent ?? undefined, workingDir: workingDir ?? undefined },
+      );
+    } else {
+      const id = editing!.id;
+      updateProject(id, {
+        name,
+        path: isLocal ? path : undefined,
+        defaultAgent,
+        workingDir,
+      });
+      saved = editing!;
+    }
+    close();
+    opts.onSaved?.(saved);
+  });
+
+  modal.append(form);
+  overlay.append(modal);
+  document.body.append(overlay);
+  nameInput.focus();
+  nameInput.select();
+}

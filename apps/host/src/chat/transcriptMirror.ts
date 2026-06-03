@@ -32,6 +32,8 @@ export class TranscriptMirror {
   // messages that actually changed rather than the whole transcript each tick.
   private written = new Map<string, string>();
   private count = 0;
+  // Prune orphaned vault keys once per process. See refresh().
+  private pruned = false;
 
   constructor(
     private readonly vault: ChatVault,
@@ -85,6 +87,24 @@ export class TranscriptMirror {
       if (this.written.get(key) === json) continue; // unchanged — skip the write
       this.written.set(key, json);
       await this.vault.set<ChatMessage>(this.ns, key, messages[i]);
+    }
+    // Drop vault bubbles orphaned past the current end. We write keys by absolute
+    // seq and never overwrite a key that no longer exists, so a prior process (or
+    // an older parser that didn't strip skill bodies / isMeta entries) can leave
+    // msg:<seq> keys beyond the new, shorter parse — e.g. a loaded skill's
+    // markdown left rendering as a user turn after the parser learned to drop it.
+    // Only keys at/after the current length are stale; earlier ones are real
+    // scroll-up history. Once per process suffices: within a process the
+    // transcript only grows, so no new orphans appear.
+    if (!this.pruned) {
+      this.pruned = true;
+      for (const key of await this.vault.list(this.ns)) {
+        const m = /^msg:(\d+)$/.exec(key);
+        if (m && Number(m[1]) >= messages.length) {
+          this.written.delete(key);
+          await this.vault.delete(this.ns, key);
+        }
+      }
     }
     this.count = messages.length;
   }

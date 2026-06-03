@@ -6,6 +6,7 @@ import { readFile, writeFile, readdir, mkdir } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { join, relative, dirname, sep } from "node:path";
 import type { FileSource, FileEntry } from "@orden/host-api";
+import { pickDirectory } from "./pickDirectory";
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -73,6 +74,12 @@ export class FsFiles implements FileSource {
     const full = this.resolveInRoot(path);
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, content, "utf8");
+  }
+
+  // Native directory chooser — filesystem-wide, not scoped to this root, so the
+  // user can pick a folder anywhere when creating a project.
+  pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null> {
+    return pickDirectory(opts);
   }
 
   // Watch the root for file changes (recursive) and report repo-relative paths.

@@ -12,13 +12,13 @@ import { saveState, loadState, hydrateDocs } from "./persist";
 import { VaultSink, hydrateOutbox } from "./sink-local";
 import {
   listProjects,
-  addProject,
   getProject,
   isHostFilesRoot,
   hydrateProjects,
   removeProject,
   ensureDefaultProject,
 } from "./projects";
+import { openProjectModal } from "./projectModal";
 import { hydratePages } from "./pages";
 import {
   hydrateCards,
@@ -45,7 +45,7 @@ import {
   type Agent,
 } from "./sessions";
 import { mountSessionsPanel } from "./sessionsPanel";
-import { mountTerminal } from "./terminalView";
+import { mountTerminal, updateTerminalFonts } from "./terminalView";
 import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
@@ -83,6 +83,8 @@ import {
   saveSettings,
   MIN_PANEL_PCT,
   MAX_PANEL_PCT,
+  MIN_FONT_SIZE,
+  MAX_FONT_SIZE,
   type StartupView,
 } from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
@@ -1085,6 +1087,9 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
+  // we navigate to a default element (kanban/journal/pages/project).
+  if (v !== "html" && v !== "code") htmlToggle.hidden = true;
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
   // Text-annotation lifecycle: the code, html, and review views share the single
@@ -1260,11 +1265,17 @@ fontSelect.addEventListener("change", () => {
   void saveSettings({ fontFamily: fontSelect.value });
 });
 
-const sizeSelect = document.querySelector<HTMLSelectElement>("#font-size")!;
-sizeSelect.value = String(settings.fontSize);
-sizeSelect.addEventListener("change", () => {
-  const size = Number(sizeSelect.value);
+const sizeInput = document.querySelector<HTMLInputElement>("#font-size")!;
+const sizeValue = document.querySelector<HTMLElement>("#font-size-value")!;
+sizeInput.min = String(MIN_FONT_SIZE);
+sizeInput.max = String(MAX_FONT_SIZE);
+sizeInput.value = String(settings.fontSize);
+sizeValue.textContent = `${settings.fontSize}px`;
+sizeInput.addEventListener("input", () => {
+  const size = Number(sizeInput.value);
+  sizeValue.textContent = `${size}px`;
   applyFont(loadSettings().fontFamily, size);
+  updateTerminalFonts();
   void saveSettings({ fontSize: size });
 });
 
@@ -1465,9 +1476,6 @@ else if (settings.startup === "kanban") viewStore.set("kanban");
 // --- Projects registry (local/remote file access arrives with the host backend) ---
 const projectList = document.querySelector<HTMLElement>("#project-list")!;
 const addProjectBtn = document.querySelector<HTMLElement>("#add-project")!;
-const addProjectForm = document.querySelector<HTMLElement>("#add-project-form")!;
-const projNameInput = document.querySelector<HTMLInputElement>("#add-project-name")!;
-const projPathInput = document.querySelector<HTMLInputElement>("#add-project-path")!;
 
 function renderProjects(): void {
   projectList.replaceChildren();
@@ -1499,27 +1507,15 @@ function renderProjects(): void {
   }
 }
 
-function showAddProject(show: boolean): void {
-  addProjectForm.hidden = !show;
-  addProjectBtn.hidden = show;
-  if (show) projNameInput.focus();
-}
-
-addProjectBtn.addEventListener("click", () => showAddProject(true));
-document.querySelector("#add-project-cancel")?.addEventListener("click", () => {
-  projNameInput.value = "";
-  projPathInput.value = "";
-  showAddProject(false);
-});
-document.querySelector("#add-project-save")?.addEventListener("click", () => {
-  const name = projNameInput.value.trim();
-  if (!name) return;
-  addProject(name, { kind: "local", path: projPathInput.value.trim() || "(path unset)" });
-  projNameInput.value = "";
-  projPathInput.value = "";
-  showAddProject(false);
-  renderProjects();
-});
+addProjectBtn.addEventListener("click", () =>
+  openProjectModal({
+    mode: "create",
+    onSaved: (project) => {
+      renderProjects();
+      openProject(project.id);
+    },
+  }),
+);
 renderProjects();
 
 // Right pane: sessions (claude/opencode conversations). Creating one drops a
@@ -1615,6 +1611,15 @@ if (htmlRenderCb) {
       void openRepoFile(path);
     }
   });
+}
+
+// Vault location: a read-only path so the user knows where their data lives.
+// The in-browser host has no on-disk vault, so it reports browser storage.
+const vaultLocationEl = document.querySelector<HTMLElement>("#vault-location");
+if (vaultLocationEl) {
+  const vaultRoot = host.capabilities().vaultRoot;
+  vaultLocationEl.textContent = vaultRoot ?? "Browser storage (in-memory host)";
+  if (vaultRoot) vaultLocationEl.title = vaultRoot;
 }
 
 // --- Omnisearch: a multi-purpose search field in the topbar. What it searches

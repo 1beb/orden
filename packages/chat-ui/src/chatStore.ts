@@ -3,6 +3,7 @@ import type { ChatMessage, PermissionRequest } from "@orden/chat-core";
 export interface ChatStore {
   hydrate(messages: ChatMessage[]): void;
   applyChange(ns: string, key: string, value: unknown): void;
+  addMessage(message: ChatMessage): void;
   messages(): ChatMessage[];
   pendingPermissions(): PermissionRequest[];
   onChange(cb: () => void): () => void;
@@ -51,6 +52,15 @@ export function createChatStore(sessionId: string): ChatStore {
       }
       // The `meta` key (a ChatSession) is accepted but not surfaced here; it is
       // not a message and needs no store state for the view.
+    },
+    addMessage(message) {
+      let maxSeq = -1;
+      for (const seq of bySeq.keys()) {
+        if (seq > maxSeq) maxSeq = seq;
+      }
+      bySeq.set(maxSeq + 1, message);
+      rebuildMessages();
+      notify();
     },
     messages() {
       return [...msgs]; // copy: callers must not mutate store state (matches pendingPermissions)

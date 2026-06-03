@@ -28,6 +28,7 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
+import { hasDirectoryPicker, pickDirectory } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
 import { makeOpencodeAdapter } from "./chat/adapters/opencode";
@@ -80,6 +81,11 @@ class StubFiles implements FileSource {
   }
   async write(_projectId: string, _path: string, _content: string): Promise<void> {
     throw new Error("NodeHost: files.write not implemented yet (H2)");
+  }
+  // The directory picker is filesystem-wide, not root-scoped, so it works even
+  // when no filesRoot is configured (the StubFiles case).
+  pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null> {
+    return pickDirectory(opts);
   }
 }
 
@@ -136,9 +142,11 @@ export class NodeHost implements Host {
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
+  private readonly vaultRoot: string;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
+    this.vaultRoot = opts.vaultRoot;
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
@@ -183,6 +191,8 @@ export class NodeHost implements Host {
       spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
       filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
+      vaultRoot: this.vaultRoot, // so the web can show where the vault lives
+      pickDirectory: hasDirectoryPicker(), // native folder chooser available?
     };
   }
 }

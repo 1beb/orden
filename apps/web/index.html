@@ -22,14 +22,6 @@
         <div class="nav-section">
           <div class="nav-section-title">Projects</div>
           <div id="project-list"></div>
-          <div id="add-project-form" hidden>
-            <input id="add-project-name" class="nav-input" placeholder="Project name" />
-            <input id="add-project-path" class="nav-input" placeholder="Local folder path" />
-            <div class="nav-form-actions">
-              <button id="add-project-cancel" class="nav-form-btn">Cancel</button>
-              <button id="add-project-save" class="nav-form-btn primary">Add</button>
-            </div>
-          </div>
           <button id="add-project" class="nav-add">+ Add project</button>
         </div>
         </div>
@@ -136,13 +128,8 @@
         <label class="settings-opt"><input type="radio" name="startup" value="last" /> Last document</label>
         <div class="settings-label">Font</div>
         <select id="font-family" class="settings-select"></select>
-        <div class="settings-label">Text size</div>
-        <select id="font-size" class="settings-select">
-          <option value="14">Small</option>
-          <option value="16">Medium</option>
-          <option value="18">Large</option>
-          <option value="20">Extra large</option>
-        </select>
+        <div class="settings-label">Text size <span id="font-size-value" class="settings-value"></span></div>
+        <input type="range" id="font-size" class="settings-range" min="12" max="24" step="1" />
         <div class="settings-label">Accent color</div>
         <input type="color" id="accent-color" class="settings-color" />
         <div class="settings-label">Completed tasks fade after</div>
@@ -157,6 +144,8 @@
         <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
         <label class="settings-opt"><input type="checkbox" id="session-autolaunch" /> Launch new sessions immediately</label>
         <label class="settings-opt"><input type="checkbox" id="html-render" /> Render HTML files (off = show source)</label>
+        <div class="settings-label">Vault location</div>
+        <div id="vault-location" class="settings-path"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
