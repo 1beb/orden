@@ -22,6 +22,7 @@ import type {
   ChatBackend,
   ChatSession,
   ChatMessage,
+  KeyedMessage,
   ModelOption,
   SlashCommand,
 } from "@orden/host-api";
@@ -171,6 +172,10 @@ class LocalChat implements ChatBackend {
   }
 
   async getMessages(): Promise<ChatMessage[]> {
+    return [];
+  }
+
+  async getMessagesKeyed(): Promise<KeyedMessage[]> {
     return [];
   }
 

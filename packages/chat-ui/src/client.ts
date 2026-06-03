@@ -2,6 +2,7 @@ import type {
   ChatSession,
   ChatMessage,
   ChatHarness,
+  KeyedMessage,
   ModelOption,
   SlashCommand,
   PermissionDecision,
@@ -19,6 +20,7 @@ export interface ChatClient {
     model?: string;
   }): Promise<ChatSession>;
   getMessages(sessionId: string): Promise<ChatMessage[]>;
+  getMessagesKeyed(sessionId: string): Promise<KeyedMessage[]>;
   send(sessionId: string, text: string, opts?: { model?: string }): Promise<void>;
   respondPermission(sessionId: string, reqId: string, d: PermissionDecision): Promise<void>;
   setModel(sessionId: string, model: string): Promise<void>;

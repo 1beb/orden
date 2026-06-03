@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ChatSession,
   HarnessDriver,
+  KeyedMessage,
   ModelOption,
   PermissionDecision,
   PermissionRequest,
@@ -118,14 +119,20 @@ export function createChatBackend(deps: {
     },
 
     async getMessages(sessionId: string): Promise<ChatMessage[]> {
+      return (await this.getMessagesKeyed(sessionId)).map((e) => e.message);
+    },
+
+    async getMessagesKeyed(sessionId: string): Promise<KeyedMessage[]> {
       const keys = await vault.list(sessNs(sessionId));
       const msgKeys = keys
         .filter((k) => k.startsWith("msg:"))
-        .sort((a, b) => Number.parseInt(a.slice(4), 10) - Number.parseInt(b.slice(4), 10));
-      const out: ChatMessage[] = [];
-      for (const k of msgKeys) {
+        .map((k) => ({ k, seq: Number.parseInt(k.slice(4), 10) }))
+        .filter(({ seq }) => !Number.isNaN(seq))
+        .sort((a, b) => a.seq - b.seq);
+      const out: KeyedMessage[] = [];
+      for (const { k, seq } of msgKeys) {
         const m = await vault.get<ChatMessage>(sessNs(sessionId), k);
-        if (m) out.push(m);
+        if (m) out.push({ seq, message: m });
       }
       return out;
     },

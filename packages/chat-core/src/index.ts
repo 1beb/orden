@@ -35,6 +35,15 @@ export interface ChatMessage {
   parts: ChatPart[];
 }
 
+// A message paired with its real msg:<seq> key. Hydrating from these (rather
+// than re-deriving the seq from array position) keeps the store's keyspace
+// identical to the live-delta keyspace, which matters when the source keys are
+// sparse/offset (the terminal mirror's windowed, absolute-indexed transcript).
+export interface KeyedMessage {
+  seq: number;
+  message: ChatMessage;
+}
+
 export interface PermissionRequest {
   id: string;
   toolName: string;
@@ -68,6 +77,9 @@ export interface ChatBackend {
     model?: string;
   }): Promise<ChatSession>;
   getMessages(sessionId: string): Promise<ChatMessage[]>;
+  // Like getMessages but each message carries its real msg:<seq> key, so a
+  // client can hydrate into the same keyspace live deltas use.
+  getMessagesKeyed(sessionId: string): Promise<KeyedMessage[]>;
   send(sessionId: string, text: string, opts?: { model?: string }): Promise<void>;
   respondPermission(sessionId: string, reqId: string, d: PermissionDecision): Promise<void>;
   setModel(sessionId: string, model: string): Promise<void>;

@@ -32,6 +32,7 @@ export function createChatMount(
       throw new Error("a mirrored terminal session is not creatable from chat");
     },
     getMessages: (id) => host.chat!.getMessages(id),
+    getMessagesKeyed: (id) => host.chat!.getMessagesKeyed(id),
     send: (id, text) => host.terminalChat!.send(id, text),
     respondPermission: async () => {},
     // The terminal owns its model; setModel is display-only here for now.
@@ -107,9 +108,13 @@ export function createChatMount(
         if (disposed) return;
 
         const s = createChatStore(chatSessionId);
-        const initial = await client.getMessages(chatSessionId);
+        // Hydrate at each message's REAL seq, not its array position: the mirror
+        // keys by absolute (windowed, gappy) transcript index, and live deltas
+        // carry that same seq — so array-index hydration would diverge from the
+        // delta keyspace and reorder/duplicate messages.
+        const initial = await client.getMessagesKeyed(chatSessionId);
         if (disposed) return;
-        s.hydrate(initial);
+        s.hydrateKeyed(initial);
         ns = `chat:${chatSessionId}`;
         store = s; // arm the change-feed listener now that the store is ready
 
