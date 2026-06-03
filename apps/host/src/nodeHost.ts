@@ -27,7 +27,7 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
-import { makeProjectRootResolver } from "./projectRoots";
+import { makeProjectRootResolver, listLocalProjectRoots } from "./projectRoots";
 import { MultiRootWatcher } from "./multiRootWatcher";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
@@ -145,14 +145,10 @@ export class NodeHost implements Host {
     // anything) pushes a projectId-tagged "files" change on the same feed the
     // vault uses, so an open doc in the UI live-reloads. The watched set is
     // vault-driven, so re-derive it whenever the "projects" ns changes.
-    const listLocalRoots = async () => {
-      const ids = await this.vault.list("projects");
-      const recs = await Promise.all(ids.map((id) => this.vault.get<Project>("projects", id)));
-      return recs
-        .filter((p): p is Project => !!p && p.source.kind === "local")
-        .map((p) => ({ id: p.id, root: (p.source as { path: string }).path }));
-    };
-    const watcher = new MultiRootWatcher(listLocalRoots, (projectId, path) => {
+    // No teardown: like the chat engine below, the watcher is held alive by the
+    // changeListeners closure and intentionally runs for the host process
+    // lifetime — never stop()-ed (no dispose API, matching this constructor).
+    const watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
       for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
     });
     void watcher.start();

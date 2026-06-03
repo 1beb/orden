@@ -18,3 +18,16 @@ export function makeProjectRootResolver(
     return undefined;
   };
 }
+
+// Enumerate every local project's id + absolute filesystem root from the
+// "projects" vault ns. Same "local project → source.path" rule as the resolver
+// above, but for the whole set at once (the watcher needs the full root list).
+export async function listLocalProjectRoots(
+  host: Pick<Host, "vault">,
+): Promise<Array<{ id: string; root: string }>> {
+  const ids = await host.vault.list("projects");
+  const recs = await Promise.all(ids.map((id) => host.vault.get<Project>("projects", id)));
+  return recs.flatMap((p) =>
+    p && p.source.kind === "local" ? [{ id: p.id, root: p.source.path }] : [],
+  );
+}
