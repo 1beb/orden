@@ -28,6 +28,7 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
+import { makeProjectRootResolver } from "./projectRoots";
 import { hasDirectoryPicker, pickDirectory } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
@@ -152,15 +153,18 @@ export class NodeHost implements Host {
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
-    const files = opts.filesRoot ? new FsFiles(opts.filesRoot) : new StubFiles();
+    const files = opts.filesRoot
+      ? new FsFiles(makeProjectRootResolver(this, opts.filesRoot))
+      : new StubFiles();
     this.files = files;
+    // TODO(task 4/5): replaced by MultiRootWatcher.
     // Repo .md edits (by us, an agent, git, anything) push a "files" change on
     // the same feed the vault uses, so an open doc in the UI live-reloads.
-    if (files instanceof FsFiles) {
-      files.watch((path) => {
-        for (const listener of this.changeListeners) listener({ ns: "files", key: path });
-      });
-    }
+    // if (files instanceof FsFiles) {
+    //   files.watch((path) => {
+    //     for (const listener of this.changeListeners) listener({ ns: "files", key: path });
+    //   });
+    // }
     // Sessions run agents on the host; writes go through the emitting vault so
     // transcript + card updates stream live to the UI.
     this.sessions = new NodeSessions({
