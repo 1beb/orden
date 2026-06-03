@@ -4,7 +4,7 @@ import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
 import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
-import { sendFeedback } from "@orden/annotation-core";
+import { sendFeedback, assignBlockIds } from "@orden/annotation-core";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
@@ -53,7 +53,7 @@ import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./
 import { renderCodeView, assignCodeBlockIds } from "./codeView";
 import { AnnotationStore } from "./annotationStore";
 import { fileSource } from "./viewerSource";
-import { paintHighlights, setActiveHighlight, clearHighlights } from "./textOverlay";
+import { paintHighlights, setActiveHighlight, clearHighlights, ensureHighlightStyles } from "./textOverlay";
 import { renderSourcePanel } from "./sourcePanel";
 import { buildTextAnnotation } from "./textAnnotation";
 import { mountDomAnnotator } from "./domAnnotator";
@@ -593,33 +593,49 @@ function onUpdate(): void {
 // in Task 8). The code panel reuses the SAME `#annotation-list` element as the
 // review panel, so entering review re-runs renderPanel() and leaving a text view
 // tears the annotator down to avoid stale highlights/state leaking across views.
-let activeText: { source: Source; root: Element; annotator: { destroy(): void } } | null = null;
+// `win` is the realm whose CSS.highlights the active text painted into — the parent
+// for the code viewer, the iframe's contentWindow for owned HTML. Teardown clears
+// that SAME realm so highlights don't leak across views.
+let activeText: { source: Source; root: Element; annotator: { destroy(): void }; win: Window } | null = null;
 
 function teardownActiveText(): void {
   if (!activeText) return;
   activeText.annotator.destroy();
-  clearHighlights();
+  clearHighlights(activeText.win);
   activeText = null;
 }
 
 // Wire a rendered text root (code / plain-text / owned-HTML body) to the store,
 // panel, overlay, and selection annotator. `getSelection` lets an iframe pass its
 // own document's selection (Task 8); the in-page code viewer passes window's.
+// `opts.win`/`opts.rectOffset` target an iframe realm: ranges, the Highlight
+// constructor, and CSS.highlights all come from `win`, and the pill is shifted by
+// `rectOffset` into parent coords. The in-page code viewer passes no opts (parent
+// realm, zero offset). `opts.injectStyles` adds the ::highlight rules for an iframe
+// document, which doesn't load the app stylesheet.
 function openAnnotatableText(
   root: Element,
   source: Source,
   getSelection: () => Selection | null,
+  opts?: {
+    win?: Window;
+    rectOffset?: () => { x: number; y: number };
+    injectStyles?: boolean;
+  },
 ): void {
   teardownActiveText();
 
+  const win = opts?.win ?? (window as Window);
+  if (opts?.injectStyles && root.ownerDocument) ensureHighlightStyles(root.ownerDocument);
+
   const rerender = (): void => {
     const anns = annotationStore.forSource(source);
-    const placed = paintHighlights(root, anns);
+    const placed = paintHighlights(root, anns, win);
     const byId = new Map(placed.map((p) => [p.id, p.range] as const));
     renderSourcePanel(listEl, anns, {
       onSelect: (id) => {
         const r = byId.get(id) ?? null;
-        setActiveHighlight(r);
+        setActiveHighlight(r, win);
         r?.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "smooth" });
       },
       onDelete: (id) => {
@@ -632,6 +648,7 @@ function openAnnotatableText(
   const annotator = mountDomAnnotator({
     root,
     getSelection,
+    rectOffset: opts?.rectOffset,
     onCreate: (range, note) => {
       const ann = buildTextAnnotation({ source, range, root, note, creator: me });
       if (!ann) return;
@@ -640,7 +657,7 @@ function openAnnotatableText(
     },
   });
 
-  activeText = { source, root, annotator };
+  activeText = { source, root, annotator, win };
   rerender();
 }
 
@@ -651,6 +668,33 @@ async function showCodeFile(path: string, title: string, content: string): Promi
   assignCodeBlockIds(root);
   const source = await fileSource(path, content, title);
   openAnnotatableText(root, source, () => window.getSelection());
+}
+
+// Render an OWNED repo HTML file in a same-origin iframe and wire it for annotation
+// against the iframe's document. Shared by the initial open path and the change-feed
+// reload path. Owned files come from the repo, so they render with allow-same-origin
+// and the parent reaches contentDocument to paint highlights / read selections there.
+// NOTE: rendered-DOM text offsets differ from HTML-source offsets, so an annotation
+// made here won't resolve if the same file is later opened as source (and vice-versa);
+// they coexist in the store and orphan gracefully in the other mode (no mode key yet).
+async function showHtmlFile(path: string, title: string, content: string): Promise<void> {
+  // Compute the source up front so the async-fired load handler stays synchronous.
+  const source = await fileSource(path, content, title);
+  const frame = renderHtmlView(viewEls.html, { title, content, owned: true });
+  frame.addEventListener("load", () => {
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) return;
+    assignBlockIds(doc.body); // generic core ids — real HTML has block elements
+    openAnnotatableText(doc.body, source, () => win.getSelection(), {
+      win: win as unknown as Window,
+      rectOffset: () => {
+        const r = frame.getBoundingClientRect();
+        return { x: r.left, y: r.top };
+      },
+      injectStyles: true, // the iframe doc doesn't load the app stylesheet
+    });
+  });
 }
 
 // Dev seed: apply a few sample annotations on load so the page shows highlights
@@ -797,11 +841,13 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
-  // Text-annotation lifecycle: the code view and the review view share the single
-  // `#annotation-list`. Leaving the code view tears down its annotator + highlights;
-  // entering review re-renders the review panel into the shared list. (The code
-  // view's own panel is rendered by openAnnotatableText/showCodeFile on open.)
-  if (v !== "code") teardownActiveText();
+  // Text-annotation lifecycle: the code, html, and review views share the single
+  // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
+  // annotator + highlights — clearing the SAME realm it painted into (parent for
+  // code, the iframe for html). Entering review re-renders the review panel into
+  // the shared list. (A text view's own panel is rendered by openAnnotatableText
+  // via showCodeFile/showHtmlFile on open.)
+  if (v !== "code" && v !== "html") teardownActiveText();
   if (v === "review") renderPanel();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
 });
@@ -1091,7 +1137,7 @@ async function openRepoFile(path: string): Promise<void> {
     if (kind === "image") {
       renderImageView(viewEls.image, { title, path }); // bytes load via /repo-file/
     } else if (kind === "html") {
-      renderHtmlView(viewEls.html, { title, content: await host.files.read("repo", path) });
+      await showHtmlFile(path, title, await host.files.read("repo", path));
     } else {
       await showCodeFile(path, title, await host.files.read("repo", path));
     }
@@ -1373,7 +1419,7 @@ onVaultChange((ns, key) => {
             renderImageView(viewEls.image, { title: currentDocTitle, path: key });
           } else if (kind === "html") {
             const content = await host.files.read("repo", key);
-            renderHtmlView(viewEls.html, { title: currentDocTitle, content });
+            await showHtmlFile(key, currentDocTitle, content);
           } else if (kind === "code") {
             const content = await host.files.read("repo", key);
             await showCodeFile(key, currentDocTitle, content);
