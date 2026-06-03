@@ -8,7 +8,7 @@ import type { FileSource, FileEntry } from "@orden/host-api";
 import type { ProjectRootResolver } from "./projectRoots";
 import { pickDirectory } from "./pickDirectory";
 
-const SKIP_DIRS = new Set([
+export const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
   "dist",
