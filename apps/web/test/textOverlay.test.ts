@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { assignBlockIds } from "@orden/annotation-core";
 import type { OrdenAnnotation } from "@orden/annotation-core";
-import { resolveAnnotationRanges } from "../src/textOverlay";
+import { resolveAnnotationRanges, ensureHighlightStyles } from "../src/textOverlay";
 
 function rendered(html: string): Element {
   const root = document.createElement("div");
@@ -26,5 +26,16 @@ describe("resolveAnnotationRanges", () => {
   it("skips annotations that don't resolve (orphans)", () => {
     const root = rendered("<section><p>the quick brown fox</p></section>");
     expect(resolveAnnotationRanges([ann("ZZZ")], root)).toHaveLength(0);
+  });
+});
+
+describe("ensureHighlightStyles", () => {
+  it("injects exactly one style element even when called twice", () => {
+    const doc = document.implementation.createHTMLDocument("iframe");
+    ensureHighlightStyles(doc);
+    ensureHighlightStyles(doc);
+    const styles = doc.head.querySelectorAll("style[data-orden-highlights]");
+    expect(styles).toHaveLength(1);
+    expect(styles[0].textContent).toContain("::highlight(orden-annotation)");
   });
 });
