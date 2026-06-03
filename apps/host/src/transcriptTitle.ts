@@ -12,6 +12,12 @@ import { join } from "node:path";
 
 export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
 
+// The user's home, used to locate ~/.claude. Prefer the live $HOME env var over
+// os.homedir(): on Linux they're identical (homedir() returns $HOME when set),
+// but a directly-read env var is honored under test runners that set HOME at
+// runtime, where the cached native homedir() is not.
+const claudeHome = (): string => process.env.HOME || homedir();
+
 // Has Claude actually written this session's transcript to disk yet? A
 // conversationId is persisted at MINT time (the scoped MCP endpoint + state
 // hooks bind to it before the agent runs), but Claude writes
@@ -22,7 +28,7 @@ export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
 export const claudeTranscriptExists = (cwd: string, sessionId: string): boolean => {
   try {
     return existsSync(
-      join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`),
+      join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`),
     );
   } catch {
     return false;
@@ -38,7 +44,7 @@ export const claudeTranscriptExists = (cwd: string, sessionId: string): boolean 
 // null on any missing file/dir or parse issue — never throws.
 export const readTranscriptTitle = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     const raw = readFileSync(file, "utf8");
     let latest: string | null = null;
     for (const line of raw.split("\n")) {
@@ -96,7 +102,7 @@ export const firstUserPrompt = (raw: string): string | null => {
 // the safe default (don't claim activity we can't see). Never throws.
 export const readUserPrompt = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     return firstUserPrompt(readFileSync(file, "utf8"));
   } catch {
     return null;
@@ -109,7 +115,7 @@ export const readUserPrompt = (cwd: string, sessionId: string): string | null =>
 // transcript is missing/unreadable so callers can fall back. Never throws.
 export const readTranscriptSummary = (cwd: string, sessionId: string): string | null => {
   try {
-    const file = join(homedir(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
+    const file = join(claudeHome(), ".claude", "projects", encodeCwd(cwd), `${sessionId}.jsonl`);
     const raw = readFileSync(file, "utf8");
     const title = readTranscriptTitle(cwd, sessionId);
     const opening = firstUserPrompt(raw);

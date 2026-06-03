@@ -1,12 +1,13 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   mcpConfigArg,
   settingsArg,
   launchDetached,
   resolveSessionCwd,
+  resolveAgentBin,
   buildCommand,
 } from "../src/terminal";
 import { encodeCwd } from "../src/transcriptTitle";
@@ -147,6 +148,62 @@ describe("resolveSessionCwd", () => {
   });
 });
 
+describe("resolveAgentBin", () => {
+  const ORIGINAL_PATH = process.env.PATH;
+  const ORIGINAL_HOME = process.env.HOME;
+  let home: string;
+
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+    if (ORIGINAL_PATH === undefined) delete process.env.PATH;
+    else process.env.PATH = ORIGINAL_PATH;
+    if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+    else process.env.HOME = ORIGINAL_HOME;
+  });
+
+  function fakeBin(dir: string, name: string): string {
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, name);
+    writeFileSync(p, "#!/bin/sh\n");
+    chmodSync(p, 0o755);
+    return p;
+  }
+
+  // The bug: the host started with a PATH lacking ~/.local/bin (where claude
+  // lives) launched `sh -c "claude …"`, which exited 127 and showed `[exited]`.
+  test("finds claude in ~/.local/bin even when PATH omits it", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path"; // claude not reachable here
+    const p = fakeBin(join(home, ".local", "bin"), "claude");
+    expect(resolveAgentBin("claude")).toBe(p);
+  });
+
+  test("finds opencode in ~/.opencode/bin", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path";
+    const p = fakeBin(join(home, ".opencode", "bin"), "opencode");
+    expect(resolveAgentBin("opencode")).toBe(p);
+  });
+
+  test("prefers a PATH entry over the home fallbacks", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    const onPath = fakeBin(join(home, "pathbin"), "claude");
+    fakeBin(join(home, ".local", "bin"), "claude"); // also present, must lose
+    process.env.PATH = join(home, "pathbin");
+    expect(resolveAgentBin("claude")).toBe(onPath);
+  });
+
+  test("falls back to the bare name when nothing is found", () => {
+    home = mkdtempSync(join(tmpdir(), "orden-bin-"));
+    process.env.HOME = home;
+    process.env.PATH = "/no/such/orden/path";
+    expect(resolveAgentBin("claude")).toBe("claude");
+  });
+});
+
 describe("buildCommand (claude resume vs mint)", () => {
   const ORIGINAL_HOME = process.env.HOME;
   let home: string;
@@ -209,6 +266,27 @@ describe("buildCommand (claude resume vs mint)", () => {
     expect(cmd).not.toContain("--resume");
     // Same id is kept so the scoped MCP endpoint stays bound.
     expect(cmd).toContain("/mcp/conv-ghost");
+  });
+
+  test("launches via the resolved absolute agent path (PATH-independent)", async () => {
+    setup();
+    const binDir = join(home, ".local", "bin");
+    mkdirSync(binDir, { recursive: true });
+    const binPath = join(binDir, "claude");
+    writeFileSync(binPath, "#!/bin/sh\n");
+    chmodSync(binPath, 0o755);
+    const savedPath = process.env.PATH;
+    process.env.PATH = "/no/such/orden/path"; // force resolution via the home fallback
+    try {
+      const { host } = vaultHost();
+      const rec = { agent: "claude" } as never;
+      const cmd = await buildCommand(host, rec, "sess_1", CWD);
+      // The command leads with the shquoted absolute path, not a bare `claude`.
+      expect(cmd.startsWith(`'${binPath}' `)).toBe(true);
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
   });
 
   test("mints a fresh id and persists it for a brand-new session", async () => {

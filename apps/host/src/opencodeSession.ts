@@ -14,6 +14,7 @@
 // timeout and return null on any failure — they never throw.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolveAgentBin } from "./agentBin";
 
 const exec = promisify(execFile);
 
@@ -36,7 +37,7 @@ const isPlaceholderTitle = (t: string): boolean => /^New session - /.test(t.trim
 async function listSessions(cwd: string, max = 25): Promise<OpencodeSession[]> {
   try {
     const { stdout } = await exec(
-      "opencode",
+      resolveAgentBin("opencode"),
       ["session", "list", "--format", "json", "-n", String(max)],
       { cwd, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 },
     );

@@ -17,6 +17,10 @@ import { homedir } from "node:os";
 import { spawn as ptySpawn } from "node-pty";
 import type { Host, Project } from "@orden/host-api";
 import { readTranscriptTitle, claudeTranscriptExists } from "./transcriptTitle";
+// Resolve agent CLIs to absolute paths so a minimal host PATH can't break launch
+// (see agentBin.ts). Re-exported so tests can drive it via this module's surface.
+import { resolveAgentBin } from "./agentBin";
+export { resolveAgentBin };
 import { persistTitle, persistSummary } from "./sessionTitles";
 import {
   discoverOpencodeSession,
@@ -78,6 +82,7 @@ interface SessionRecord {
 function shquote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
+
 
 // Build the `--mcp-config <json>` fragment that binds a launched claude session
 // to ITS OWN scoped orden MCP endpoint: http://127.0.0.1:<port>/mcp/<convId>.
@@ -277,7 +282,10 @@ export async function buildCommand(
   sessionId: string,
   cwd: string,
 ): Promise<string> {
-    if (rec.agent === "opencode") {
+  // Launch via the agent's absolute path so a minimal host PATH can't break it
+  // (see resolveAgentBin). shquoted in case the resolved path contains spaces.
+  const bin = shquote(resolveAgentBin(rec.agent));
+  if (rec.agent === "opencode") {
     // opencode's TUI has no --session-id to MINT a chosen id (only -s/--session to
     // RESUME an existing one), so we can't pre-persist an id the way Claude allows.
     // Reattach: resume the id we discovered after the first launch (conversationId
@@ -289,9 +297,9 @@ export async function buildCommand(
     // OPENCODE_CONFIG_DIR in the tmux env. The plugin uses fetch() to POST
     // state transitions to /hooks/session-state, mapping through ORDEN_SESSION_ID
     // so the host doesn't need the opencode session id pre-registered.
-    if (rec.conversationId) return `opencode --session ${rec.conversationId}`;
+    if (rec.conversationId) return `${bin} --session ${rec.conversationId}`;
     // First open: launch the TUI, seeding the card's text as the initial prompt.
-    let cmd = "opencode"; // interactive opencode TUI (id discovered post-launch)
+    let cmd = bin; // interactive opencode TUI (id discovered post-launch)
     if (rec.initialPrompt) {
       cmd += ` --prompt ${shquote(rec.initialPrompt)}`;
       rec.initialPrompt = undefined;
@@ -311,12 +319,12 @@ export async function buildCommand(
   // --mcp-config binds this session to its scoped orden endpoint; --settings
   // injects the kanban state hooks (both port-templated by orden, no repo files).
   if (rec.conversationId && claudeTranscriptExists(cwd, rec.conversationId))
-    return `claude ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
+    return `${bin} ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
   const id = rec.conversationId ?? randomUUID();
   rec.conversationId = id;
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
-  let cmd = `claude ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
+  let cmd = `${bin} ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;
