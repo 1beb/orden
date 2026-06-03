@@ -1008,7 +1008,7 @@ async function openRepoFile(path: string): Promise<void> {
   } else {
     void host.vault.set("ui", "last-doc", currentDocKey);
     if (kind === "image") {
-      renderImageView(viewEls.image, { title, path }); // bytes load via /repo-file/
+      renderImageView(viewEls.image, { title, path, projectId: "repo" }); // bytes load via /repo-file/ — Task 9: real per-file projectId
     } else if (kind === "html") {
       renderHtmlView(viewEls.html, { title, content: await host.files.read("repo", path) });
     } else {
@@ -1283,7 +1283,7 @@ onVaultChange((ns, key) => {
         if (currentDocKey === `review:${key}`) {
           const kind = viewerFor(key, effectiveHtmlRender(key));
           if (kind === "image") {
-            renderImageView(viewEls.image, { title: currentDocTitle, path: key });
+            renderImageView(viewEls.image, { title: currentDocTitle, path: key, projectId: "repo" }); // Task 9: real per-file projectId
           } else if (kind === "html") {
             const content = await host.files.read("repo", key);
             renderHtmlView(viewEls.html, { title: currentDocTitle, content });

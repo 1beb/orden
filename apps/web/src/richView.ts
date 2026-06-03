@@ -5,15 +5,18 @@
 // allow-scripts WITHOUT allow-same-origin, so the page's own JS runs but in a
 // null origin — it can't touch the app's cookies, vault, or localStorage.
 
-export function repoFileUrl(path: string): string {
-  return `/repo-file/${path.split("/").map(encodeURIComponent).join("/")}`;
+export function repoFileUrl(projectId: string, path: string): string {
+  return `/repo-file/${encodeURIComponent(projectId)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-export function renderImageView(container: HTMLElement, doc: { title: string; path: string }): void {
+export function renderImageView(
+  container: HTMLElement,
+  doc: { title: string; path: string; projectId: string },
+): void {
   container.replaceChildren();
   const img = document.createElement("img");
   img.className = "image-view";
-  img.src = repoFileUrl(doc.path);
+  img.src = repoFileUrl(doc.projectId, doc.path);
   img.alt = doc.title;
   container.append(img);
 }
