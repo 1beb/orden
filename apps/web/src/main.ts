@@ -923,7 +923,6 @@ function loadReviewDoc(opts: {
 }): void {
   currentDocKey = opts.key;
   currentDocTitle = opts.title;
-  void host.vault.set("ui", "last-doc", opts.key);
 
   const saved = loadState(opts.key);
   const parsed = markdownParser.parse(
