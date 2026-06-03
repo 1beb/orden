@@ -5,6 +5,7 @@ import type {
   ModelOption,
   SlashCommand,
   PermissionDecision,
+  QuestionResponse,
 } from "@orden/chat-core";
 
 // Transport-agnostic surface the UI calls. Mirrors ChatBackend's method shapes
@@ -24,4 +25,8 @@ export interface ChatClient {
   setModel(sessionId: string, model: string): Promise<void>;
   listModels(harness: ChatHarness): Promise<ModelOption[]>;
   listCommands(sessionId: string): Promise<SlashCommand[]>;
+  // Answer a pending AskUserQuestion. Only mirrored-terminal sessions implement
+  // this (it drives the live TUI menu); when absent, the question card falls back
+  // to sending an option label as a plain message.
+  answerQuestion?(sessionId: string, toolId: string, response: QuestionResponse): Promise<void>;
 }

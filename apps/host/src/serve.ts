@@ -12,6 +12,7 @@ import { join, dirname, resolve, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, stat } from "node:fs/promises";
 import { NodeHost } from "./nodeHost";
+import { NodeTerminalChat } from "./chat/nodeTerminalChat";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss, launchDetached } from "./terminal";
 import { reconcileUntitledSessions } from "./sessionTitles";
@@ -28,6 +29,14 @@ const vaultRoot = process.env.ORDEN_VAULT ?? join(homedir(), ".orden", "vault");
 const filesRoot = process.env.ORDEN_FILES_ROOT ?? repoRoot;
 const webDist = process.env.ORDEN_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
 const host = new NodeHost({ vaultRoot, filesRoot });
+
+// Eagerly mirror every claude session that has a transcript, so a pending
+// AskUserQuestion (or any turn) shows up in the Chat tab without the user first
+// opening that session. Fire-and-forget; mirror() is idempotent, so a later tab
+// open just reuses the running mirror.
+if (host.terminalChat instanceof NodeTerminalChat) {
+  void host.terminalChat.mirrorAll();
+}
 
 // Launch-on-create reactor: the MCP session_create tool flags new sessions with
 // pendingLaunch when auto-launch is on. Watch the vault, clear the flag, and

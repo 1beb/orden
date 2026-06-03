@@ -58,6 +58,24 @@ export interface PermissionDecision {
   remember?: boolean;
 }
 
+// ---- AskUserQuestion answers (terminal-mirrored sessions) ----
+//
+// claude's AskUserQuestion is an interactive menu in the terminal; the Chat tab
+// renders it as a card and sends the answer back by driving that menu with
+// keystrokes (see apps/host questionKeystrokes). One QuestionAnswer per question,
+// in the questions' original order.
+export type QuestionAnswer =
+  | { kind: "option"; index: number } // single-select: chosen option (0-based)
+  | { kind: "multi"; indexes: number[] } // multiSelect: chosen options (0-based)
+  | { kind: "other"; text: string }; // the "Type something" free-text entry
+
+// The whole response to one AskUserQuestion call: either answer every question
+// and submit, or decline all ("Chat about this") so the user replies in the
+// composer instead.
+export type QuestionResponse =
+  | { kind: "submit"; answers: QuestionAnswer[] }
+  | { kind: "chat" };
+
 // The public surface, implemented once by a generic engine (built later).
 export interface ChatBackend {
   listSessions(): Promise<ChatSession[]>;

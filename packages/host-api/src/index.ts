@@ -1,6 +1,6 @@
 export * from "@orden/chat-core";
 
-import type { ChatBackend } from "@orden/chat-core";
+import type { ChatBackend, QuestionResponse } from "@orden/chat-core";
 
 export interface HostCapabilities {
   remoteProjects: boolean;
@@ -168,6 +168,14 @@ export interface TerminalChat {
   mirror(sessionId: string): Promise<boolean>;
   /** Type `text` into the session's live agent pane (its next-turn input). */
   send(sessionId: string, text: string): Promise<void>;
+  /**
+   * Answer a pending AskUserQuestion in the session's live pane. `toolId` is the
+   * tool_use id of the question (from the mirrored transcript); the host reads
+   * the question structure from the transcript and drives claude's interactive
+   * menu with the keystrokes the `response` implies. A "chat" response declines
+   * all questions so the user can reply in the composer instead.
+   */
+  answerQuestion(sessionId: string, toolId: string, response: QuestionResponse): Promise<void>;
 }
 
 export interface Host {

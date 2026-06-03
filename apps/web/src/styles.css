@@ -1106,6 +1106,146 @@ li.sess-done-head {
   opacity: 0.5;
   cursor: default;
 }
+
+/* AskUserQuestion answer card (mirrored-terminal sessions) */
+.chat-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-question-header {
+  align-self: flex-start;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.chat-question-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+.chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-question-option-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.chat-question-num {
+  flex: 0 0 auto;
+  width: 18px;
+  text-align: right;
+  color: #999;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.5;
+  padding-top: 4px;
+}
+.chat-question-option {
+  flex: 1;
+  text-align: left;
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 6px;
+  background: #fff;
+  padding: 6px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.chat-question-option:hover {
+  border-color: var(--accent);
+}
+.chat-question-option.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.chat-question-check {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.chat-question-check input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.chat-question-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-question-option-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.chat-question-option-desc {
+  font-size: 11.5px;
+  color: #666;
+}
+.chat-question-preview {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #555;
+  background: color-mix(in srgb, var(--accent) 6%, #fff);
+  border-radius: 4px;
+  padding: 4px 6px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.chat-question-other {
+  flex: 1;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border, #e5e3df);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+.chat-question-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.chat-question-submit,
+.chat-question-chat {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chat-question-submit {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.chat-question-submit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chat-question-chat {
+  border: 1px solid var(--border, #e5e3df);
+  background: #fff;
+  color: inherit;
+}
+.chat-questions-answered {
+  opacity: 0.7;
+}
 /* Composer: a centered column — big message box on top, then a bar with the
    model picker bottom-left and Send bottom-right. */
 .chat-composer {
