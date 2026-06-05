@@ -47,18 +47,27 @@ export async function killSessionTmux(sessionId: string): Promise<void> {
 function opencodeEnv(
   rec: { agent: "claude" | "opencode" },
   sessionId: string,
-): { args: string[]; env: Record<string, string> } {
-  if (rec.agent !== "opencode") return { args: [], env: {} };
+): { args: string[]; env: Record<string, string>; cmdPrefix: string } {
+  if (rec.agent !== "opencode") return { args: [], env: {}, cmdPrefix: "" };
   const pluginDir = ensureOpencodePluginDir(sessionId);
+  const port = process.env.ORDEN_PORT ?? 4319;
+  // Set env vars BOTH in the tmux session environment AND directly on the
+  // command line. Shell init files (.bashrc, .zshrc) can clear inherited env,
+  // but inline VAR=val cmd assignments survive regardless — so the plugin
+  // always has ORDEN_SESSION_ID and can post back with a truthy value.
+  const cmdPrefix = `ORDEN_SESSION_ID=${shquote(sessionId)} OPENCODE_CONFIG_DIR=${shquote(pluginDir)} ORDEN_PORT=${shquote(String(port))}`;
   return {
     args: [
       "-e", `ORDEN_SESSION_ID=${sessionId}`,
       "-e", `OPENCODE_CONFIG_DIR=${pluginDir}`,
+      "-e", `ORDEN_PORT=${port}`,
     ],
     env: {
       ORDEN_SESSION_ID: sessionId,
       OPENCODE_CONFIG_DIR: pluginDir,
+      ORDEN_PORT: String(port),
     },
+    cmdPrefix,
   };
 }
 
@@ -166,7 +175,9 @@ export const OrdenKanban = async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...extra, orden_session_id: ORDEN_SID }),
       })
-    } catch (_) {}
+    } catch (e) {
+      console.error("[orden-kanban] hook post failed:", String(e))
+    }
   }
 
   return {
@@ -197,6 +208,7 @@ function ensureOpencodePluginDir(sessionId: string): string {
   const dir = `${homedir()}/.orden/opencode-plugins/${sessionId}`;
   const pluginsDir = `${dir}/plugins`;
   mkdirSync(pluginsDir, { recursive: true });
+  writeFileSync(`${dir}/package.json`, JSON.stringify({ type: "module" }), "utf8");
   writeFileSync(`${pluginsDir}/orden-kanban.js`, opencodePluginSource(), "utf8");
   return dir;
 }
@@ -281,6 +293,7 @@ export async function buildCommand(
   rec: SessionRecord,
   sessionId: string,
   cwd: string,
+  envPrefix?: string,
 ): Promise<string> {
   // Launch via the agent's absolute path so a minimal host PATH can't break it
   // (see resolveAgentBin). shquoted in case the resolved path contains spaces.
@@ -299,7 +312,9 @@ export async function buildCommand(
     // so the host doesn't need the opencode session id pre-registered.
     if (rec.conversationId) return `${bin} --session ${rec.conversationId}`;
     // First open: launch the TUI, seeding the card's text as the initial prompt.
-    let cmd = bin; // interactive opencode TUI (id discovered post-launch)
+    // envPrefix carries inline VAR=val assignments so the plugin's env vars survive
+    // even if the shell init files clear inherited environment (see opencodeEnv).
+    let cmd = envPrefix ? `${envPrefix} ${bin}` : bin;
     if (rec.initialPrompt) {
       cmd += ` --prompt ${shquote(rec.initialPrompt)}`;
       rec.initialPrompt = undefined;
@@ -355,10 +370,9 @@ export async function launchDetached(
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
     const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
-    const cmd = await buildCommand(host, rec, sessionId, cwd);
-    const tmuxName = tmuxNameFor(sessionId);
     const ocEnv = opencodeEnv(rec, sessionId);
-    // Mirror handle()'s tmux invocation, but detached (-d) and via plain spawn
+    const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
+    const tmuxName = tmuxNameFor(sessionId);
     // (no pty needed to merely create). `cmd` is a single shell string and is
     // passed as the trailing positional arg, exactly as handle() does.
     await new Promise<void>((resolve) => {
@@ -428,9 +442,9 @@ async function handle(
       ? await existingOpencodeSessions(cwd)
       : new Set<string>();
 
-  const cmd = await buildCommand(host, rec, sessionId, cwd);
-  const tmuxName = tmuxNameFor(sessionId);
   const ocEnv = opencodeEnv(rec, sessionId);
+  const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
+  const tmuxName = tmuxNameFor(sessionId);
   const term = ptySpawn(
     "tmux",
     // attach-or-create: the command only runs when the session is first created.

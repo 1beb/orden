@@ -154,6 +154,7 @@ let feedbackTarget: "agent" | "human" = "agent";
 let currentDocKey = "review:sample";
 let currentDocProjectId = "repo";
 let currentDocTitle = DOC_TITLE;
+const docAnnotationSessions = new Set<string>();
 
 function persistReview(): void {
   saveState(currentDocKey, markdownSerializer.serialize(view.state.doc), log.all());
@@ -266,10 +267,14 @@ wireFurl(annotationsBlock, "#annotations-toggle", ".block-label");
 // panel across every viewer, not just the review view.
 const viewArea = document.querySelector<HTMLElement>("#view-area")!;
 function syncPanelColumn(): void {
-  const bothHidden =
-    docmap.classList.contains("section-hidden") &&
-    annotationsBlock.classList.contains("section-hidden");
-  viewArea.classList.toggle("panels-collapsed", bothHidden);
+  // The outline counts as "gone" when the user hid it OR when it isn't rendered
+  // at all (code/image, or an HTML doc with no extractable outline — in those
+  // cases CSS display:none leaves offsetParent null). Otherwise hiding only the
+  // annotations on an outline-less view would never collapse the column.
+  const outlineGone =
+    docmap.classList.contains("section-hidden") || docmap.offsetParent === null;
+  const annGone = annotationsBlock.classList.contains("section-hidden");
+  viewArea.classList.toggle("panels-collapsed", outlineGone && annGone);
 }
 function wireHideShow(
   section: HTMLElement,
@@ -328,7 +333,36 @@ function renderDocMap(): void {
   });
 }
 
-const annotator = mountAnnotator(view, log, () => renderPanel());
+// Build the outline for a rendered HTML doc from its own h1–h6. Owned HTML is
+// same-origin, so we can read the iframe's headings and scroll them into view on
+// click — mirroring renderDocMap's behaviour for the review doc. Returns the
+// number of headings found so the caller can decide whether to show the outline.
+function renderHtmlDocMap(htmlDoc: Document): number {
+  docmapList.replaceChildren();
+  const headings = htmlDoc.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6");
+  headings.forEach((h) => {
+    const level = Number(h.tagName.slice(1));
+    const li = document.createElement("li");
+    li.className = `dm-l${level}`;
+    li.textContent = (h.textContent ?? "").trim() || "(untitled)";
+    li.addEventListener("click", () => {
+      h.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    docmapList.append(li);
+  });
+  return headings.length;
+}
+
+const annotator = mountAnnotator(view, log, () => renderPanel(), (_body) => {
+  if (docAnnotationSessions.has(currentDocKey)) return;
+  docAnnotationSessions.add(currentDocKey);
+  createSession({
+    title: `Annotations from ${currentDocTitle}`,
+    agent: "opencode",
+    projectId: currentDocProjectId,
+  });
+  refreshBoard();
+});
 
 // Bottom action bar: the primary action morphs between Approve (clean) and Send
 // (annotations present). Agent/human targeting is deferred — defaults to agent.
@@ -758,6 +792,11 @@ async function showHtmlFile(path: string, title: string, content: string): Promi
     const win = frame.contentWindow;
     if (!doc || !win) return;
     assignBlockIds(doc.body); // generic core ids — real HTML has block elements
+    // Outline from the doc's own headings; only reveal it if there are any.
+    const headingCount = renderHtmlDocMap(doc);
+    docmap.classList.remove("collapsed");
+    viewArea.classList.toggle("has-outline", headingCount > 0);
+    syncPanelColumn();
     openAnnotatableText(doc.body, source, () => win.getSelection(), {
       win: win as unknown as Window,
       rectOffset: () => {
@@ -1073,6 +1112,11 @@ viewStore.subscribe((v) => {
   // wrong (stale review) annotations. The source-view Send button is gated
   // separately by refreshSourceSend().
   viewArea.classList.toggle("source-view", ANNOTATABLE_VIEWS.has(v) && v !== "review");
+  // Only the HTML viewer carries its own extracted outline; clear the flag on
+  // every transition so a stale one can't leak onto code/image. showHtmlFile
+  // re-sets it once the iframe loads and headings are found.
+  if (v !== "html") viewArea.classList.remove("has-outline");
+  syncPanelColumn();
   const titles: Record<View, string> = {
     review: currentDocTitle,
     code: currentDocTitle,

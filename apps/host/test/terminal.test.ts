@@ -215,6 +215,7 @@ describe("resolveAgentBin", () => {
 });
 
 describe("buildCommand (claude resume vs mint)", () => {
+  const ORIGINAL_PATH = process.env.PATH;
   const ORIGINAL_HOME = process.env.HOME;
   let home: string;
 
@@ -229,6 +230,8 @@ describe("buildCommand (claude resume vs mint)", () => {
   afterEach(() => {
     osHome.dir = "";
     if (home) rmSync(home, { recursive: true, force: true });
+    if (ORIGINAL_PATH === undefined) delete process.env.PATH;
+    else process.env.PATH = ORIGINAL_PATH;
     if (ORIGINAL_HOME === undefined) delete process.env.HOME;
     else process.env.HOME = ORIGINAL_HOME;
   });
@@ -288,18 +291,12 @@ describe("buildCommand (claude resume vs mint)", () => {
     const binPath = join(binDir, "claude");
     writeFileSync(binPath, "#!/bin/sh\n");
     chmodSync(binPath, 0o755);
-    const savedPath = process.env.PATH;
     process.env.PATH = "/no/such/orden/path"; // force resolution via the home fallback
-    try {
-      const { host } = vaultHost();
-      const rec = { agent: "claude" } as never;
-      const cmd = await buildCommand(host, rec, "sess_1", CWD);
-      // The command leads with the shquoted absolute path, not a bare `claude`.
-      expect(cmd.startsWith(`'${binPath}' `)).toBe(true);
-    } finally {
-      if (savedPath === undefined) delete process.env.PATH;
-      else process.env.PATH = savedPath;
-    }
+    const { host } = vaultHost();
+    const rec = { agent: "claude" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    // The command leads with the shquoted absolute path, not a bare `claude`.
+    expect(cmd.startsWith(`'${binPath}' `)).toBe(true);
   });
 
   test("mints a fresh id and persists it for a brand-new session", async () => {

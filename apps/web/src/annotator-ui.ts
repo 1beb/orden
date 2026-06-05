@@ -13,6 +13,7 @@ export function mountAnnotator(
   view: EditorView,
   log: AnnotationLog,
   onChange: () => void,
+  onAnnotation?: (body: string) => void,
 ) {
   const el = document.createElement("div");
   el.className = "annotator";
@@ -109,14 +110,16 @@ export function mountAnnotator(
 
   function commit(body: string) {
     if (range && body.trim()) {
+      const trimmed = body.trim();
       busy = true;
-      addAnnotation(view, log, body.trim(), "agent", range);
+      addAnnotation(view, log, trimmed, "agent", range);
       view.dispatch(
         view.state.tr.setSelection(
           TextSelection.create(view.state.doc, range.to, range.to),
         ),
       );
       busy = false;
+      onAnnotation?.(trimmed);
       onChange();
     }
     hide();

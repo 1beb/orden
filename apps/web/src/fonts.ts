@@ -65,6 +65,7 @@ export function applyFont(
   const href = googleFontHref(opt);
   if (href) ensureFontLink(opt.id, href);
   root.style.setProperty("--app-font", opt.stack);
+  root.style.setProperty("--app-font-size", `${sizePx}px`);
   // Base size 16px == scale 1; the slider's 12–24px maps to 0.75×–1.5×.
   root.style.setProperty("--font-scale", String(sizePx / 16));
 }
