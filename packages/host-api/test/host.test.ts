@@ -43,6 +43,8 @@ class NoopHost implements Host {
     read: async (_projectId: string, _path: string) => "",
     write: async (_projectId: string, _path: string, _content: string) => {},
     pickDirectory: async () => null,
+    watch: async (_projectId: string, _path: string) => {},
+    unwatch: async (_projectId: string, _path: string) => {},
   };
 
   sessions: SessionManager = {

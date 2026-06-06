@@ -126,6 +126,12 @@ class LocalFiles implements FileSource {
   async pickDirectory(): Promise<string | null> {
     return null;
   }
+
+  // No on-disk files to watch in the browser store; opens never go stale from an
+  // external editor, so watching is a no-op.
+  async watch(_projectId: string, _path: string): Promise<void> {}
+
+  async unwatch(_projectId: string, _path: string): Promise<void> {}
 }
 
 class LocalSessions implements SessionManager {

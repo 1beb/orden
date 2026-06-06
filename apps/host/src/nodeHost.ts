@@ -27,8 +27,7 @@ import type {
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
-import { makeProjectRootResolver, listLocalProjectRoots } from "./projectRoots";
-import { MultiRootWatcher } from "./multiRootWatcher";
+import { makeProjectRootResolver } from "./projectRoots";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
@@ -129,7 +128,6 @@ export class NodeHost implements Host {
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
   private readonly vaultRoot: string;
-  private readonly watcher: MultiRootWatcher;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
@@ -141,20 +139,16 @@ export class NodeHost implements Host {
     // "projects" vault ns); "repo" aliases filesRoot, and an unresolvable id
     // degrades to empty lists / throwing reads, so this works even with no
     // filesRoot (the former StubFiles case) — no stub needed.
-    this.files = new FsFiles(makeProjectRootResolver(this, opts.filesRoot));
-    // Watch every local project's root: an in-root edit (by us, an agent, git,
-    // anything) pushes a projectId-tagged "files" change on the same feed the
-    // vault uses, so an open doc in the UI live-reloads. The watched set is
-    // vault-driven, so re-derive it whenever the "projects" ns changes.
-    // In production the watcher runs for the host process lifetime; stop() exists
-    // mainly so tests (which spin up many hosts) can release the fs.watch handle
-    // instead of leaking one inotify instance per host until the limit is hit.
-    this.watcher = new MultiRootWatcher(() => listLocalProjectRoots(this), (projectId, path) => {
+    //
+    // The onChange sink turns FsFiles into a live file source: when a doc a
+    // client has opened (via files.watch) is edited on disk — by us, an agent,
+    // git, anything — FsFiles pushes a projectId-tagged "files" change on the
+    // same feed the vault uses, so the open doc live-reloads. Nothing is watched
+    // until a client opens a doc, so an idle host holds no fs.watch handles (the
+    // old MultiRootWatcher armed recursively over every project root incl.
+    // node_modules and exhausted inotify).
+    this.files = new FsFiles(makeProjectRootResolver(this, opts.filesRoot), (projectId, path) => {
       for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
-    });
-    void this.watcher.start();
-    this.onChange((c) => {
-      if (c.ns === "projects") void this.watcher.refresh();
     });
     // Sessions run agents on the host; writes go through the emitting vault so
     // transcript + card updates stream live to the UI.
@@ -182,10 +176,10 @@ export class NodeHost implements Host {
     return () => this.changeListeners.delete(listener);
   }
 
-  /** Release the project-root file watcher. Not needed in production (one host,
+  /** Release any open-doc file watchers. Not needed in production (one host,
    *  process lifetime); used by tests to avoid leaking fs.watch instances. */
   stop(): void {
-    this.watcher.stop();
+    if (this.files instanceof FsFiles) this.files.stopWatching();
   }
 
   capabilities(): HostCapabilities {

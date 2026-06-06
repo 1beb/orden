@@ -24,6 +24,11 @@ function isChangeSource(host: Host): host is Host & ChangeSource {
 
 function wireConnections(wss: WebSocketServer, host: Host): void {
   wss.on("connection", (socket) => {
+    // Open-doc watches (files.watch) create host-side fs.watch handles keyed by
+    // path, with no per-connection owner. Track what THIS connection opened so a
+    // closed/reloaded tab releases them — otherwise every reload would leak a
+    // watch, which is exactly the fs.watch accumulation this design avoids.
+    const watched = new Set<string>(); // `${projectId}\0${path}`
     socket.on("message", async (data) => {
       let req: RpcRequest;
       try {
@@ -31,8 +36,26 @@ function wireConnections(wss: WebSocketServer, host: Host): void {
       } catch {
         return; // ignore malformed frames
       }
+      // Mirror files.watch/unwatch into the per-connection set up front, so a
+      // close mid-flight still releases the watch.
+      if (req.path?.[0] === "files" && (req.path[1] === "watch" || req.path[1] === "unwatch")) {
+        const [pid, p] = req.args as unknown[];
+        if (typeof pid === "string" && typeof p === "string") {
+          if (req.path[1] === "watch") watched.add(`${pid}\0${p}`);
+          else watched.delete(`${pid}\0${p}`);
+        }
+      }
       const res = await dispatch(host, req);
       socket.send(JSON.stringify(res));
+    });
+
+    // Release any open-doc watches this connection still held when it drops.
+    socket.on("close", () => {
+      for (const key of watched) {
+        const sep = key.indexOf("\0");
+        void host.files.unwatch(key.slice(0, sep), key.slice(sep + 1));
+      }
+      watched.clear();
     });
 
     // Push vault-change frames so clients can live-update without polling.

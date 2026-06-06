@@ -7,6 +7,7 @@ import { join, relative, dirname, sep } from "node:path";
 import type { FileSource, FileEntry } from "@orden/host-api";
 import type { ProjectRootResolver } from "./projectRoots";
 import { pickDirectory } from "./pickDirectory";
+import { OpenDocWatcher } from "./openDocWatcher";
 
 export const SKIP_DIRS = new Set([
   "node_modules",
@@ -28,7 +29,18 @@ function titleOf(path: string, content?: string): string {
 }
 
 export class FsFiles implements FileSource {
-  constructor(private readonly resolveRoot: ProjectRootResolver) {}
+  // Watches only the docs clients open. Absent (null) when no onChange sink was
+  // wired — e.g. a plain FsFiles used for list/read/write with no live feed.
+  private readonly watcher: OpenDocWatcher | null;
+
+  constructor(
+    private readonly resolveRoot: ProjectRootResolver,
+    // Sink for open-doc changes; the host forwards these onto the `{ns:"files"}`
+    // feed. Omit it and watch()/unwatch() become no-ops.
+    onChange?: (projectId: string, path: string) => void,
+  ) {
+    this.watcher = onChange ? new OpenDocWatcher((id) => this.resolveRoot(id), onChange) : null;
+  }
 
   // Resolve a project's root, throwing when it has none — used by read/write,
   // which (unlike list) cannot silently no-op on a missing root.
@@ -92,5 +104,18 @@ export class FsFiles implements FileSource {
   // user can pick a folder anywhere when creating a project.
   pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null> {
     return pickDirectory(opts);
+  }
+
+  async watch(projectId: string, path: string): Promise<void> {
+    await this.watcher?.watch(projectId, path);
+  }
+
+  async unwatch(projectId: string, path: string): Promise<void> {
+    this.watcher?.unwatch(projectId, path);
+  }
+
+  /** Release every open-doc watcher. Used by tests to avoid leaking handles. */
+  stopWatching(): void {
+    this.watcher?.stop();
   }
 }

@@ -78,6 +78,18 @@ export interface FileSource {
    * Gated by capabilities().pickDirectory — false hosts hide the button.
    */
   pickDirectory(opts?: { title?: string; startPath?: string }): Promise<string | null>;
+  /**
+   * Start watching ONE repo-relative file the client has opened, so an on-disk
+   * edit to it (by an agent, git, or an external editor) pushes a `{ns:"files"}`
+   * change on the feed and the open doc live-reloads. The host watches only the
+   * files clients ask for — there is no project-wide watcher — so callers MUST
+   * pair every watch() with an unwatch() when the doc closes or another opens.
+   * Idempotent per (projectId, path); refcounted, so repeated opens are safe.
+   * Hosts without a filesystem (browser) no-op.
+   */
+  watch(projectId: string, path: string): Promise<void>;
+  /** Release a watch started by watch(). Unknown (projectId, path) is a no-op. */
+  unwatch(projectId: string, path: string): Promise<void>;
 }
 
 export type SessionState =

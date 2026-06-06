@@ -144,7 +144,7 @@ describe("NodeHost per-project files", () => {
     await rm(projRoot, { recursive: true, force: true });
   });
 
-  test("MultiRootWatcher delivers a projectId-tagged files change on an in-root edit", async () => {
+  test("files.watch delivers a projectId-tagged files change on an edit to the open doc", async () => {
     const filesRoot = await mkdtemp(join(tmpdir(), "orden-repo-"));
     const projRoot = await mkdtemp(join(tmpdir(), "orden-proj-"));
 
@@ -155,26 +155,28 @@ describe("NodeHost per-project files", () => {
       source: { kind: "local", path: projRoot },
     } satisfies Project);
 
-    // Give the watcher's refresh() (fired on the projects write) time to arm.
-    await new Promise((r) => setTimeout(r, 100));
+    // Open the doc — the host watches nothing until a client asks.
+    await fileHost.files.watch("p1", "note.md");
 
     const changes: { ns: string; key: string; projectId?: string }[] = [];
     fileHost.onChange((c) => changes.push(c));
 
-    // fs.watch delivery latency varies with machine load, and the watcher may
-    // still be arming when we first write. Re-touch the file and poll until the
-    // projectId-tagged change arrives (or time out), so a busy parallel suite
-    // can't flake this on a fixed wall-clock wait.
+    // fs.watch delivery latency varies with machine load. Re-touch the file and
+    // poll until the projectId-tagged change arrives (or time out), so a busy
+    // parallel suite can't flake this on a fixed wall-clock wait. The re-touch
+    // interval must exceed the watcher's 120ms debounce, else each write resets
+    // the timer before it can fire and the event never settles.
     const hit = () =>
       changes.some((c) => c.ns === "files" && c.projectId === "p1" && c.key === "note.md");
     const deadline = Date.now() + 3000;
     while (!hit() && Date.now() < deadline) {
       await writeFile(join(projRoot, "note.md"), `# Note ${Date.now()}`);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     expect(hit()).toBe(true);
 
+    await fileHost.files.unwatch("p1", "note.md");
     await rm(filesRoot, { recursive: true, force: true });
     await rm(projRoot, { recursive: true, force: true });
   });

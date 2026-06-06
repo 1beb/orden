@@ -154,6 +154,10 @@ let feedbackTarget: "agent" | "human" = "agent";
 let currentDocKey = "review:sample";
 let currentDocProjectId = "repo";
 let currentDocTitle = DOC_TITLE;
+// The repo file currently registered with host.files.watch (or null). Tracked
+// separately from currentDoc* because we only re-arm the host watch when the
+// actual on-disk file changes, not on every view switch.
+let watchedDoc: { projectId: string; path: string } | null = null;
 const docAnnotationSessions = new Set<string>();
 
 function persistReview(): void {
@@ -1420,6 +1424,15 @@ function updateHtmlToggle(path: string | null): void {
 async function openRepoFile(projectId: string, path: string): Promise<void> {
   const title = path.split("/").pop() ?? path;
   const kind = viewerFor(path, effectiveHtmlRender(path));
+  // Watch only the doc that's open: tell the host to start watching this file
+  // (so an external edit live-reloads it) and release the previously-open one.
+  // The host watches nothing until we ask, so this pairing is what keeps an
+  // external edit flowing to the viewer without watching the whole repo.
+  if (!watchedDoc || watchedDoc.projectId !== projectId || watchedDoc.path !== path) {
+    if (watchedDoc) void host.files.unwatch(watchedDoc.projectId, watchedDoc.path);
+    watchedDoc = { projectId, path };
+    void host.files.watch(projectId, path);
+  }
   currentDocProjectId = projectId;
   currentDocKey = `review:${path}`;
   currentDocTitle = title;
