@@ -67,13 +67,23 @@ describe("buildBacklinkIndex", () => {
 });
 
 describe("journal pages", () => {
-  it("journalKey formats a Date as ISO yyyy-mm-dd", () => {
-    expect(journalKey(new Date("2026-05-28T12:00:00Z"))).toBe("2026-05-28");
+  it("journalKey formats a Date as ISO yyyy-mm-dd in the given zone", () => {
+    expect(journalKey(new Date("2026-05-28T12:00:00Z"), "UTC")).toBe("2026-05-28");
   });
 
-  it("createJournalPage keys a page by its date with an empty root", () => {
-    const page = createJournalPage(new Date("2026-01-09T00:00:00Z"));
-    expect(page.name).toBe("2026-01-09");
+  it("files an entry on the local calendar day, not the UTC day", () => {
+    // 01:00 UTC on May 31 is still 21:00 on May 30 in Toronto (UTC-4 in summer).
+    // The old UTC keying rolled such evening entries onto the next day's page;
+    // a zone-aware key keeps them on the local day.
+    const evening = new Date("2026-05-31T01:00:00Z");
+    expect(journalKey(evening, "America/Toronto")).toBe("2026-05-30");
+    expect(journalKey(evening, "UTC")).toBe("2026-05-31");
+  });
+
+  it("createJournalPage keys a page by its (local) date with an empty root", () => {
+    const d = new Date("2026-01-09T12:00:00Z");
+    const page = createJournalPage(d);
+    expect(page.name).toBe(journalKey(d)); // default zone = runtime local
     expect(page.root.children).toEqual([]);
   });
 });

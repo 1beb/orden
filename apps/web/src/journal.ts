@@ -2,8 +2,14 @@ import { EditorView } from "prosemirror-view";
 import { journalKey } from "@orden/outliner";
 import { makeOutlineEditor } from "./outlineEditor";
 import { backlinksTo, pageNames } from "./pages";
+import { effectiveTimeZone } from "./settings";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Today's journal key in the user's effective zone (override or host default).
+// Centralizes the zone lookup so "today" is consistent across the feed heading,
+// the date list, and the public today() accessor.
+const todayKey = (): string => journalKey(new Date(), effectiveTimeZone());
 
 function shiftDate(iso: string, days: number): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -60,7 +66,7 @@ export function mountJournal(
     section.className = "journal-day";
     const heading = document.createElement("h2");
     heading.className = "journal-day-head";
-    heading.textContent = name === journalKey(new Date()) ? `${name} · Today` : name;
+    heading.textContent = name === todayKey() ? `${name} · Today` : name;
     const host = document.createElement("div");
     host.className = "journal-editor";
     section.append(heading, host);
@@ -70,7 +76,7 @@ export function mountJournal(
 
   // Days to show: today (always) + existing date pages, newest first.
   function feedDates(): string[] {
-    const today = journalKey(new Date());
+    const today = todayKey();
     const dated = pageNames().filter((n) => DATE_RE.test(n));
     return [...new Set([today, ...dated])].sort().reverse();
   }
@@ -174,7 +180,7 @@ export function mountJournal(
   return {
     showJournal,
     showPage,
-    today: () => journalKey(new Date()),
+    today: todayKey,
     refresh,
     currentPage: () => currentName,
   };

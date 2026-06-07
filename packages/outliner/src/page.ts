@@ -1,9 +1,25 @@
 import type { Page } from "./types";
 import { createRoot } from "./blockTree";
 
-/** Format a Date as an ISO `yyyy-mm-dd` key (UTC). */
-export function journalKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+/**
+ * Format a Date as an ISO `yyyy-mm-dd` key in a given IANA time zone.
+ *
+ * The key decides which day-page an entry is filed under, so it must reflect
+ * the user's local calendar day — not UTC. Filing by UTC silently rolls the
+ * key forward an evening entry (e.g. 21:00 in America/Toronto is already the
+ * next day in UTC), landing it on tomorrow's page. `timeZone` omitted formats
+ * in the runtime's own zone, which is the right default for the host process.
+ */
+export function journalKey(date: Date, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: "year" | "month" | "day"): string =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 /**

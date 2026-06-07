@@ -196,6 +196,7 @@ export class NodeHost implements Host {
       filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
       vaultRoot: this.vaultRoot, // so the web can show where the vault lives
       pickDirectory: hasDirectoryPicker(), // native folder chooser available?
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // host's local zone; web defaults to it
     };
   }
 }

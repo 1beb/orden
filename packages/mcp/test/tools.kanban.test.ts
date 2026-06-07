@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fromMarkdown, toMarkdown } from "@orden/outliner";
+import { journalKey } from "@orden/outliner/page";
 import { fakeVault } from "./fakeVault";
 import {
   resolveProject,
@@ -170,7 +171,10 @@ describe("cardMove", () => {
 });
 
 describe("cardComplete", () => {
-  const todayKey = () => new Date().toISOString().slice(0, 10);
+  // Mirror production's default-zone resolution (host's own zone, no override),
+  // not UTC — otherwise this drifts a day from the entry's page in the evening
+  // window where UTC and local land on different dates.
+  const todayKey = () => journalKey(new Date());
 
   it("reaches complete", async () => {
     const v = seed();
@@ -207,6 +211,22 @@ describe("cardComplete", () => {
     const journal = await v.get<string>("pages", todayKey());
     expect(journal).toContain('Completed "Write docs"');
     expect(journal).not.toContain("—");
+  });
+  it("files the journal entry under the day of the settings timeZone override", async () => {
+    const v = seed();
+    // Kiritimati (UTC+14) is the most extreme zone: it is reliably a day ahead
+    // of any host zone, so the override demonstrably moves the page off the
+    // host-default day no matter where the test runs.
+    await v.set("settings", "app", { timeZone: "Pacific/Kiritimati" });
+    await cardComplete(v, "c1", "shipped");
+    const now = new Date();
+    const overrideKey = journalKey(now, "Pacific/Kiritimati");
+    const journal = await v.get<string>("pages", overrideKey);
+    expect(journal).toContain('Completed "Fix login"');
+    // And nothing was written under the host-default day (unless they coincide).
+    if (overrideKey !== journalKey(now)) {
+      expect(await v.get("pages", journalKey(now))).toBeNull();
+    }
   });
   it("preserves the user's top-level entries, nesting auto entries below", async () => {
     const v = seed();

@@ -13,6 +13,7 @@ const DEFAULTS = {
   sessionPanelPct: 33,
   completeFadeHours: 1,
   htmlRender: true,
+  timeZone: "",
 };
 
 describe("settings store (host-backed)", () => {
@@ -63,6 +64,7 @@ describe("settings store (host-backed)", () => {
       sessionPanelPct: 33,
       completeFadeHours: 1,
       htmlRender: true,
+      timeZone: "",
     });
   });
 
@@ -76,6 +78,18 @@ describe("settings store (host-backed)", () => {
     await h.vault.set("settings", "app", { htmlRender: "yes" });
     await hydrateSettings(h);
     expect(loadSettings().htmlRender).toBe(true);
+  });
+
+  it("round-trips a valid IANA time zone", async () => {
+    await saveSettings({ timeZone: "America/Vancouver" });
+    expect(loadSettings().timeZone).toBe("America/Vancouver");
+  });
+
+  it("rejects an unrecognized time zone, falling back to inherit (\"\")", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", { timeZone: "Mars/Olympus_Mons" });
+    await hydrateSettings(h);
+    expect(loadSettings().timeZone).toBe("");
   });
 
   it("round-trips the completed-card fade hours", async () => {

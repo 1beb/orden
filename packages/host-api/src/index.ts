@@ -26,6 +26,15 @@ export interface HostCapabilities {
    * in-browser host and on hosts with no picker tool installed.
    */
   pickDirectory?: boolean;
+  /**
+   * The host process's IANA time zone (e.g. "America/Toronto"), from its system
+   * clock. Journal day-pages are filed by local calendar day, so the web — which
+   * may run in a different (or remote) browser zone — defaults to THIS zone
+   * rather than the browser's, keeping web edits and host-side auto-logs on the
+   * same day. A user can override it via the timeZone setting. Absent on the
+   * in-browser host, which falls back to the browser's own zone.
+   */
+  timeZone?: string;
 }
 
 export interface Identity {
