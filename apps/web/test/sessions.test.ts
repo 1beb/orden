@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateCards, listItems, cardSessionIds, setItemState } from "../src/cards";
 import { hydrateProjects, getProject } from "../src/projects";
+import { hydrateSettings, type Settings } from "../src/settings";
 import {
   createSession,
   getSession,
@@ -26,6 +27,9 @@ describe("sessions store (host-backed)", () => {
     await hydrateProjects(h);
     await hydrateCards(h);
     await hydrateSessions(h);
+    // Reset the module-global settings cache to defaults (claude/opencode = tui)
+    // so a prior test's gui hydrate doesn't leak into the default-mode cases.
+    await hydrateSettings(h);
   });
 
   it("a session with no project lands in the default Homeroom project", () => {
@@ -195,6 +199,59 @@ describe("sessions store (host-backed)", () => {
     expect(reaped).toContain(ghost.id);
     expect(reaped).not.toContain(prompted.id);
     expect(getSession(prompted.id)?.id).toBe(prompted.id);
+  });
+
+  it("stamps a GUI claude session's mode and OMITS pendingLaunch (Chat mount launches it)", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", {
+      defaultMode: { claude: "gui", opencode: "tui" },
+    } as Partial<Settings>);
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    await hydrateSettings(h);
+
+    const s = createSession({ title: "GUI claude", agent: "claude" });
+    expect(s.mode).toBe("gui");
+    await settle();
+    const rec = await h.vault.get<Session & { pendingLaunch?: boolean }>("sessions", s.id);
+    expect(rec?.mode).toBe("gui");
+    expect(rec?.pendingLaunch).toBeUndefined();
+  });
+
+  it("stamps a TUI claude session's mode and KEEPS pendingLaunch", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", {
+      defaultMode: { claude: "tui", opencode: "gui" },
+    } as Partial<Settings>);
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    await hydrateSettings(h);
+
+    const s = createSession({ title: "TUI claude", agent: "claude" });
+    expect(s.mode).toBe("tui");
+    await settle();
+    const rec = await h.vault.get<Session & { pendingLaunch?: boolean }>("sessions", s.id);
+    expect(rec?.mode).toBe("tui");
+    expect(rec?.pendingLaunch).toBe(true);
+  });
+
+  it("opencode respects its own defaultMode independently of claude", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", {
+      defaultMode: { claude: "tui", opencode: "gui" },
+    } as Partial<Settings>);
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    await hydrateSettings(h);
+
+    const s = createSession({ title: "GUI opencode", agent: "opencode" });
+    expect(s.mode).toBe("gui");
+    await settle();
+    const rec = await h.vault.get<Session & { pendingLaunch?: boolean }>("sessions", s.id);
+    expect(rec?.pendingLaunch).toBeUndefined();
   });
 
   it("reapDeadSessions drops Untitled stubs but keeps titled work", () => {
