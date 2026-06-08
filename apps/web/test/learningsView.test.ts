@@ -65,6 +65,10 @@ describe("learnings stepper view", () => {
 
     expect(container.querySelector(".lr-title")?.textContent).toBe("First learning");
     expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 2");
+    // Fixed strip of 2 dots: one current, one remaining, zero done.
+    expect(container.querySelectorAll(".dots .dot").length).toBe(2);
+    expect(container.querySelectorAll(".dots .dot.cur").length).toBe(1);
+    expect(container.querySelectorAll(".dots .dot.done").length).toBe(0);
     expect(container.querySelectorAll(".diff .row").length).toBeGreaterThan(0);
     expect(container.querySelector(".recap-body")?.textContent).toContain("first recap");
     expect([...container.querySelectorAll("button")].some((b) => /Reject/.test(b.textContent ?? ""))).toBe(true);
@@ -72,7 +76,7 @@ describe("learnings stepper view", () => {
     expect([...container.querySelectorAll("button")].some((b) => /Send/.test(b.textContent ?? ""))).toBe(true);
   });
 
-  it("Accept calls dep, then the acted item drops out and the queue advances to empty", async () => {
+  it("Accept advances the cursor over a FIXED total, the resolved item becomes a done dot, then empties", async () => {
     const host = new BrowserHost();
     await seed(host, [
       mk({ id: "l1", cardId: "c1", createdAt: 10 }),
@@ -89,15 +93,25 @@ describe("learnings stepper view", () => {
     });
     renderLearnings(container, deps);
 
-    // Two pending: starts at "1 / 2", l1 is current.
+    // Two learnings, both pending: starts at "1 / 2", l1 is current; strip of 2,
+    // one current, no done yet.
     expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 2");
+    expect(container.querySelector(".lr-title")?.textContent).toBe("l1");
+    expect(container.querySelectorAll(".dots .dot").length).toBe(2);
+    expect(container.querySelectorAll(".dots .dot.done").length).toBe(0);
+
     const accept = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Accept/.test(b.textContent ?? ""))!;
     accept.click();
     expect(deps.onAccept).toHaveBeenCalledWith("l1");
-    // l1 dropped out of the pending queue; index clamps onto the next pending (l2),
-    // now the only remaining item → "1 / 1".
-    expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 1");
+    // l1 is now accepted; the cursor (first pending) lands on l2. Denominator stays
+    // FIXED at 2 (does not shrink) and the counter reads "2 / 2".
+    expect(container.querySelector(".lr-count")?.textContent).toBe("2 / 2");
     expect(container.querySelector(".lr-title")?.textContent).toBe("l2");
+    // The dot strip stays 2 wide; the resolved l1 is now a done (dimmed) dot — proving
+    // the done branch is reachable — and l2 is current.
+    expect(container.querySelectorAll(".dots .dot").length).toBe(2);
+    expect(container.querySelectorAll(".dots .dot.done").length).toBe(1);
+    expect(container.querySelectorAll(".dots .dot.cur").length).toBe(1);
 
     const accept2 = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Accept/.test(b.textContent ?? ""))!;
     accept2.click();

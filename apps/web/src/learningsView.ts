@@ -3,6 +3,12 @@
 // step shows the proposed file change as a plain diff, a "why this" recap, and an
 // accept / reject / comment action bar. Any action auto-advances to the next pending
 // learning. Ported from docs/mockups/learnings-review.html onto orden's real tokens.
+//
+// Progress is over the card's FULL learning list (all statuses), not the pending
+// queue: the dot strip is a fixed N = total learnings, partitioned into done /
+// current / remaining, and the counter denominator never shrinks. The cursor is the
+// FIRST still-pending learning, derived purely from status — so an action that flips
+// a status (and triggers a re-render) auto-advances the cursor with no module state.
 import type { Learning, LearningType } from "@orden/host-api";
 import { learningsForCard } from "./learningsStore";
 
@@ -13,17 +19,9 @@ export interface LearningsDeps {
   onComment(id: string, text: string): void;
 }
 
-// The current step index within the active card's pending queue. Module-scoped so
-// it survives the re-render each action triggers. Reset when the active card
-// changes (so a fresh card starts at step 0).
-let stepIndex = 0;
-let stepCardId: string | null = null;
-
-/** Test/seam hook: clear step state between cases. */
-export function resetLearningsStep(): void {
-  stepIndex = 0;
-  stepCardId = null;
-}
+/** Test/seam hook: kept for API compatibility; the cursor is now derived from
+ *  status, so there is no module-level step state to reset. No-op. */
+export function resetLearningsStep(): void {}
 
 const TYPE_LABEL: Record<LearningType, string> = {
   readme: "README",
@@ -103,29 +101,22 @@ function renderEmpty(container: HTMLElement, hasCard: boolean): void {
 }
 
 export function renderLearnings(container: HTMLElement, deps: LearningsDeps): void {
-  // Reset the step cursor whenever the active card changes.
-  if (deps.cardId !== stepCardId) {
-    stepCardId = deps.cardId;
-    stepIndex = 0;
-  }
-
   if (!deps.cardId) {
     renderEmpty(container, false);
     return;
   }
 
-  const queue = learningsForCard(deps.cardId).filter((l) => l.status === "pending");
-  if (queue.length === 0) {
+  // Full ordered list (all statuses, createdAt-asc) drives a FIXED-width progress
+  // strip and a non-shrinking denominator.
+  const all = learningsForCard(deps.cardId);
+  const total = all.length;
+  // The cursor is the first still-pending learning. None pending → all reviewed.
+  const currentIndex = all.findIndex((l) => l.status === "pending");
+  if (currentIndex === -1) {
     renderEmpty(container, true);
     return;
   }
-
-  // Clamp the index — an accepted/rejected item drops out of the queue, so the
-  // same index now points at the next pending learning (auto-advance).
-  if (stepIndex >= queue.length) stepIndex = queue.length - 1;
-  if (stepIndex < 0) stepIndex = 0;
-  const learning = queue[stepIndex];
-  const total = queue.length;
+  const learning = all[currentIndex];
 
   container.replaceChildren();
   const lr = el("div", "lr");
@@ -134,12 +125,15 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   const head = el("div", "lr-head");
   const headInner = el("div", "lr-head-inner");
   const eyebrow = el("div", "lr-eyebrow");
-  eyebrow.append(el("span", "name", "Learnings"), el("span", "lr-count", `${stepIndex + 1} / ${total}`));
+  eyebrow.append(el("span", "name", "Learnings"), el("span", "lr-count", `${currentIndex + 1} / ${total}`));
   const dots = el("div", "dots");
+  // One dot per learning: resolved (non-pending) → done (dimmed), the cursor → cur
+  // (solid), everything still ahead → remaining (base). Drive off status so resolved
+  // items always read as done even if they interleave with pending ones.
   for (let i = 0; i < total; i++) {
     const dot = el("span", "dot");
-    if (i < stepIndex) dot.classList.add("done");
-    else if (i === stepIndex) dot.classList.add("cur");
+    if (all[i].status !== "pending") dot.classList.add("done");
+    else if (i === currentIndex) dot.classList.add("cur");
     dots.append(dot);
   }
   headInner.append(eyebrow, dots, el("h1", "lr-title", learning.title), el("div", "lr-kind", kindLine(learning)));
