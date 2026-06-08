@@ -13,7 +13,7 @@ type ModeMap = Settings["defaultMode"];
 // [tool key, display label] pairs, one per row.
 const TOOLS: readonly (readonly [keyof ModeMap, string])[] = [
   ["claude", "Claude Code"],
-  ["opencode", "opencode"],
+  ["opencode", "OpenCode"],
 ];
 
 // [mode value, column header] pairs, one per column.
@@ -27,33 +27,38 @@ const MODES: readonly (readonly [SessionMode, string])[] = [
  * `onChange` fires with the full, merged map whenever a cell is selected.
  */
 export function buildModeGrid(current: ModeMap, onChange: (next: ModeMap) => void): HTMLElement {
-  const grid = document.createElement("div");
-  grid.className = "settings-mode-grid";
+  const table = document.createElement("table");
+  table.className = "settings-mode-table";
 
-  // Column header row: a blank corner cell, then one header per mode.
-  const head = document.createElement("div");
-  head.className = "settings-mode-row settings-mode-head";
-  head.append(document.createElement("span")); // corner spacer
+  // Header row: a blank corner cell, then one column header per mode.
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headRow.append(document.createElement("th")); // corner spacer
   for (const [, label] of MODES) {
-    const h = document.createElement("span");
-    h.className = "settings-mode-colhead";
-    h.textContent = label;
-    head.append(h);
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.className = "settings-mode-colhead";
+    th.textContent = label;
+    headRow.append(th);
   }
-  grid.append(head);
+  thead.append(headRow);
+  table.append(thead);
 
+  const tbody = document.createElement("tbody");
   for (const [tool, toolLabel] of TOOLS) {
-    const row = document.createElement("div");
-    row.className = "settings-mode-row";
+    const row = document.createElement("tr");
 
-    const rowLabel = document.createElement("span");
+    const rowLabel = document.createElement("th");
+    rowLabel.scope = "row";
     rowLabel.className = "settings-mode-rowlabel";
     rowLabel.textContent = toolLabel;
     row.append(rowLabel);
 
     for (const [mode, modeLabel] of MODES) {
+      const cellTd = document.createElement("td");
+      cellTd.className = "settings-mode-cell";
+
       const cell = document.createElement("label");
-      cell.className = "settings-mode-cell";
 
       const input = document.createElement("input");
       input.type = "radio";
@@ -69,11 +74,13 @@ export function buildModeGrid(current: ModeMap, onChange: (next: ModeMap) => voi
       });
 
       cell.append(input);
-      row.append(cell);
+      cellTd.append(cell);
+      row.append(cellTd);
     }
 
-    grid.append(row);
+    tbody.append(row);
   }
+  table.append(tbody);
 
-  return grid;
+  return table;
 }
