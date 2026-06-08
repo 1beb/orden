@@ -320,9 +320,8 @@ a.breadcrumb-seg:hover {
 }
 
 .settings-page {
-  max-width: 560px;
-  margin: 0 auto;
-  padding: 8px 24px 48px;
+  margin: 0;
+  padding: 8px 32px 48px;
 }
 
 .settings-page-head {
@@ -334,7 +333,7 @@ a.breadcrumb-seg:hover {
 
 .settings-page-title {
   font-weight: 700;
-  font-size: calc(22px * var(--font-scale));
+  font-size: calc(28px * var(--font-scale));
   margin: 0;
 }
 
@@ -356,16 +355,18 @@ a.breadcrumb-seg:hover {
   color: var(--ink);
 }
 
-/* Each themed section: a heading rule over its controls, spaced from the next. */
+/* Each themed section reads like a markdown section: a header over its controls,
+   generously spaced from the next — no dividing rules. */
 .settings-group {
-  padding: 18px 0;
-  border-top: 1px solid var(--line);
+  padding: 0;
+  margin-top: 32px;
+  border-top: none;
 }
 
 .settings-group-title {
-  font-weight: 600;
-  font-size: calc(15px * var(--font-scale));
-  margin: 0 0 12px;
+  font-weight: 700;
+  font-size: calc(19px * var(--font-scale));
+  margin: 0 0 14px;
 }
 
 /* A group's first label/option sits right under its heading — no extra top gap
@@ -400,6 +401,7 @@ a.breadcrumb-seg:hover {
 
 .settings-select {
   width: 100%;
+  max-width: 480px;
   font: inherit;
   font-size: calc(14px * var(--font-scale));
   padding: 6px 8px;
@@ -416,8 +418,8 @@ a.breadcrumb-seg:hover {
 }
 
 .settings-color {
-  width: 100%;
-  height: 32px;
+  width: 52px;
+  height: 28px;
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -427,7 +429,9 @@ a.breadcrumb-seg:hover {
 
 .settings-range {
   width: 100%;
-  accent-color: var(--accent);
+  max-width: 480px;
+  /* fainter lavender than the full accent, derived so a custom accent still themes it */
+  accent-color: color-mix(in srgb, var(--accent) 40%, #fff);
   cursor: pointer;
 }
 
@@ -440,22 +444,26 @@ a.breadcrumb-seg:hover {
   letter-spacing: normal;
 }
 
-/* Default-mode grid: a row label plus one centered radio per mode column. */
-.settings-mode-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* The default-session-mode control gets extra breathing room above and below. */
+.settings-mode-block {
+  margin: 22px 0;
 }
 
-.settings-mode-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  column-gap: 16px;
+/* Default-mode table: tool rows × mode columns, ruled and left-aligned. */
+.settings-mode-table {
+  border-collapse: collapse;
+  font-size: calc(14px * var(--font-scale));
+}
+
+.settings-mode-table th,
+.settings-mode-table td {
+  border: 1px solid var(--line);
+  padding: 6px 14px;
 }
 
 .settings-mode-rowlabel {
-  font-size: calc(14px * var(--font-scale));
+  font-weight: 500;
+  text-align: left;
 }
 
 .settings-mode-colhead {
@@ -465,13 +473,14 @@ a.breadcrumb-seg:hover {
   text-transform: uppercase;
   color: var(--muted);
   text-align: center;
-  min-width: 36px;
 }
 
 .settings-mode-cell {
-  display: flex;
-  justify-content: center;
-  min-width: 36px;
+  text-align: center;
+}
+
+.settings-mode-cell label {
+  display: inline-flex;
   cursor: pointer;
 }
 

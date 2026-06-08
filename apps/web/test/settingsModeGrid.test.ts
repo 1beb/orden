@@ -27,7 +27,7 @@ describe("buildModeGrid", () => {
   it("renders two labelled rows and two mode columns", () => {
     const grid = buildModeGrid(current, () => {});
     expect(grid.textContent).toContain("Claude Code");
-    expect(grid.textContent).toContain("opencode");
+    expect(grid.textContent).toContain("OpenCode");
     expect(grid.textContent).toContain("TUI");
     expect(grid.textContent).toContain("GUI");
     // One radio group per tool, two radios each = four radios total.
