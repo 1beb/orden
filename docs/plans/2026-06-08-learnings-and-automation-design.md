@@ -88,15 +88,13 @@ A new `learnings` view in `#view-area`, mobile-first. Layout, per the mockup:
 Mobile is a single full-bleed column with the action bar pinned to the bottom and
 thumb-sized controls; desktop is the same column centered at reading width.
 
-## Flow 3: AGENTS.md drift on merge to main
+## Flow 3: AGENTS.md drift on merge to main — DROPPED
 
-Capturing incremental drift as it lands, not on a clock. A git hook on main
-(post-commit / post-merge) pings the host `/hooks/` endpoint; the host spawns a
-short-lived custodian session that compares each `AGENTS.md` against its subtree. Its
-findings deposit into the same learnings surface (type `agents`) rather than inventing a
-separate review model — one review surface, two triggers: card-complete (this session's
-work) and merge-to-main (repo-wide drift). The custodian proposes; it never writes to
-main silently.
+This flow (a git post-commit/post-merge hook spawning a repo-wide AGENTS.md drift
+custodian) was **cut during design**: orden must work in non-repo working dirs, so a
+git-trigger can't be the mechanism. Learnings come only from the live completing agent
+via `learning_propose`; git is used opportunistically on accept (commit when the target
+happens to be a repo), never required. There is no repo-wide drift sweep.
 
 ## Deferred / not now
 
