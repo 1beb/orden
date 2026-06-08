@@ -29,7 +29,7 @@ export interface PaletteDeps {
 
 export interface PaletteController {
   update: () => void;
-  open: (prefill?: string) => void;
+  open: (prefill?: string, overlay?: boolean) => void;
   close: () => void;
 }
 
@@ -47,6 +47,13 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
   mount.classList.add("palette");
   let flat: PaletteItem[] = []; // current selectable rows, in visual order
   let active = 0;
+
+  // Dim backdrop for overlay (⌘K/⌘P) mode. Created once, lives on <body> so the
+  // overlay floats above the whole app rather than inside the topbar.
+  const backdrop = document.createElement("div");
+  backdrop.className = "palette-backdrop";
+  document.body.append(backdrop);
+  backdrop.addEventListener("mousedown", () => close());
 
   function rankCommands(q: string): PaletteItem[] {
     return fuzzyRank(q, commands, (c) => c.title).map(({ item }) => ({
@@ -135,8 +142,10 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
     render(groups);
   }
 
-  function open(prefill?: string): void {
+  function open(prefill?: string, overlay = false): void {
     if (prefill !== undefined) input.value = prefill;
+    form.classList.toggle("overlay", overlay);
+    backdrop.classList.toggle("open", overlay);
     input.focus();
     update();
   }
@@ -144,6 +153,8 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
   function close(): void {
     mount.classList.remove("open");
     mount.replaceChildren();
+    form.classList.remove("overlay");
+    backdrop.classList.remove("open");
     flat = [];
   }
 

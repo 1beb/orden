@@ -5,6 +5,7 @@ import {
   applyStop,
   noteSubagentStart,
   noteSubagentStop,
+  reconcileConversationId,
   resetSubagents,
   settleSubagents,
 } from "../src/hooks";
@@ -100,6 +101,59 @@ describe("applyState (hooks → card state)", () => {
     await applyState(hostWith(vault), "uuid-1", "in-progress");
     const card = await vault.get<{ state: string }>("cards", "c1");
     expect(card?.state).toBe("complete");
+  });
+});
+
+// Claude hooks carry the stable orden session id (baked into the hook URL by
+// settingsArg); the host uses it to repair a record whose conversationId was lost
+// or went stale, so the conversationId-keyed lookups (hook->card, MCP, --resume)
+// keep working. The live session_id from the running agent is authoritative.
+describe("reconcileConversationId (self-heal a lost/stale conversationId)", () => {
+  test("sets conversationId when the record has none", async () => {
+    const vault = fakeVault({ sessions: { s1: { id: "s1", title: "Search box" } } });
+    await reconcileConversationId(hostWith(vault), "s1", "uuid-live");
+    const ses = await vault.get<{ conversationId?: string; title?: string }>("sessions", "s1");
+    expect(ses?.conversationId).toBe("uuid-live");
+    expect(ses?.title).toBe("Search box"); // other fields preserved
+  });
+
+  test("overwrites a stale conversationId with the live one", async () => {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1", conversationId: "uuid-old", touched: true } },
+    });
+    await reconcileConversationId(hostWith(vault), "s1", "uuid-live");
+    const ses = await vault.get<{ conversationId?: string; touched?: boolean }>("sessions", "s1");
+    expect(ses?.conversationId).toBe("uuid-live");
+    expect(ses?.touched).toBe(true);
+  });
+
+  test("is a no-op when already correct", async () => {
+    const vault = fakeVault({ sessions: { s1: { id: "s1", conversationId: "uuid-live" } } });
+    let writes = 0;
+    const spy = { ...vault, set: async (...a: Parameters<typeof vault.set>) => (writes++, vault.set(...a)) };
+    await reconcileConversationId(hostWith(spy as typeof vault), "s1", "uuid-live");
+    expect(writes).toBe(0);
+  });
+
+  test("is a no-op for an unknown session", async () => {
+    const vault = fakeVault({ sessions: {} });
+    await expect(reconcileConversationId(hostWith(vault), "ghost", "uuid")).resolves.toBeUndefined();
+    expect(await vault.get("sessions", "ghost")).toBeNull();
+  });
+
+  // The end-to-end win: after healing, the conversationId-keyed card lookup that
+  // the state hooks use resolves again — so a clobbered session's auto-cycle and
+  // resume both recover.
+  test("after healing, the conversationId-keyed card lookup resolves", async () => {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1" } }, // conversationId lost
+      cards: { c1: { id: "c1", title: "T", state: "planning", sessionIds: ["s1"] } },
+    });
+    const h = hostWith(vault);
+    await reconcileConversationId(h, "s1", "uuid-live");
+    await applyState(h, "uuid-live", "in-progress"); // keyed on conversationId
+    const card = await vault.get<{ state: string }>("cards", "c1");
+    expect(card?.state).toBe("in-progress");
   });
 });
 

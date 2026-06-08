@@ -167,6 +167,53 @@ body {
   flex-direction: row;
 }
 
+/* The content column: a breadcrumb line stacked above the active view, sitting
+   left of the persistent #panel. */
+#view-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Breadcrumb: a very light, small location line at the inner top of the main
+   panel, just above the rendered content. Hidden when it has no segments. */
+.breadcrumb {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 18px 3px;
+  font-size: calc(11px * var(--font-scale));
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.breadcrumb:empty {
+  display: none;
+}
+.breadcrumb-seg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  text-decoration: none;
+}
+.breadcrumb-seg.current {
+  color: var(--ink);
+}
+a.breadcrumb-seg {
+  cursor: pointer;
+}
+a.breadcrumb-seg:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.breadcrumb-sep {
+  color: var(--line);
+}
+
 .view {
   display: none;
   height: 100%;
@@ -174,10 +221,15 @@ body {
   min-height: 0;
 }
 
-/* The active view flexes to fill the space left of #panel. */
+/* The active view flexes to fill the space left of #panel. Inside the flex
+   column its height comes from flex-grow, not the 100% base (which would
+   overflow past the breadcrumb). */
 .view.active {
   display: block;
   flex: 1;
+}
+#view-col > .view {
+  height: auto;
 }
 
 /* #main (the review view) now holds only the editor; lay it out as a row so the
@@ -262,27 +314,64 @@ body {
   color: var(--ink);
 }
 
-#settings-popover {
-  position: fixed;
-  left: 12px;
-  bottom: 48px;
-  z-index: 60;
-  width: 230px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
-  padding: 12px 14px;
+/* Settings is a main-panel view: a single scrolling column of themed groups. */
+#view-settings.active {
+  overflow: auto;
 }
 
-#settings-popover[hidden] {
-  display: none;
+.settings-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 8px 24px 48px;
 }
 
-.settings-title {
+.settings-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.settings-page-title {
+  font-weight: 700;
+  font-size: calc(22px * var(--font-scale));
+  margin: 0;
+}
+
+/* ✕ in the inner top-right of the panel; returns to the prior view. */
+.settings-close {
+  font: inherit;
+  font-size: calc(16px * var(--font-scale));
+  line-height: 1;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-close:hover {
+  background: #e9e9e6;
+  color: var(--ink);
+}
+
+/* Each themed section: a heading rule over its controls, spaced from the next. */
+.settings-group {
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+
+.settings-group-title {
   font-weight: 600;
-  font-size: calc(14px * var(--font-scale));
-  margin-bottom: 10px;
+  font-size: calc(15px * var(--font-scale));
+  margin: 0 0 12px;
+}
+
+/* A group's first label/option sits right under its heading — no extra top gap
+   from the popover-era "second label onward" spacing rule. */
+.settings-group > .settings-label:first-of-type {
+  margin-top: 0;
 }
 
 .settings-label {
@@ -656,6 +745,28 @@ body {
 .sess-agent-btn:hover {
   background: var(--accent);
   color: #fff;
+  border-color: var(--accent);
+}
+/* The generic scratch terminal — same pill geometry as the agent badges, but
+   an outline (transparent fill) marks it as generic, not a branded agent. */
+.sess-scratch-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent-soft);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: calc(13px * var(--font-scale));
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sess-scratch-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
   border-color: var(--accent);
 }
 .sess-badge {
@@ -1514,6 +1625,7 @@ li.sess-done-head {
 }
 
 #topbar {
+  position: relative; /* centering context for the absolutely-placed omnisearch */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1523,22 +1635,28 @@ li.sess-done-head {
   background: var(--panel-bg);
 }
 
-#topbar .doc-title {
-  flex: 1;
-  font-size: calc(13px * var(--font-scale));
-  font-weight: 600;
-  color: var(--muted);
+/* Right-side topbar controls (render/source toggle + session pane toggle),
+   pushed to the far edge so the centered search owns the middle. */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
 }
 
 /* Omnisearch: a multi-purpose search field; wired to onSearch() in main.ts,
    target/scope still to be decided. */
 .omnisearch {
-  position: relative; /* positioning context for the palette dropdown */
+  /* Centered in the topbar — the primary way to navigate. Absolute so the side
+     toggles flow to the edges; also the positioning context for the dropdown. */
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 220px;
-  max-width: 34vw;
+  width: 360px;
+  max-width: 46vw;
   padding: 5px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1581,6 +1699,38 @@ li.sess-done-head {
   .omnisearch {
     width: 150px;
   }
+}
+
+/* Overlay mode (⌘K / ⌘P): lift the search pill out of the topbar into a
+   centered modal dropping from the top of the screen, over a dim backdrop. */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+  background: rgba(0, 0, 0, 0.28);
+}
+.palette-backdrop.open {
+  display: block;
+}
+.omnisearch.overlay {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: min(560px, 92vw);
+  max-width: none;
+  padding: 9px 14px;
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
+.omnisearch.overlay .omnisearch-input {
+  font-size: calc(15px * var(--font-scale));
+}
+.omnisearch.overlay .palette {
+  width: 100%;
+  max-height: min(60vh, 520px);
 }
 
 /* Command palette: the results dropdown under the omnisearch pill. Hidden until
@@ -3589,27 +3739,31 @@ li.sess-done-head {
   background: #fee2e2;
   color: #b91c1c;
 }
+/* Icon-only session button — matches the session pane's agent badge
+   (.sess-agent-btn): a soft lavender pill, not a hard accent ring. */
 .orden-card__resume {
+  flex: none;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: calc(10px * var(--font-scale));
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  border-radius: 999px;
-  padding: 1px 8px 1px 6px;
-  border: 1px solid var(--accent);
-  background: transparent;
+  justify-content: center;
+  border: 1px solid var(--accent-soft);
+  background: var(--accent-soft);
   color: var(--accent);
+  border-radius: 999px;
   cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .orden-card__resume svg {
+  display: block;
   width: 12px;
   height: 12px;
 }
 .orden-card__resume:hover {
   background: var(--accent);
   color: #fff;
+  border-color: var(--accent);
 }
 
 /* card detail modal (reuses .preview-overlay / .preview-modal base) */

@@ -345,10 +345,11 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
           resume.className = "orden-card__resume";
           const agent = getSession(latest)?.agent;
           if (agent) resume.innerHTML = markFor(agent); // author-controlled SVG
-          const label = document.createElement("span");
-          label.textContent = "Resume";
-          resume.append(label);
-          resume.title = sessionIds.length === 1 ? "Resume session" : "Resume latest session";
+          // Icon-only button: no visible text, but label it for screen readers.
+          const what = sessionIds.length === 1 ? "Resume session" : "Resume latest session";
+          const ariaLabel = agent ? `${what} (${agent})` : what;
+          resume.setAttribute("aria-label", ariaLabel);
+          resume.title = what;
           resume.addEventListener("mousedown", (e) => e.stopPropagation());
           resume.addEventListener("click", (e) => {
             e.stopPropagation();

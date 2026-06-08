@@ -10,12 +10,6 @@ function cardFor(sessionId: string): Item {
   return item;
 }
 
-function buttonByText(root: ParentNode, text: string): HTMLButtonElement | undefined {
-  return [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-    (b) => b.textContent?.trim() === text,
-  );
-}
-
 // The column an item's card was rendered into, by its data-state attribute.
 function columnOf(root: ParentNode, itemId: string): string | undefined {
   const card = root.querySelector<HTMLElement>(`.orden-card[data-item-id="${itemId}"]`);
@@ -59,8 +53,10 @@ describe("kanban card — resume affordance", () => {
       pendingLearnings: () => 0,
     });
 
-    const resume = buttonByText(container, "Resume");
-    expect(resume).toBeDefined();
+    // The Resume affordance is an icon-only button (SVG + aria-label, no visible
+    // text), so locate it by its class rather than text.
+    const resume = container.querySelector<HTMLButtonElement>(".orden-card__resume");
+    expect(resume).not.toBeNull();
     resume!.click();
     expect(opened).toEqual([s.id]);
   });

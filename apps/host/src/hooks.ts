@@ -117,6 +117,27 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+// Repair a session record whose conversationId was lost or went stale. Claude
+// hooks carry the STABLE orden session id (settingsArg bakes it into the hook
+// URL) next to claude's own session_id (== the live conversationId); if they
+// disagree, the live id wins. This self-heals the record so every
+// conversationId-keyed lookup — hook->card, the MCP binding, reattach/--resume —
+// keeps working even after a write dropped the field. No-op when the session is
+// unknown or already correct; other fields are preserved.
+export async function reconcileConversationId(
+  host: Host,
+  ordenSessionId: string,
+  conversationId: string,
+): Promise<void> {
+  const ses = await host.vault.get<{ conversationId?: string; [k: string]: unknown }>(
+    "sessions",
+    ordenSessionId,
+  );
+  if (!ses) return;
+  if (ses.conversationId === conversationId) return;
+  await host.vault.set("sessions", ordenSessionId, { ...ses, conversationId });
+}
+
 export async function handleHookRequest(
   host: Host,
   req: IncomingMessage,
@@ -133,6 +154,14 @@ export async function handleHookRequest(
       /* malformed payload — no-op */
     }
     const sessionId = payload.session_id;
+
+    // Claude hooks bake the stable orden session id into the URL; use it to
+    // self-heal a record whose conversationId was lost or went stale BEFORE any
+    // conversationId-keyed lookup below runs off it. (The opencode plugin instead
+    // posts orden_session_id in the BODY and takes its dedicated path further
+    // down, so this query-param branch is claude-only and leaves it untouched.)
+    const reconcileId = url.searchParams.get("orden_session_id");
+    if (reconcileId && sessionId) await reconcileConversationId(host, reconcileId, sessionId);
 
     // SubagentStart/SubagentStop only adjust the in-flight counter; they are not
     // a card state on their own (a launch implies in-progress, which the start

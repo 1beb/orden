@@ -126,11 +126,23 @@ export function mcpConfigArg(convId: string): string {
 // No ORDEN_MANAGED gate is needed here: unlike the ambient file (which applied to
 // EVERY claude launched in the repo, including the user's own, hence the gate),
 // these settings reach ONLY the process orden launches.
-export function settingsArg(): string {
+export function settingsArg(sessionId: string): string {
   const port = Number(process.env.ORDEN_PORT ?? 4319);
-  const post = (path: string): string =>
-    `curl -sS -m 3 -X POST 'http://127.0.0.1:${port}/hooks/${path}' ` +
-    `-H 'Content-Type: application/json' -d @- >/dev/null 2>&1 || true`;
+  // Bake the STABLE orden session id into every hook URL. Claude's hook payload
+  // carries only its OWN session_id (which equals the conversationId); passing
+  // the orden session id alongside it lets the host repair a record whose
+  // conversationId was lost or went stale (see reconcileConversationId in
+  // hooks.ts) — so the hook->card mapping, the MCP binding, and a later --resume
+  // can never be silently severed from the conversation again. sessionId is the
+  // vault key (alnum + underscore), so it needs no URL-encoding.
+  const post = (path: string): string => {
+    const sep = path.includes("?") ? "&" : "?";
+    const url = `http://127.0.0.1:${port}/hooks/${path}${sep}orden_session_id=${sessionId}`;
+    return (
+      `curl -sS -m 3 -X POST '${url}' ` +
+      `-H 'Content-Type: application/json' -d @- >/dev/null 2>&1 || true`
+    );
+  };
   const hook = (command: string) => [{ hooks: [{ type: "command", command }] }];
   const settings = {
     hooks: {
@@ -333,19 +345,64 @@ export async function buildCommand(
   // fall through and relaunch with the SAME id (keeps the MCP binding stable).
   // --mcp-config binds this session to its scoped orden endpoint; --settings
   // injects the kanban state hooks (both port-templated by orden, no repo files).
-  if (rec.conversationId && claudeTranscriptExists(cwd, rec.conversationId))
-    return `${bin} ${mcpConfigArg(rec.conversationId)} ${settingsArg()} --resume ${rec.conversationId}`;
-  const id = rec.conversationId ?? randomUUID();
+  //
+  // The id normally lives on the record (conversationId). But that field has been
+  // seen to get lost by a record write that dropped it — which silently turned a
+  // resume into a brand-new session and orphaned a real, multi-turn transcript. So
+  // we also keep a host-owned recovery index (ns "convindex", key = orden session
+  // id) that the web never writes, and fall back to it when the record's id is
+  // gone. (The hook self-heal in hooks.ts repairs the record going forward; this
+  // index covers a resume that happens before any hook has had the chance to.)
+  let convId = rec.conversationId;
+  if (!convId) {
+    const idx = await host.vault.get<{ conversationId?: string }>("convindex", sessionId);
+    if (idx?.conversationId) convId = idx.conversationId; // recovered after a record clobber
+  }
+  if (convId && claudeTranscriptExists(cwd, convId)) {
+    // Heal the record if it had lost (or never carried) the recovered id, so the
+    // conversationId-keyed lookups and the next reattach work off it again.
+    if (rec.conversationId !== convId) {
+      rec.conversationId = convId;
+      await host.vault.set("sessions", sessionId, rec);
+    }
+    await host.vault.set("convindex", sessionId, { conversationId: convId });
+    return `${bin} ${mcpConfigArg(convId)} ${settingsArg(sessionId)} --resume ${convId}`;
+  }
+  // No resumable conversation. Don't silently fake a resume: if the session has
+  // ALREADY done work, minting a brand-new conversation orphans its history, so
+  // surface it rather than hiding it. A genuinely-new session (no prior activity)
+  // is the normal first-launch path and stays quiet.
+  if (!convId && hasPriorActivity(rec)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: session ${sessionId} shows prior activity but has no recoverable conversation id — ` +
+        `starting a NEW conversation (any previous history is orphaned)`,
+    );
+  }
+  // Keep an existing-but-unresumable id (e.g. a transcript under a different cwd)
+  // so the scoped MCP endpoint stays bound; only mint for a truly-new session.
+  const id = convId ?? randomUUID();
   rec.conversationId = id;
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
-  let cmd = `${bin} ${mcpConfigArg(id)} ${settingsArg()} --session-id ${id}`;
+  let cmd = `${bin} ${mcpConfigArg(id)} ${settingsArg(sessionId)} --session-id ${id}`;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;
   }
   await host.vault.set("sessions", sessionId, rec);
+  await host.vault.set("convindex", sessionId, { conversationId: id });
   return cmd;
+}
+
+// Has this session already done real work? A session that has been interacted
+// with (touched), found to carry a real human turn (prompted), or self-titled by
+// the agent has a conversation worth preserving — so starting a fresh one for it
+// is a data-loss signal, not a normal first launch.
+function hasPriorActivity(rec: SessionRecord): boolean {
+  if (rec.touched || rec.prompted) return true;
+  const title = (rec.title ?? "").trim();
+  return title !== "" && title !== "Untitled" && title !== "Untitled session";
 }
 
 // Launch-on-create: spawn a DETACHED tmux session running the agent, with no

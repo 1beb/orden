@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>orden clipper — annotation mode (orden-styled)</title>
+<style>
+  /* ===== orden theme variables (copied from apps/web/src/styles.css :root) ===== */
+  :root {
+    --bg: #fbfbfa;
+    --ink: #1f2328;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --panel-bg: #ffffff;
+    --accent: #6d28d9;                                   /* agent target */
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, #fff);
+    --human: #6366f1;                                    /* human target */
+    --human-soft: #e0e7ff;
+    --font-scale: 1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: calc(16px * var(--font-scale))/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+  }
+  ::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* slim mode bar so it's obvious the page is armed */
+  .modebar {
+    height: 42px; flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 0 16px; background: #fff; border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 rgba(0,0,0,.02); z-index: 30;
+  }
+  .modebar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft); }
+  .modebar .mode { font-weight: 600; font-size: calc(13px * var(--font-scale)); }
+  .modebar .url { color: var(--muted); font-size: calc(12px * var(--font-scale));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+  .modebar .spacer { flex: 1; }
+  .modebar .exit {
+    font: inherit; font-size: calc(12px * var(--font-scale)); font-weight: 500;
+    border: 1px solid var(--line); background: #fff; color: var(--muted);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer;
+  }
+  .modebar .exit:hover { color: var(--ink); border-color: #cfd2d6; }
+
+  .main { flex: 1; display: flex; min-height: 0; }
+
+  /* ===== underlying external page being annotated ===== */
+  .page { flex: 1; overflow-y: auto; }
+  .page-inner { max-width: 720px; margin: 0 auto; padding: 36px 48px 140px; }
+  .site-hat { color: var(--muted); font-size: calc(12px * var(--font-scale)); letter-spacing: .04em;
+    text-transform: uppercase; margin-bottom: 18px; }
+  .page h1 { font-size: calc(28px * var(--font-scale)); margin: 0 0 16px; line-height: 1.2; }
+  .page h2 { font-size: calc(20px * var(--font-scale)); margin: 28px 0 8px; }
+  .page .byline { color: var(--muted); font-size: calc(14px * var(--font-scale)); margin: -8px 0 24px; }
+  .page p { margin: 8px 0; }
+  .page code { background: #f0eefb; padding: 1px 6px; border-radius: 4px; font-size: .9em; }
+  .page .fig { margin: 22px 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px;
+    background: #fafafa; color: var(--muted); font-size: calc(13px * var(--font-scale)); }
+
+  /* ===== annotation highlight (copied semantics: underline at rest, soft fill on hover/active) ===== */
+  .annotation { border-bottom: 2px solid var(--accent); cursor: pointer; transition: background-color .12s ease; }
+  #app[data-target="human"] .annotation { border-bottom-color: var(--human); }
+  .annotation[data-t="human"] { border-bottom-color: var(--human); }
+  .annotation:hover, .annotation.is-active { background: var(--accent-soft); border-radius: 2px; }
+  .annotation[data-t="human"]:hover, .annotation[data-t="human"].is-active { background: var(--human-soft); }
+  .annotation.is-sent { border-bottom-style: dashed; opacity: .85; }
+
+  /* ===== floating annotator: pill + composer at the selection (mirrors .annotator) ===== */
+  .annotator { position: fixed; z-index: 40; transform: translate(-50%, calc(-100% - 8px)); }
+  .annotator.below { transform: translate(-50%, 8px); }
+  .annotator[hidden] { display: none; }
+  .annotator-pill {
+    position: relative; font: inherit; font-size: calc(13px * var(--font-scale)); font-weight: 500;
+    padding: 6px 14px; border: none; border-radius: 999px; background: #1f2328; color: #fff;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  }
+  .annotator-pill::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px;
+    background: #1f2328; transform: translateX(-50%) rotate(45deg); }
+  .annotator.below .annotator-pill::after { bottom: auto; top: -5px; }
+  .annotator-composer {
+    width: 300px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .annotator-toggle { display: flex; gap: 4px; }
+  .annotator-toggle button { flex: 1; font: inherit; font-size: calc(12px * var(--font-scale));
+    padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); cursor: pointer; }
+  .annotator-toggle button.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+  .annotator-toggle button.is-on[data-t="human"] { border-color: var(--human); background: var(--human-soft); }
+  .annotator-note { font: inherit; font-size: calc(14px * var(--font-scale)); resize: vertical; min-height: 64px;
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px; outline: none; }
+  .annotator-note:focus { border-color: var(--accent); }
+  .annotator-shot { display: flex; align-items: center; gap: 7px; font-size: calc(11px * var(--font-scale)); color: var(--muted); }
+  .annotator-shot .cam { width: 28px; height: 20px; border-radius: 4px; border: 1px solid var(--line);
+    background: linear-gradient(135deg,#f3f1fb,#e7e2f6); display: grid; place-items: center; font-size: 10px; }
+  .annotator-actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .annotator-actions button { font: inherit; font-size: calc(13px * var(--font-scale)); padding: 5px 14px;
+    border-radius: 6px; cursor: pointer; border: 1px solid var(--line); }
+  .annotator-actions .ghost { background: #fff; color: var(--muted); }
+  .annotator-actions .primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  /* ===== annotations rail (mirrors #panel / #annotation-list) ===== */
+  .panel { flex: 0 0 320px; border-left: 1px solid var(--line); background: var(--panel-bg);
+    display: flex; flex-direction: column; min-height: 0; }
+  .panel > header { display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: calc(14px * var(--font-scale)); }
+  .panel-actions { display: flex; align-items: center; gap: 6px; }
+  .panel-send { font: inherit; font-size: calc(12px * var(--font-scale)); font-weight: 600; padding: 4px 14px;
+    border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+  .panel-send:hover { background: color-mix(in srgb, var(--accent) 88%, #000); border-color: color-mix(in srgb, var(--accent) 88%, #000); }
+  .panel-copy { font: inherit; font-size: calc(12px * var(--font-scale)); font-weight: 500; padding: 4px 12px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; }
+  .panel-copy:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* project-routing expander (clipper-specific) */
+  .route { border-bottom: 1px solid var(--line); padding: 12px 16px; display: none; }
+  .route.open { display: block; }
+  .route label { display: block; font-size: calc(11px * var(--font-scale)); font-weight: 600; color: var(--muted);
+    letter-spacing: .03em; text-transform: uppercase; margin: 0 0 5px; }
+  .route select, .route textarea { width: 100%; font: inherit; font-size: calc(13px * var(--font-scale));
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; color: var(--ink); background: #fff; }
+  .route textarea { resize: vertical; min-height: 52px; margin-top: 10px; }
+  .route select:focus, .route textarea:focus { outline: none; border-color: var(--accent); }
+  .route .hint { font-size: calc(11px * var(--font-scale)); color: var(--muted); margin-top: 6px; }
+  .route .commit { margin-top: 10px; width: 100%; }
+
+  #annotation-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; }
+  #annotation-list li { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
+  #annotation-list li[data-t="human"] { border-left-color: var(--human); }
+  #annotation-list li:hover, #annotation-list li.is-active { background: var(--accent-soft); }
+  #annotation-list li[data-t="human"]:hover, #annotation-list li[data-t="human"].is-active { background: var(--human-soft); }
+  #annotation-list .quote { font-size: calc(12px * var(--font-scale)); color: var(--muted); font-style: italic;
+    margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #annotation-list .note { font-size: calc(14px * var(--font-scale)); }
+  .row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; min-height: 18px; }
+  .chip { font-size: calc(10px * var(--font-scale)); font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px; background: #eef0f2; color: var(--muted); }
+  .chip[data-t="human"] { background: var(--human-soft); color: #4338ca; }
+  .row-action { font: inherit; font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border: 1px solid var(--line);
+    border-radius: 5px; background: #fff; color: var(--muted); cursor: pointer; opacity: 0; }
+  #annotation-list li:hover .row-action { opacity: 1; }
+  .rail-shot { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; font-size: calc(11px * var(--font-scale)); color: var(--muted); }
+  .rail-shot .cam { width: 22px; height: 16px; border-radius: 3px; border: 1px solid var(--line);
+    background: linear-gradient(135deg,#f3f1fb,#e7e2f6); display: grid; place-items: center; font-size: 9px; }
+  .empty { color: var(--muted); font-size: calc(13px * var(--font-scale)); padding: 18px 14px; text-align: center; }
+
+  /* toast */
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(18px); z-index: 80;
+    background: #1f2328; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: calc(13px * var(--font-scale));
+    box-shadow: 0 8px 28px rgba(0,0,0,.2); opacity: 0; transition: all .22s; pointer-events: none; display: flex; align-items: center; gap: 8px; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast .tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .tip { position: fixed; bottom: 16px; left: 16px; z-index: 70; font-size: calc(12px * var(--font-scale)); color: var(--muted);
+    background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; box-shadow: 0 6px 20px rgba(0,0,0,.1); }
+  .tip b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div id="app" data-target="agent">
+
+  <div class="modebar">
+    <span class="dot"></span>
+    <span class="mode">Annotation mode</span>
+    <span class="url">devdocs.example/guides/streamable-http</span>
+    <span class="spacer"></span>
+    <button class="exit" id="exitBtn">Exit (Esc)</button>
+  </div>
+
+  <div class="main">
+    <!-- underlying external page -->
+    <div class="page">
+      <article class="page-inner" id="article">
+        <div class="site-hat">devdocs.example · Transport spec</div>
+        <h1>Streamable HTTP for stateful agent sessions</h1>
+        <div class="byline">M. Rivera · updated 2026-05-30 · 11 min read</div>
+
+        <p>A streamable HTTP transport lets a client open a long-lived logical session over ordinary
+        request/response HTTP without holding a socket open the whole time. <span class="annotation" data-t="agent" data-note="Exactly the constraint our MV3 service worker hits — confirm /capture needs no persistent connection.">The server mints a session id on the first initialize call and the client echoes it back on every subsequent request.</span> Intermediaries see plain POSTs, so it survives proxies that would kill a WebSocket.</p>
+
+        <h2>Session lifecycle</h2>
+        <p>The first request carries no session id. The server generates one, returns it in a header, and
+        keeps the associated transport in memory. If the process restarts, that in-memory map is lost and the
+        next request with a stale id must be answered with a <code>404</code> — the client's signal to
+        transparently re-initialize.</p>
+        <p><span class="annotation" data-t="human" data-note="Note to self: this is the resilience pattern I want mirrored in the clipper.">Clients should treat a dropped session as recoverable rather than fatal, re-sending the initialize and replaying any unacknowledged work.</span> This keeps long-running agents resilient across server redeploys.</p>
+
+        <div class="fig">Figure 2 — sequence diagram: initialize → session-id → call → (restart) → 404 → re-initialize.
+        <em>Readability strips figures; the per-highlight screenshot is how this still reaches the agent.</em></div>
+
+        <h2>Why not a socket</h2>
+        <p>WebSockets give you push but cost you reconnection complexity and proxy fragility. For a tool
+        that fires occasional, user-initiated bundles, a single POST is both simpler and more robust.</p>
+        <p>A service worker that is killed between events cannot hold a socket anyway, so the
+        request/response model is not a compromise here — it is the correct fit for ephemeral,
+        event-driven clients.</p>
+      </article>
+    </div>
+
+    <!-- annotations rail (mirrors orden #panel) -->
+    <aside class="panel">
+      <header>
+        <span>Annotations</span>
+        <div class="panel-actions">
+          <button class="panel-send" id="submitBtn">Submit ▾</button>
+          <button class="panel-copy" id="copyBtn">Copy</button>
+        </div>
+      </header>
+      <div class="route" id="route">
+        <label>Send to project (optional)</label>
+        <select id="proj">
+          <option value="">— Save to orden inbox only —</option>
+          <option>orden</option>
+          <option>rental-screening</option>
+          <option>askcrunch-reports</option>
+        </select>
+        <textarea placeholder="Instructions for the session (optional)…"></textarea>
+        <div class="hint">Empty project → capture lands in the inbox; route it to a card later in orden.</div>
+        <button class="panel-send commit" id="commitBtn">Submit capture</button>
+      </div>
+      <ul id="annotation-list"></ul>
+    </aside>
+  </div>
+
+  <!-- floating selection annotator -->
+  <div class="annotator" id="annotator" hidden>
+    <button class="annotator-pill" id="annPill">Annotate</button>
+    <div class="annotator-composer" id="annComposer" hidden>
+      <div class="annotator-toggle">
+        <button data-t="agent" class="is-on" id="tAgent">To agent</button>
+        <button data-t="human" id="tHuman">For me</button>
+      </div>
+      <textarea class="annotator-note" id="annNote" placeholder="Your note…"></textarea>
+      <div class="annotator-shot"><span class="cam">▦</span> screenshot + surrounding text captured</div>
+      <div class="annotator-actions">
+        <button class="ghost" id="annCancel">Cancel</button>
+        <button class="primary" id="annSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"><span class="tdot"></span><span id="toastMsg"></span></div>
+  <div class="tip">Try it: <b>select a sentence</b> in the article, then <b>Annotate</b>. Click a card to jump to its highlight.</div>
+</div>
+
+<script>
+(function () {
+  const app = document.getElementById('app');
+  const article = document.getElementById('article');
+  const list = document.getElementById('annotation-list');
+  const annotator = document.getElementById('annotator');
+  const pill = document.getElementById('annPill');
+  const composer = document.getElementById('annComposer');
+  const note = document.getElementById('annNote');
+  const tAgent = document.getElementById('tAgent');
+  const tHuman = document.getElementById('tHuman');
+  let pendingRange = null, target = 'agent', seq = 0;
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    document.getElementById('toastMsg').textContent = msg;
+    t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function setTarget(t) {
+    target = t;
+    tAgent.classList.toggle('is-on', t === 'agent');
+    tHuman.classList.toggle('is-on', t === 'human');
+    app.setAttribute('data-target', t); // drives accent vs human coloring
+  }
+  tAgent.onclick = () => setTarget('agent');
+  tHuman.onclick = () => setTarget('human');
+
+  // place the annotator pill at the selection (mirrors orden's fixed positioning)
+  function showAnnotatorAt(rect) {
+    annotator.hidden = false; composer.hidden = true; pill.style.display = '';
+    const below = rect.top < 90;
+    annotator.classList.toggle('below', below);
+    annotator.style.left = (rect.left + rect.width / 2) + 'px';
+    annotator.style.top = (below ? rect.bottom : rect.top) + 'px';
+  }
+  function hideAnnotator() { annotator.hidden = true; pendingRange = null; }
+
+  article.addEventListener('mouseup', function (e) {
+    if (e.target.closest('.annotation')) return;
+    const sel = window.getSelection();
+    const txt = sel.toString().trim();
+    if (txt.length < 4) return;
+    pendingRange = sel.getRangeAt(0).cloneRange();
+    showAnnotatorAt(sel.getRangeAt(0).getBoundingClientRect());
+  });
+
+  pill.addEventListener('click', function () {
+    pill.style.display = 'none'; composer.hidden = false;
+    setTarget(target); note.value = ''; setTimeout(() => note.focus(), 0);
+  });
+  document.getElementById('annCancel').onclick = hideAnnotator;
+
+  document.getElementById('annSave').onclick = function () {
+    if (!pendingRange) return;
+    const id = 'a' + (++seq);
+    const span = document.createElement('span');
+    span.className = 'annotation'; span.dataset.t = target; span.dataset.id = id;
+    span.dataset.note = note.value.trim();
+    try { pendingRange.surroundContents(span); } catch (_) { hideAnnotator(); return; }
+    window.getSelection().removeAllRanges();
+    addRow(id, span.textContent, note.value.trim(), target);
+    hideAnnotator();
+    wireMark(span);
+  };
+
+  // two-way is-active sync (mark <-> rail row), and click-to-scroll
+  function rowFor(id) { return list.querySelector('li[data-id="' + id + '"]'); }
+  function markFor(id) { return article.querySelector('.annotation[data-id="' + id + '"]'); }
+  function activate(id, on) {
+    const r = rowFor(id), m = markFor(id);
+    if (r) r.classList.toggle('is-active', on);
+    if (m) m.classList.toggle('is-active', on);
+  }
+  function wireMark(m) {
+    const id = m.dataset.id;
+    m.addEventListener('mouseenter', () => activate(id, true));
+    m.addEventListener('mouseleave', () => activate(id, false));
+    m.addEventListener('click', () => { rowFor(id) && rowFor(id).scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+  }
+
+  function addRow(id, quote, noteText, t) {
+    const li = document.createElement('li');
+    li.dataset.id = id; li.dataset.t = t; li.dataset.status = 'open';
+    li.innerHTML =
+      '<div class="row-head">' +
+        '<span class="chip" data-t="' + t + '">' + (t === 'human' ? 'For me' : 'To agent') + '</span>' +
+        '<button class="row-action">Delete</button>' +
+      '</div>' +
+      '<div class="quote">' + esc(quote) + '</div>' +
+      '<div class="note">' + (esc(noteText) || '<span style="color:var(--muted)">(no note)</span>') + '</div>' +
+      '<span class="rail-shot"><span class="cam">▦</span> screenshot</span>';
+    li.addEventListener('mouseenter', () => activate(id, true));
+    li.addEventListener('mouseleave', () => activate(id, false));
+    li.addEventListener('click', function (e) {
+      if (e.target.classList.contains('row-action')) { delRow(id); return; }
+      const m = markFor(id);
+      if (m) { m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        m.classList.add('is-active'); setTimeout(() => m.classList.remove('is-active'), 1100); }
+    });
+    list.appendChild(li);
+    refreshEmpty();
+  }
+  function delRow(id) {
+    const m = markFor(id);
+    if (m) { const tn = document.createTextNode(m.textContent); m.replaceWith(tn); }
+    const r = rowFor(id); if (r) r.remove();
+    refreshEmpty();
+  }
+  function refreshEmpty() {
+    let e = list.querySelector('.empty');
+    if (!list.querySelector('li')) {
+      if (!e) { e = document.createElement('div'); e.className = 'empty';
+        e.textContent = 'No annotations yet. Select text in the page to add one.'; list.appendChild(e); }
+    } else if (e) { e.remove(); }
+  }
+  function esc(s) { return (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+  // wire the two pre-seeded highlights + their rows
+  article.querySelectorAll('.annotation').forEach(function (m) {
+    const id = 'a' + (++seq); m.dataset.id = id;
+    addRow(id, m.textContent, m.dataset.note || '', m.dataset.t || 'agent');
+    wireMark(m);
+  });
+
+  // submit / route expander
+  const route = document.getElementById('route');
+  document.getElementById('submitBtn').onclick = () => route.classList.toggle('open');
+  document.getElementById('commitBtn').onclick = function () {
+    const proj = document.getElementById('proj').value;
+    const n = list.querySelectorAll('li').length;
+    route.classList.remove('open');
+    toast(proj ? ('Captured → new session in ' + proj + ' · ' + n + ' highlights') : ('Saved to orden inbox · ' + n + ' highlights'));
+  };
+  document.getElementById('copyBtn').onclick = () => toast('Capture bundle copied as markdown');
+  document.getElementById('exitBtn').onclick = () => toast('Exited annotation mode · highlights kept for this page');
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideAnnotator(); });
+})();
+</script>
+</body>
+</html>

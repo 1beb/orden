@@ -213,9 +213,9 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     collapse.setAttribute("aria-label", "Close sessions");
     collapse.addEventListener("click", () => deps.close());
     head.append(collapse, title);
-    const scratch = scratchButton();
-    if (scratch) head.append(scratch);
     head.append(newButtons());
+    const scratch = scratchButton();
+    if (scratch) head.append(scratch); // generic terminal sits rightmost
     c.append(head);
 
     const sessions = deps.list();
@@ -326,9 +326,9 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       render();
     });
     head.append(back, title, complete);
-    const scratch = scratchButton();
-    if (scratch) head.append(scratch);
     head.append(newButtons());
+    const scratch = scratchButton();
+    if (scratch) head.append(scratch); // generic terminal sits rightmost
     c.append(head);
     back.addEventListener("click", () => {
       teardownTab();
