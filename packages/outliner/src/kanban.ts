@@ -1,17 +1,11 @@
 import type { Card, CardState, Column } from "./types";
 
-/**
- * Column order on the board, left to right. The first four are real lifecycle
- * states; the rightmost, `"learnings"`, is a DERIVED column id (no card is ever
- * stored in state "learnings" — a complete card with pending learnings buckets
- * there at render time). See `LifecycleState`.
- */
+/** Column order on the board: the four lifecycle states. */
 export const LIFECYCLE_ORDER: readonly CardState[] = [
   "planning",
   "in-progress",
   "blocked",
   "complete",
-  "learnings",
 ];
 
 /** States that need the user's attention and feed the Kanban badge. */

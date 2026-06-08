@@ -29,9 +29,6 @@ const STATE_LABELS: Record<CardState, string> = {
   "in-progress": "In-progress",
   blocked: "Blocked",
   complete: "Complete",
-  // Label only — "learnings" is a derived board column, never a selectable card
-  // state; it's filtered out of the state dropdown below.
-  learnings: "Learnings",
 };
 
 export interface CardModalDeps {
@@ -112,10 +109,7 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
 
     const stateSel = labelled("State", document.createElement("select"));
     const stateInput = stateSel.field as HTMLSelectElement;
-    // "learnings" is a derived column, not a real state — keep it out of the
-    // selectable options so a user can't set a card to it.
     for (const s of LIFECYCLE_ORDER) {
-      if (s === "learnings") continue;
       const opt = document.createElement("option");
       opt.value = s;
       opt.textContent = STATE_LABELS[s];

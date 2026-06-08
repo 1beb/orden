@@ -22,6 +22,21 @@ function columnOf(root: ParentNode, itemId: string): string | undefined {
   return card?.closest<HTMLElement>(".orden-column")?.dataset.state;
 }
 
+function columnEl(root: ParentNode, state: string): HTMLElement {
+  const el = root.querySelector<HTMLElement>(`.orden-column[data-state="${state}"]`);
+  if (!el) throw new Error(`no column for ${state}`);
+  return el;
+}
+
+// Fire a drag-drop of itemId onto the given column element, the way the board's
+// drop handler reads it (the card id off dataTransfer's "text/plain").
+function dropOnto(col: HTMLElement, itemId: string): void {
+  const dt = { getData: (k: string) => (k === "text/plain" ? itemId : "") };
+  const ev = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "dataTransfer", { value: dt });
+  col.dispatchEvent(ev);
+}
+
 describe("kanban card — resume affordance", () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -86,5 +101,36 @@ describe("kanban — derived Learnings column", () => {
     });
 
     expect(columnOf(container, card.id)).toBe("complete");
+  });
+
+  it("rejects a drop onto Learnings — a card can't be parked there via the board", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "blocked");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 0,
+    });
+
+    // Sanity: real columns DO accept drops (proves the harness fires the handler).
+    dropOnto(columnEl(container, "complete"), card.id);
+    expect(listItems().find((i) => i.id === card.id)?.state).toBe("complete");
+
+    setItemState(card.id, "blocked");
+    const c2 = document.createElement("div");
+    renderKanban(c2, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 0,
+    });
+
+    // Dropping onto Learnings is a no-op: the column wires no drop handler, so
+    // the card's state is never set to "learnings" (and never could be — it's
+    // not a CardState).
+    dropOnto(columnEl(c2, "learnings"), card.id);
+    expect(listItems().find((i) => i.id === card.id)?.state).toBe("blocked");
   });
 });

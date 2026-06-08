@@ -20,13 +20,12 @@ const cards: Card[] = [
 ];
 
 describe("LIFECYCLE_ORDER", () => {
-  it("is the lifecycle states in order, with the derived Learnings column last", () => {
+  it("is the four lifecycle states in order", () => {
     expect(LIFECYCLE_ORDER).toEqual([
       "planning",
       "in-progress",
       "blocked",
       "complete",
-      "learnings",
     ]);
   });
 });

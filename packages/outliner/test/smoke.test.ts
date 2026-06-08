@@ -9,6 +9,6 @@ describe("package barrel", () => {
     expect(typeof outliner.buildBacklinkIndex).toBe("function");
     expect(typeof outliner.buildBoard).toBe("function");
     expect(typeof outliner.renderBoard).toBe("function");
-    expect(outliner.LIFECYCLE_ORDER.length).toBe(5);
+    expect(outliner.LIFECYCLE_ORDER.length).toBe(4);
   });
 });

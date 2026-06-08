@@ -21,10 +21,6 @@ export const STATE_LABELS: Record<CardState, string> = {
   "in-progress": "In-progress",
   blocked: "Blocked",
   complete: "Complete",
-  // Label for Record exhaustiveness. "learnings" is a derived board column, not
-  // a stored state, so no item ever groups under it here (empty groups are
-  // skipped) — this view gains no learnings behavior.
-  learnings: "Learnings",
 };
 
 export interface IssueGroupDeps {

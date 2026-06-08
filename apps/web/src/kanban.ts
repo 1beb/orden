@@ -14,6 +14,17 @@ import { loadSettings, saveSettings, type KanbanView } from "./settings";
 
 const STATES: CardState[] = [...LIFECYCLE_ORDER];
 
+// A board column id: every real card state, plus the web-local DERIVED column
+// "learnings". "learnings" is NOT a CardState — no card is ever stored in it; a
+// complete card with pending learnings is bucketed into this column at render
+// time (see columnFor below). Keeping it out of the shared CardState union is
+// what makes setItemState(id, "learnings") a compile error.
+type BoardColumn = CardState | "learnings";
+
+// Column render order, left to right: the four lifecycle states then the
+// derived Learnings column.
+const COLUMN_ORDER: BoardColumn[] = [...LIFECYCLE_ORDER, "learnings"];
+
 // A one-shot timer that re-renders the board the moment the soonest completed
 // card crosses its TTL and falls off the Complete column (the board otherwise
 // only redraws on a mutation, so a card finished while the board sits open
@@ -22,7 +33,7 @@ let fadeTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Capitalized column titles; the stored state stays lowercase. "Learnings" is a
 // derived column (no card is stored in that state — see columnFor below).
-const STATE_LABELS: Record<CardState, string> = {
+const STATE_LABELS: Record<BoardColumn, string> = {
   planning: "Planning",
   "in-progress": "In-progress",
   blocked: "Blocked",
@@ -216,42 +227,50 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   // column, EXCEPT a complete card with pending learnings, which is derived into
   // the rightmost "learnings" column instead (and falls back to "complete" once
   // it has none). No card is ever stored in state "learnings".
-  const columnFor = (i: Item): CardState =>
+  const columnFor = (i: Item): BoardColumn =>
     i.state === "complete" && deps.pendingLearnings(i.id) > 0 ? "learnings" : i.state;
 
   const columns = document.createElement("div");
   columns.className = "orden-board__columns";
-  for (const state of STATES) {
+  for (const column of COLUMN_ORDER) {
     // Completed cards fall off the board after the configured dwell time, so
     // the Complete column shows only recently-finished work. The fade applies
     // only to the Complete column — a card diverted to Learnings stays put until
     // its pending learnings are resolved, so one can't silently age off.
     const colItems = items.filter((i) => {
-      if (columnFor(i) !== state) return false;
-      if (state === "complete" && isExpiredComplete(i, nowMs, ttlMs)) return false;
+      if (columnFor(i) !== column) return false;
+      if (column === "complete" && isExpiredComplete(i, nowMs, ttlMs)) return false;
       return true;
     });
     const col = document.createElement("div");
     col.className = "orden-column";
-    col.dataset.state = state;
-    col.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      col.classList.add("drop-target");
-    });
-    col.addEventListener("dragleave", () => col.classList.remove("drop-target"));
-    col.addEventListener("drop", (e) => {
-      e.preventDefault();
-      col.classList.remove("drop-target");
-      const id = e.dataTransfer?.getData("text/plain");
-      if (id) {
-        setItemState(id, state);
-        rerender();
-      }
-    });
+    col.dataset.state = column;
+    // The Learnings column is DERIVED — a card is bucketed there by render
+    // logic, never by user action — so it gets no drop affordance. Skipping the
+    // drop wiring here also narrows `column` to CardState below, which is what
+    // makes setItemState(id, column) type-check (and bars "learnings" from ever
+    // being persisted as a state — the invariant is now compiler-enforced).
+    if (column !== "learnings") {
+      const dropState = column;
+      col.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        col.classList.add("drop-target");
+      });
+      col.addEventListener("dragleave", () => col.classList.remove("drop-target"));
+      col.addEventListener("drop", (e) => {
+        e.preventDefault();
+        col.classList.remove("drop-target");
+        const id = e.dataTransfer?.getData("text/plain");
+        if (id) {
+          setItemState(id, dropState);
+          rerender();
+        }
+      });
+    }
 
     const colHead = document.createElement("div");
     colHead.className = "orden-column__header";
-    colHead.innerHTML = `<span class="orden-column__title">${STATE_LABELS[state]}</span><span class="orden-column__count">${colItems.length}</span>`;
+    colHead.innerHTML = `<span class="orden-column__title">${STATE_LABELS[column]}</span><span class="orden-column__count">${colItems.length}</span>`;
     col.append(colHead);
 
     const cardsEl = document.createElement("div");
