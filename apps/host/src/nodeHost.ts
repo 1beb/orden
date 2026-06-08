@@ -212,7 +212,14 @@ export class NodeHost implements Host {
     const abs = join(root, path);
     const result = await renderDoc(abs);
     if (result.ok && result.outputPath) {
-      return { ...result, outputPath: relative(root, result.outputPath) };
+      // Quarto can redirect output (e.g. an output-dir above the source) so the
+      // artifact may land outside the project root. panel_open can't open a path
+      // that escapes the files root, so reject it rather than hand back a `../`.
+      const rel = relative(root, result.outputPath);
+      if (rel.startsWith("..")) {
+        return { ok: false, errors: `rendered artifact landed outside the project root: ${result.outputPath}` };
+      }
+      return { ...result, outputPath: rel };
     }
     return result;
   }

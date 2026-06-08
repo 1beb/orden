@@ -254,6 +254,9 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
       },
     },
     async ({ path, project }) => {
+      // Unlike card_create/session_create, render needs a CONCRETE root to render
+      // against, so fall back to "repo" (the resolver's alias for filesRoot) when
+      // there's no explicit project and no session binding.
       const pid = project ?? (await currentProjectId()) ?? "repo";
       return tools.docRender(host, pid, path);
     },
