@@ -56,9 +56,9 @@ describe("learningPropose tool", () => {
     expect(t).toContain("edit");
   });
 
-  it("records a create learning when the target file is missing", async () => {
+  it("records a create learning when the target file is missing (ENOENT)", async () => {
     const host = fakeHost(async () => {
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
     });
     const res = await learningPropose(host, binding, input, 42, "learn_xyz");
 
@@ -72,5 +72,18 @@ describe("learningPropose tool", () => {
     const t = resultText(res);
     expect(t).toContain("learn_xyz");
     expect(t).toContain("create");
+  });
+
+  it("propagates a non-ENOENT read error and writes nothing", async () => {
+    const host = fakeHost(async () => {
+      throw Object.assign(new Error("denied"), { code: "EACCES" });
+    });
+
+    await expect(
+      learningPropose(host, binding, input, 99, "learn_err"),
+    ).rejects.toThrow("denied");
+
+    expect(await getLearning(host.vault, "learn_err")).toBeNull();
+    expect(await host.vault.list("learnings")).toHaveLength(0);
   });
 });

@@ -71,7 +71,7 @@ interface ProjectRec {
   [k: string]: unknown;
 }
 
-function rid(prefix: string): string {
+export function rid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -466,8 +466,9 @@ export async function learningPropose(
   try {
     baseContent = await host.files.read(binding.projectId, input.path);
     op = "edit";
-  } catch {
-    op = "create"; // file doesn't exist yet
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+    op = "create"; // file genuinely absent
   }
   const learning: Learning = {
     id,

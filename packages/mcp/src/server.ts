@@ -286,7 +286,7 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
       if (!cardId) return unbound();
       const projectId = (await currentProjectId()) ?? "repo";
       const sessionId = await currentSessionId();
-      const id = `learn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const id = tools.rid("learn");
       return tools.learningPropose(
         host,
         { cardId, projectId, sessionId },
