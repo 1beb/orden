@@ -84,6 +84,7 @@ import {
   MAX_PANEL_PCT,
   MIN_FONT_SIZE,
   MAX_FONT_SIZE,
+  TIME_ZONE_OPTIONS,
   type StartupView,
 } from "./settings";
 import { getHost, onVaultChange, onReconnect } from "./host";
@@ -1329,6 +1330,27 @@ fadeSelect.value = String(settings.completeFadeHours);
 fadeSelect.addEventListener("change", () => {
   void saveSettings({ completeFadeHours: Number(fadeSelect.value) });
   refreshBoard();
+});
+
+// Journal time zone: which calendar day a journal entry files under. "" inherits
+// the host's zone (shown in the default option's label); an explicit choice
+// overrides it. Changing it re-renders the journal so "today" updates at once.
+const tzSelect = document.querySelector<HTMLSelectElement>("#journal-timezone")!;
+const hostZone = host.capabilities().timeZone;
+const inheritOpt = document.createElement("option");
+inheritOpt.value = "";
+inheritOpt.textContent = hostZone ? `Inherit from host (${hostZone})` : "Inherit from host";
+tzSelect.append(inheritOpt);
+for (const [id, label] of TIME_ZONE_OPTIONS) {
+  const opt = document.createElement("option");
+  opt.value = id;
+  opt.textContent = label;
+  tzSelect.append(opt);
+}
+tzSelect.value = settings.timeZone;
+tzSelect.addEventListener("change", () => {
+  void saveSettings({ timeZone: tzSelect.value });
+  journal.refresh();
 });
 settingsCog.addEventListener("click", (e) => {
   e.stopPropagation();

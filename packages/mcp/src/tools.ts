@@ -4,6 +4,9 @@
 // raw access to any namespace.
 
 import type { Host, VaultStore } from "@orden/host-api";
+// Deep import the DOM-free ./page subpath, not the barrel: the barrel re-exports
+// kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
+import { journalKey } from "@orden/outliner/page";
 import { findCard, type CardRec, type SessionRec } from "./sessionLink";
 
 export interface ToolResult {
@@ -108,11 +111,30 @@ const cardMiss = (target: string, candidates: string[]): ToolResult =>
 // listed in Pages. This replaced the old write-only `card.notes` string.
 const cardLogKey = (id: string): string => `card:${id}`;
 
-// ISO date key for today's journal page (UTC), matching outliner's journalKey.
-const journalKey = (d: Date): string => d.toISOString().slice(0, 10);
-// UTC HH:MM prefix; consistent with the UTC date key so an entry never lands on
-// the wrong day's page.
-const hhmm = (d: Date): string => d.toISOString().slice(11, 16);
+// The zone auto-log entries are dated in: the user's timeZone override (vault
+// settings/app), else the host process's own zone. Mirrors the web's
+// effectiveTimeZone so a host-side auto-log and a web edit file under the same
+// local day. The shared journalKey (from @orden/outliner) does the formatting.
+async function journalZone(vault: VaultStore): Promise<string | undefined> {
+  const s = await vault.get<{ timeZone?: unknown }>("settings", "app");
+  if (typeof s?.timeZone === "string" && s.timeZone !== "") return s.timeZone;
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+// HH:MM prefix in the same zone as the day-key, so an entry's time and its page
+// date never disagree across a midnight boundary.
+function hhmm(d: Date, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (type: "hour" | "minute"): string =>
+    parts.find((p) => p.type === type)?.value ?? "00";
+  const h = get("hour");
+  return `${h === "24" ? "00" : h}:${get("minute")}`; // some ICU builds emit 24 at midnight
+}
 
 // Append a line to a page, creating it if absent. Pages are plain markdown
 // strings in the vault; the web's pages store picks the change up live.
@@ -248,7 +270,10 @@ export async function cardMove(
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
   await vault.set("cards", card.id, { ...card, state });
-  if (note) await appendAutoLog(vault, cardLogKey(card.id), `${hhmm(new Date())} ${state}: ${note}`);
+  if (note) {
+    const tz = await journalZone(vault);
+    await appendAutoLog(vault, cardLogKey(card.id), `${hhmm(new Date(), tz)} ${state}: ${note}`);
+  }
   return text(`card "${card.title}" -> ${state}`);
 }
 
@@ -262,7 +287,8 @@ export async function cardComplete(
   const now = new Date();
   await vault.set("cards", card.id, { ...card, state: "complete", completedAt: now.getTime() });
 
-  const time = hhmm(now);
+  const tz = await journalZone(vault);
+  const time = hhmm(now, tz);
   const sum = summary?.trim();
 
   // Card log: a Completed line, with the summary when given.
@@ -276,7 +302,7 @@ export async function cardComplete(
   const entry =
     [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
     plan;
-  await appendAutoLog(vault, journalKey(now), entry);
+  await appendAutoLog(vault, journalKey(now, tz), entry);
 
   return text(`card "${card.title}" -> complete`);
 }

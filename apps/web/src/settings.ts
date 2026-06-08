@@ -20,6 +20,7 @@ export interface Settings {
   sessionPanelPct: number; // session panel width as a % of viewport width
   completeFadeHours: number; // hours a card sits in Complete before it dims (one of FADE_HOURS_OPTIONS)
   htmlRender: boolean; // open .html files rendered (true) or as source code (false)
+  timeZone: string; // IANA zone for journal day-keys; "" = inherit the host's zone
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
@@ -33,6 +34,33 @@ export const DEFAULT_ACCENT = "#6d28d9";
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 // Allowed dwell times before a completed card fades, in hours.
 export const FADE_HOURS_OPTIONS: readonly number[] = [1, 4, 8, 24];
+// Curated time-zone choices offered in settings, plus "" (inherit the host's
+// zone). A short list rather than the full IANA set — these cover the common
+// cases; the stored value is still an IANA string, so any zone works if set
+// programmatically. Each entry is [IANA id, display label].
+export const TIME_ZONE_OPTIONS: readonly (readonly [string, string])[] = [
+  ["America/Toronto", "Toronto (Eastern)"],
+  ["America/New_York", "New York (Eastern)"],
+  ["America/Chicago", "Chicago (Central)"],
+  ["America/Denver", "Denver (Mountain)"],
+  ["America/Vancouver", "Vancouver (Pacific)"],
+  ["Europe/London", "London"],
+  ["Europe/Berlin", "Berlin"],
+  ["Asia/Tokyo", "Tokyo"],
+  ["UTC", "UTC"],
+];
+
+// A stored zone is valid if it's "" (inherit) or a zone Intl recognizes.
+function isValidTimeZone(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (value === "") return true;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
 const DEFAULT_SETTINGS: Settings = {
   startup: "last",
   kanbanView: "board",
@@ -44,6 +72,7 @@ const DEFAULT_SETTINGS: Settings = {
   sessionPanelPct: 33,
   completeFadeHours: 1,
   htmlRender: true,
+  timeZone: "",
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -89,16 +118,30 @@ function coerce(stored: unknown): Settings {
         : DEFAULT_SETTINGS.completeFadeHours,
     htmlRender:
       typeof s.htmlRender === "boolean" ? s.htmlRender : DEFAULT_SETTINGS.htmlRender,
+    timeZone: isValidTimeZone(s.timeZone) ? s.timeZone : DEFAULT_SETTINGS.timeZone,
   };
 }
 
 let host: Host | null = null;
 let cache: Settings = { ...DEFAULT_SETTINGS };
+// The host's own zone, captured at hydrate. The default journal zone when the
+// user hasn't overridden timeZone — so web edits and host-side auto-logs agree.
+let hostTimeZone: string | undefined;
 
 /** Load settings from the vault into the cache. Call once at boot. */
 export async function hydrateSettings(h: Host): Promise<void> {
   host = h;
+  hostTimeZone = h.capabilities().timeZone;
   cache = coerce(await h.vault.get<unknown>("settings", "app"));
+}
+
+/**
+ * The zone journal day-keys should use: the user's override if set, else the
+ * host's zone, else undefined (the runtime's own zone). Pass the result to
+ * journalKey(date, tz).
+ */
+export function effectiveTimeZone(): string | undefined {
+  return cache.timeZone || hostTimeZone || undefined;
 }
 
 export function loadSettings(): Settings {
