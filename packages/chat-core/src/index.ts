@@ -111,6 +111,7 @@ export interface ChatBackend {
 export type DriverEvent =
   | { kind: "session"; sessionId: string; slashCommands: string[] }
   | { kind: "text"; messageId: string; text: string }
+  | { kind: "thinking"; messageId: string; text: string }
   | { kind: "tool"; messageId: string; toolId: string; name: string; input: unknown }
   | { kind: "tool-result"; toolId: string; output: string; ok: boolean }
   | { kind: "turn-end" };
