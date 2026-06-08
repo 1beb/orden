@@ -27,63 +27,109 @@ function stringifyToolContent(content: unknown): string {
   return JSON.stringify(content);
 }
 
-export function sdkMessageToEvents(msg: SDKMessage): DriverEvent[] {
-  switch (msg.type) {
-    case "system": {
-      if (msg.subtype === "init") {
-        return [
-          {
-            kind: "session",
-            sessionId: msg.session_id,
-            slashCommands: msg.slash_commands ?? [],
-          },
-        ];
-      }
-      return [];
-    }
+// A stateful translator. When `includePartialMessages` is on, the SDK emits
+// token-level `stream_event` deltas AND the final whole `assistant` message for
+// the same id. We drive text/thinking from the deltas, then suppress the final
+// message's text blocks (which would otherwise double-render) while still
+// surfacing its tool_use blocks. The per-stream state (current message id from
+// `message_start`, plus the set of ids whose text already streamed) lives in the
+// closure, so each driver gets its own instance via `createSdkTranslator()`.
+export function createSdkTranslator(): (msg: SDKMessage) => DriverEvent[] {
+  let currentMessageId: string | null = null;
+  const streamedText = new Set<string>();
 
-    case "assistant": {
-      const out: DriverEvent[] = [];
-      const messageId = msg.message.id;
-      const content = msg.message.content;
-      if (!Array.isArray(content)) return out;
-      for (const block of content as unknown as Array<Record<string, unknown>>) {
-        if (block.type === "text") {
-          out.push({ kind: "text", messageId, text: block.text as string });
-        } else if (block.type === "tool_use") {
-          out.push({
-            kind: "tool",
-            messageId,
-            toolId: block.id as string,
-            name: block.name as string,
-            input: block.input,
-          });
+  return function sdkMessageToEvents(msg: SDKMessage): DriverEvent[] {
+    switch (msg.type) {
+      case "system": {
+        if (msg.subtype === "init") {
+          return [
+            {
+              kind: "session",
+              sessionId: msg.session_id,
+              slashCommands: msg.slash_commands ?? [],
+            },
+          ];
         }
+        return [];
       }
-      return out;
-    }
 
-    case "user": {
-      const content = msg.message.content;
-      if (!Array.isArray(content)) return [];
-      const out: DriverEvent[] = [];
-      for (const block of content as unknown as Array<Record<string, unknown>>) {
-        if (block.type === "tool_result") {
-          out.push({
-            kind: "tool-result",
-            toolId: block.tool_use_id as string,
-            output: stringifyToolContent(block.content),
-            ok: !block.is_error,
-          });
+      case "stream_event": {
+        const event = msg.event as { type?: string } & Record<string, unknown>;
+        if (event.type === "message_start") {
+          const message = event.message as { id?: string } | undefined;
+          currentMessageId = message?.id ?? null;
+          return [];
         }
+        if (event.type === "content_block_delta") {
+          const delta = event.delta as
+            | ({ type?: string } & Record<string, unknown>)
+            | undefined;
+          if (!delta || !currentMessageId) return [];
+          if (delta.type === "text_delta") {
+            streamedText.add(currentMessageId);
+            return [{ kind: "text", messageId: currentMessageId, text: delta.text as string }];
+          }
+          if (delta.type === "thinking_delta") {
+            return [
+              { kind: "thinking", messageId: currentMessageId, text: delta.thinking as string },
+            ];
+          }
+        }
+        return [];
       }
-      return out;
+
+      case "assistant": {
+        const out: DriverEvent[] = [];
+        const messageId = msg.message.id;
+        const content = msg.message.content;
+        if (!Array.isArray(content)) return out;
+        // If text for this id already streamed via deltas, its text blocks are a
+        // duplicate of what the UI rendered token-by-token; skip them. tool_use
+        // blocks never stream as text, so always emit those.
+        const textAlreadyStreamed = streamedText.has(messageId);
+        for (const block of content as unknown as Array<Record<string, unknown>>) {
+          if (block.type === "text") {
+            if (!textAlreadyStreamed) {
+              out.push({ kind: "text", messageId, text: block.text as string });
+            }
+          } else if (block.type === "tool_use") {
+            out.push({
+              kind: "tool",
+              messageId,
+              toolId: block.id as string,
+              name: block.name as string,
+              input: block.input,
+            });
+          }
+        }
+        return out;
+      }
+
+      case "user": {
+        const content = msg.message.content;
+        if (!Array.isArray(content)) return [];
+        const out: DriverEvent[] = [];
+        for (const block of content as unknown as Array<Record<string, unknown>>) {
+          if (block.type === "tool_result") {
+            out.push({
+              kind: "tool-result",
+              toolId: block.tool_use_id as string,
+              output: stringifyToolContent(block.content),
+              ok: !block.is_error,
+            });
+          }
+        }
+        return out;
+      }
+
+      case "result":
+        return [{ kind: "turn-end" }];
+
+      default:
+        return [];
     }
-
-    case "result":
-      return [{ kind: "turn-end" }];
-
-    default:
-      return [];
-  }
+  };
 }
+
+// Back-compat singleton for callers that don't need per-stream dedupe state.
+export const sdkMessageToEvents = createSdkTranslator();
