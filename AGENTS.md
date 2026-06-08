@@ -180,6 +180,13 @@ the kanban and pages: `card_*`, `session_create`, `project_list`, `page_*`, `vau
 (`parseSessionBinding`), so a tool call knows which card/session it belongs to. Connect
 an external agent with `claude mcp add --transport http orden http://127.0.0.1:4319/mcp`.
 
+**Rendering is host-owned, agent-driven.** Quarto always runs on the host, but the
+agent drives it: edit the `.qmd`/`.md` source, call `doc_render({path})` (the host runs
+quarto and returns `{ok, outputPath, errors}`), verify `ok`, then `panel_open(outputPath)`
+to surface it. Two tools on purpose — `doc_render` only builds, `panel_open` only opens —
+so the verify-then-open step stays an explicit gate (don't open a doc you haven't
+confirmed rendered). Gated by `capabilities().docRender`.
+
 **Kanban card-state semantics** (enforced across MCP tools and hooks):
 `planning`=idle, `in-progress`=working, `blocked`=done-with-turn/waiting-on-user,
 `complete`=user-only. `card_move` cannot reach `complete`; only `card_complete` can,
