@@ -3439,12 +3439,27 @@ li.sess-done-head {
   background: #fee2e2;
   color: #b91c1c;
 }
-.orden-card__sesscount.is-clickable {
+.orden-card__resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
   cursor: pointer;
 }
-.orden-card__sesscount.is-clickable:hover {
-  background: #e0e0dd;
-  color: var(--ink);
+.orden-card__resume svg {
+  width: 12px;
+  height: 12px;
+}
+.orden-card__resume:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 /* card detail modal (reuses .preview-overlay / .preview-modal base) */
@@ -3560,17 +3575,24 @@ li.sess-done-head {
   text-align: left;
   font: inherit;
   font-size: calc(13px * var(--font-scale));
-  border: none;
-  background: transparent;
   color: var(--ink);
-  cursor: pointer;
-  padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-modal__sess-title:hover {
-  color: var(--accent);
+.card-modal__sess-resume {
+  font: inherit;
+  font-size: calc(11px * var(--font-scale));
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  flex: none;
+}
+.card-modal__sess-resume:hover {
+  filter: brightness(1.08);
 }
 .card-modal__sess-remove {
   font: inherit;

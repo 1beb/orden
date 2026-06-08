@@ -6,8 +6,8 @@ import {
 } from "@orden/outliner";
 import { listItems, setItemState, setItemProject, cardSessionIds, type Item } from "./cards";
 import { listProjects } from "./projects";
-import { agentLauncher } from "./agentMarks";
-import { setSessionProject, type Agent } from "./sessions";
+import { agentLauncher, markFor } from "./agentMarks";
+import { getSession, setSessionProject, type Agent } from "./sessions";
 import { openCardModal } from "./cardModal";
 import { renderIssueGroups } from "./issueList";
 import { loadSettings, saveSettings, type KanbanView } from "./settings";
@@ -285,22 +285,34 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
           footer.append(due);
         }
         if (sessionIds.length > 0) {
-          const sess = document.createElement("span");
-          sess.className = "orden-card__sesscount";
-          sess.textContent = `${sessionIds.length} session${sessionIds.length === 1 ? "" : "s"}`;
-          // A single session opens directly on click (stop the event so it
-          // doesn't also bubble to the card → modal). With multiple sessions
-          // there's no obvious target, so let the click fall through to the
-          // modal where they're listed.
-          if (sessionIds.length === 1) {
-            sess.classList.add("is-clickable");
-            sess.title = "Open session";
-            sess.addEventListener("click", (e) => {
-              e.stopPropagation();
-              deps.onOpenSession(sessionIds[0]);
-            });
+          // An explicit Resume button reopens the session's EXISTING conversation
+          // (the host resumes via the agent's saved id) — including sessions that
+          // were killed when the card was completed. Distinct from the new-session
+          // launcher shown only when a card has no sessions yet. Opens the latest
+          // session; the modal lists them all. stopPropagation so the click doesn't
+          // also bubble to the card → modal.
+          const latest = sessionIds[sessionIds.length - 1];
+          const resume = document.createElement("button");
+          resume.type = "button";
+          resume.className = "orden-card__resume";
+          const agent = getSession(latest)?.agent;
+          if (agent) resume.innerHTML = markFor(agent); // author-controlled SVG
+          const label = document.createElement("span");
+          label.textContent = "Resume";
+          resume.append(label);
+          resume.title = sessionIds.length === 1 ? "Resume session" : "Resume latest session";
+          resume.addEventListener("mousedown", (e) => e.stopPropagation());
+          resume.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deps.onOpenSession(latest);
+          });
+          footer.append(resume);
+          if (sessionIds.length > 1) {
+            const count = document.createElement("span");
+            count.className = "orden-card__sesscount";
+            count.textContent = `${sessionIds.length} sessions`;
+            footer.append(count);
           }
-          footer.append(sess);
         }
         card.append(footer);
       }

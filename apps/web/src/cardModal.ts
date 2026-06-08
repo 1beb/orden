@@ -174,12 +174,18 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
       mark.className = "card-modal__sess-mark";
       mark.innerHTML = markFor(s.agent); // static, author-controlled brand SVG
       mark.title = s.agent;
-      const title = document.createElement("button");
-      title.type = "button";
+      const title = document.createElement("span");
       title.className = "card-modal__sess-title";
       title.textContent = s.title;
-      title.title = "Open session";
-      title.addEventListener("click", () => {
+      // Resume reopens the EXISTING conversation (host resumes via the agent's
+      // saved id) — distinct from the "New session" launcher below, which spawns
+      // a fresh agent. Killed-on-complete sessions are resumed, not recreated.
+      const resume = document.createElement("button");
+      resume.type = "button";
+      resume.className = "card-modal__sess-resume";
+      resume.title = "Resume session";
+      resume.textContent = "Resume";
+      resume.addEventListener("click", () => {
         close();
         deps.onOpenSession(s.id);
       });
@@ -193,7 +199,7 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
         deps.onChange();
         render();
       });
-      top.append(mark, title, remove);
+      top.append(mark, title, resume, remove);
       row.append(top);
 
       // Summary: shown once a session is complete / aged. Editable.
