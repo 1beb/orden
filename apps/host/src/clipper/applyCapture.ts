@@ -48,6 +48,8 @@ export async function applyCapture(
   const { vault, store, mintId, now, journalKeyFor } = deps;
 
   // 1. Persist the snapshot under its content hash.
+  // Deliberately the local sync sha256 helper (bare hex), NOT
+  // @orden/annotation-core's prefixed/async hash — don't "unify" these.
   const hash = contentHash(bundle.snapshotHtml);
   const snapshotPath = await store.put(hash, bundle.ext, bundle.snapshotHtml);
 
@@ -86,7 +88,13 @@ export async function applyCapture(
   // 5. Append exactly one top-level journal bullet to today's page.
   const journalKey = journalKeyFor();
   const n = bundle.highlights.length;
-  const bullet = `- Clipped: ${bundle.title} — ${bundle.url} (${n} highlight${n === 1 ? "" : "s"})`;
+  // Sanitize before interpolation: a single bullet must stay a single line, and
+  // arbitrary web-page titles must not inject wiki backlinks. Collapse whitespace
+  // (incl. newlines) to single spaces, trim, and strip [[/]] from the title.
+  const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const safeTitle = oneLine(bundle.title).replace(/\[\[|\]\]/g, "");
+  const safeUrl = oneLine(bundle.url);
+  const bullet = `- Clipped: ${safeTitle} — ${safeUrl} (${n} highlight${n === 1 ? "" : "s"})`;
   const prev = (await vault.get<string>("pages", journalKey)) ?? "";
   const next = prev.length > 0 ? `${prev}\n${bullet}` : bullet;
   await vault.set("pages", journalKey, next);

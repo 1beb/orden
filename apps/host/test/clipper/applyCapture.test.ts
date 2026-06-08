@@ -216,4 +216,76 @@ describe("applyCapture", () => {
     expect(calls[0].prompt).toContain(b.url);
     expect(res.sessionId).toBe("sess-42");
   });
+
+  it("creates a session even with a thin prompt (projectId, no instructions, no agent notes)", async () => {
+    const calls: Array<{ projectId: string; prompt: string }> = [];
+    const { deps } = makeDeps({
+      createSession: async (projectId, prompt) => {
+        calls.push({ projectId, prompt });
+        return "sess-thin";
+      },
+    });
+    const b = bundle({
+      routing: { projectId: "proj-1" },
+      highlights: [
+        { exact: "a", prefix: "", suffix: "", blockId: "b1", note: "n1", audience: "human" },
+      ],
+    });
+    const res = await applyCapture(deps, b);
+    expect(calls.length).toBe(1);
+    expect(calls[0].projectId).toBe("proj-1");
+    expect(calls[0].prompt).toContain(b.url);
+    expect(calls[0].prompt).toContain(b.title);
+    expect(res.sessionId).toBe("sess-thin");
+  });
+
+  it("sanitizes the journal bullet: a title with a newline and [[evil]] stays one line with no wiki markers", async () => {
+    const { deps, vault } = makeDeps();
+    const b = bundle({ title: "Evil\nTitle [[evil]] more" });
+    await applyCapture(deps, b);
+    const page = await vault.get<string>("pages", "2026-06-08");
+    expect(page).not.toBeNull();
+    expect(page!.split("\n").length).toBe(1);
+    expect(page).not.toContain("[[");
+    expect(page).not.toContain("]]");
+    expect(page!.startsWith("- ")).toBe(true);
+  });
+
+  it("appends the journal bullet and snapshot but no annotations for empty highlights, reading '0 highlights'", async () => {
+    const { deps, vault, store } = makeDeps();
+    const b = bundle({ highlights: [] });
+    const res = await applyCapture(deps, b);
+
+    // snapshot still stored
+    expect(await store.get(res.snapshotPath)).toBe(b.snapshotHtml);
+
+    // zero annotations in the bundle
+    const hash = contentHash(b.snapshotHtml);
+    const source: Source = { kind: "web", url: b.url, snapshotPath: res.snapshotPath, contentHash: hash, title: b.title };
+    const rec = await vault.get<{ annotations: OrdenAnnotation[] }>("annotations", sourceHash(source));
+    expect(rec).not.toBeNull();
+    expect(rec!.annotations.length).toBe(0);
+    expect(res.annotationCount).toBe(0);
+
+    // journal bullet still appended, reads "0 highlights"
+    const page = await vault.get<string>("pages", "2026-06-08");
+    const lines = page!.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines.length).toBe(1);
+    expect(lines[0].startsWith("- ")).toBe(true);
+    expect(lines[0]).toContain("0 highlights");
+  });
+
+  it("pluralizes the journal bullet count for two highlights", async () => {
+    const { deps, vault } = makeDeps();
+    const b = bundle({
+      highlights: [
+        { exact: "a", prefix: "", suffix: "", blockId: "b1", note: "n1", audience: "agent" },
+        { exact: "b", prefix: "", suffix: "", blockId: "b2", note: "n2", audience: "human" },
+      ],
+    });
+    await applyCapture(deps, b);
+    const page = await vault.get<string>("pages", "2026-06-08");
+    const lines = page!.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines[0]).toContain("2 highlights");
+  });
 });
