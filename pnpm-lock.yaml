@@ -19,6 +19,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.14.33
         version: 1.14.33
+      '@orden/annotation-core':
+        specifier: workspace:*
+        version: link:../../packages/annotation-core
       '@orden/chat-core':
         specifier: workspace:*
         version: link:../../packages/chat-core
