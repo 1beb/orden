@@ -426,12 +426,14 @@ describe("palette keyboard", () => {
     expect(mount.classList.contains("open")).toBe(false);
   });
 
-  it("Escape clears a non-empty query first, then closes", () => {
+  it("Escape clears a non-empty query first, then closes on a second press", () => {
     const { input, mount, palette } = harness([src("Files", ["fa"])]);
     palette.open("fa");
     press(input, "Escape");
-    expect(input.value).toBe(""); // first Esc clears
-    expect(mount.classList.contains("open")).toBe(false);
+    expect(input.value).toBe(""); // first Esc clears, palette stays open
+    expect(mount.classList.contains("open")).toBe(true);
+    press(input, "Escape");
+    expect(mount.classList.contains("open")).toBe(false); // second Esc closes
   });
 });
 ```
@@ -457,9 +459,9 @@ Expected: FAIL — Arrow keys do nothing / Enter handler not on keydown.
       choose(active);
     } else if (e.key === "Escape") {
       e.preventDefault();
-      if (input.value !== "") { input.value = ""; }
-      close();
-      input.blur();
+      // Two-stage: first press clears a non-empty query (stays open); second closes.
+      if (input.value !== "") { input.value = ""; update(); }
+      else { close(); input.blur(); }
     }
   });
 ```

@@ -63,3 +63,40 @@ describe("command palette query routing", () => {
     expect(mount.querySelector(".palette-group")).toBeNull();
   });
 });
+
+function press(input: HTMLInputElement, key: string) {
+  input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+}
+
+describe("palette keyboard", () => {
+  it("ArrowDown/Up moves the active row and wraps", () => {
+    const { input, mount, palette } = harness([src("Files", ["fa", "fb"])]);
+    palette.open("f");
+    press(input, "ArrowDown");
+    expect(mount.querySelectorAll(".palette-row")[1].classList.contains("active")).toBe(true);
+    press(input, "ArrowDown"); // wrap to top
+    expect(mount.querySelectorAll(".palette-row")[0].classList.contains("active")).toBe(true);
+  });
+
+  it("Enter opens the active row and closes", () => {
+    const open = vi.fn();
+    const sources: SearchSource[] = [
+      { id: "Files", label: "Files", search: () => [{ id: "x", title: "x", open }] },
+    ];
+    const { input, mount, palette } = harness(sources);
+    palette.open("");
+    press(input, "Enter");
+    expect(open).toHaveBeenCalledOnce();
+    expect(mount.classList.contains("open")).toBe(false);
+  });
+
+  it("Escape clears a non-empty query first, then closes on a second press", () => {
+    const { input, mount, palette } = harness([src("Files", ["fa"])]);
+    palette.open("fa");
+    press(input, "Escape");
+    expect(input.value).toBe(""); // first Esc clears, palette stays open
+    expect(mount.classList.contains("open")).toBe(true);
+    press(input, "Escape");
+    expect(mount.classList.contains("open")).toBe(false); // second Esc closes
+  });
+});

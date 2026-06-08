@@ -153,5 +153,30 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
   });
   input.addEventListener("input", update);
 
+  input.addEventListener("keydown", (e) => {
+    const rows = flat.length;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (rows) { active = (active + 1) % rows; paintActive(); }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (rows) { active = (active - 1 + rows) % rows; paintActive(); }
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      choose(active);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      // Two-stage: a first press clears a non-empty query (palette stays open
+      // showing the empty-query results); a second press closes and blurs.
+      if (input.value !== "") {
+        input.value = "";
+        update();
+      } else {
+        close();
+        input.blur();
+      }
+    }
+  });
+
   return { update, open, close };
 }
