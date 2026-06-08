@@ -254,6 +254,15 @@ export interface Learning {
   createdAt: number;
 }
 
+/** Result of applying an accepted learning to the project tree. */
+export interface ApplyLearningResult {
+  written: boolean;
+  /** True only when the target was a git work-tree and the commit succeeded. */
+  committed: boolean;
+  /** Project-relative path that was written. */
+  path: string;
+}
+
 export interface Host {
   identity: Identity;
   vault: VaultStore;
@@ -270,5 +279,12 @@ export interface Host {
    * gated by capabilities().docRender.
    */
   render?(projectId: string, path: string): Promise<RenderResult>;
+  /**
+   * Apply an accepted learning: write its `proposedContent` to its `targetPath`,
+   * and commit it when the target dir is a git work-tree (commit is opportunistic —
+   * a non-repo dir is still a successful write). Absent on hosts that can't write
+   * files (browser).
+   */
+  applyLearning?(learningId: string): Promise<ApplyLearningResult>;
   capabilities(): HostCapabilities;
 }

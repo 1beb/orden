@@ -1066,10 +1066,19 @@ function renderLearningsView(): void {
       setLearningStatus(id, "rejected");
       renderLearningsView();
     },
-    onAccept: (id) => {
-      // TODO(E2): accept must write the file on the host (RPC), not just flip status
-      setLearningStatus(id, "accepted");
-      renderLearningsView();
+    onAccept: async (id) => {
+      try {
+        // The host writes the file on disk (and commits when it's a repo); only
+        // then do we flip the learning to accepted. A browser host has no
+        // applyLearning, so it falls through to a status-only accept.
+        if (host.applyLearning) await host.applyLearning(id);
+        setLearningStatus(id, "accepted");
+        renderLearningsView();
+      } catch (err) {
+        // Leave the learning pending and surface the failure; do NOT mark accepted.
+        console.error("accept failed", err);
+        showToast(`Couldn't accept: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
     onComment: (id, text) => {
       addLearningComment(id, text, Date.now());

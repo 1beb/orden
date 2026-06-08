@@ -89,5 +89,15 @@ export async function connectHostClient(transport: Transport): Promise<Host> {
   for (const cap of CAPABILITIES) {
     client[cap] = capProxy(cap, transport, nextId);
   }
+
+  // Top-level Host methods (path length 1) aren't covered by the capability
+  // proxies, so each needs an explicit forwarder. `dispatch` already resolves
+  // ["applyLearning"] against host.applyLearning server-side.
+  client.applyLearning = async (learningId: string) => {
+    const res = await transport({ id: nextId(), path: ["applyLearning"], args: [learningId] });
+    if (!res.ok) throw new Error(res.error);
+    return res.result;
+  };
+
   return client as unknown as Host;
 }

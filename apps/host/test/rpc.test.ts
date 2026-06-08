@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Host } from "@orden/host-api";
@@ -43,6 +43,35 @@ describe("Host RPC", () => {
     const models = await client.chat!.listModels("claude");
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((m) => m.harness === "claude")).toBe(true);
+  });
+
+  test("a top-level method (applyLearning) round-trips through the transport", async () => {
+    // A non-repo local project so the write succeeds and commit is skipped.
+    const projDir = await mkdtemp(join(tmpdir(), "orden-proj-"));
+    await server.vault.set("projects", "p1", {
+      id: "p1",
+      name: "P1",
+      source: { kind: "local", path: projDir },
+    });
+    await server.vault.set("learnings", "L1", {
+      id: "L1",
+      cardId: "C1",
+      projectId: "p1",
+      type: "readme",
+      title: "Doc it",
+      recap: "",
+      targetPath: "NOTES.md",
+      op: "create",
+      proposedContent: "# Notes\n",
+      status: "pending",
+      createdAt: 0,
+    });
+
+    const res = await client.applyLearning!("L1");
+
+    expect(res).toEqual({ written: true, committed: false, path: "NOTES.md" });
+    expect(await readFile(join(projDir, "NOTES.md"), "utf8")).toBe("# Notes\n");
+    await rm(projDir, { recursive: true, force: true });
   });
 
   test("a method that throws on the host rejects on the client with its message", async () => {

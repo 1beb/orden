@@ -24,6 +24,8 @@ import type {
   ChatBackend,
   TerminalChat,
   HarnessAdapter,
+  Learning,
+  ApplyLearningResult,
 } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { relative, join } from "node:path";
@@ -31,6 +33,7 @@ import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
 import { makeProjectRootResolver, type ProjectRootResolver } from "./projectRoots";
 import { renderDoc } from "./docRender";
+import { applyLearning } from "./applyLearning";
 import type { RenderResult } from "@orden/host-api";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
@@ -222,6 +225,22 @@ export class NodeHost implements Host {
       return { ...result, outputPath: rel };
     }
     return result;
+  }
+
+  /**
+   * Apply an accepted learning: write its proposedContent to its targetPath and,
+   * when that lands in a git work-tree, commit it. Delegates to the injectable
+   * free function with real vault/files/root deps.
+   */
+  async applyLearning(learningId: string): Promise<ApplyLearningResult> {
+    return applyLearning(
+      {
+        getLearning: (id) => this.vault.get<Learning>("learnings", id),
+        writeFile: (pid, p, c) => this.files.write(pid, p, c),
+        resolveRoot: (pid) => this.rootResolver(pid),
+      },
+      learningId,
+    );
   }
 
   capabilities(): HostCapabilities {
