@@ -27,7 +27,10 @@ export type ChatPart =
       input: unknown;
       state: "pending" | "running" | "done" | "error";
       output?: string;
-    };
+    }
+  // A failure surfaced into the transcript (e.g. the event pump died mid-stream),
+  // so the user sees something went wrong instead of a silently truncated reply.
+  | { type: "error"; text: string };
 
 export interface ChatMessage {
   id: string;

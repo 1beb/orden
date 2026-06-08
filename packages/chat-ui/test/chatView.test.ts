@@ -103,6 +103,30 @@ describe("mountChatView", () => {
     view.dispose();
   });
 
+  it("renders an error part in a visibly distinct block", () => {
+    const store = createChatStore(SID);
+    store.hydrate([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "half a reply" },
+          { type: "error", text: "stream ended unexpectedly: boom" },
+        ],
+      },
+    ]);
+    const client = makeClient();
+    const view = mountChatView({ container, store, client, sessionId: SID, harness: HARNESS, renderMarkdown: md });
+
+    const err = container.querySelector(".chat-error-part") as HTMLElement;
+    expect(err).toBeTruthy();
+    expect(err.textContent).toContain("stream ended unexpectedly: boom");
+    // The partial text before the error is still rendered.
+    expect(container.textContent).toContain("half a reply");
+
+    view.dispose();
+  });
+
   it("renders Allow/Deny for a pending permission and wires respondPermission", () => {
     const store = createChatStore(SID);
     store.hydrate([hydrated]);

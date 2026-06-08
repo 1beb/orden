@@ -256,6 +256,50 @@ describe("VaultReducer: turn-end event", () => {
   });
 });
 
+describe("VaultReducer: applyError", () => {
+  it("appends an error part to the current open message", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "text", messageId: "m1", text: "partial" });
+    await r.applyError("stream ended unexpectedly: boom");
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg!.id).toBe("m1");
+    expect(msg!.parts).toEqual([
+      { type: "text", text: "partial" },
+      { type: "error", text: "stream ended unexpectedly: boom" },
+    ]);
+  });
+
+  it("opens a synthetic assistant message when none is open", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.applyError("stream ended unexpectedly: boom");
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(msg).not.toBeNull();
+    expect(msg!.role).toBe("assistant");
+    expect(msg!.parts).toEqual([{ type: "error", text: "stream ended unexpectedly: boom" }]);
+  });
+
+  it("flips a still-running tool to error and closes the turn", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "tool", messageId: "m1", toolId: "t1", name: "edit", input: {} });
+    await r.applyError("stream ended unexpectedly: boom");
+
+    const msg = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    const tool = msg!.parts.find((p) => p.type === "tool");
+    if (tool && tool.type === "tool") expect(tool.state).toBe("error");
+    expect(msg!.parts.some((p) => p.type === "error")).toBe(true);
+
+    // Turn closed: the next text starts a fresh message.
+    await r.apply({ kind: "text", messageId: "m2", text: "next" });
+    const second = await vault.get<ChatMessage>(ns("s1"), "msg:0001");
+    expect(second!.id).toBe("m2");
+  });
+});
+
 describe("VaultReducer: resume", () => {
   it("appends after existing messages instead of clobbering msg:0000", async () => {
     const vault = new MemVault();

@@ -1459,6 +1459,27 @@ li.sess-done-head {
   color: #b91c1c;
 }
 
+/* A pump/driver failure surfaced inline in the transcript. */
+.chat-error-part {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #b91c1c;
+  border-radius: 4px;
+  background: color-mix(in srgb, #b91c1c 10%, transparent);
+  color: #b91c1c;
+  font-size: calc(12.5px * var(--font-scale));
+}
+.chat-error-part-icon {
+  flex: none;
+}
+.chat-error-part-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .term-body {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

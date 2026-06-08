@@ -65,6 +65,17 @@ export class VaultReducer {
     this.current = null;
   }
 
+  // Surface a stream/driver failure into the transcript as an error part on the
+  // current open message (or a fresh synthetic assistant message if none is
+  // open), then close the turn so a half-streamed reply doesn't hang forever and
+  // any still-running tool is marked errored.
+  async applyError(text: string): Promise<void> {
+    const msg = await this.openMessage(this.current?.msg.id ?? "error");
+    msg.parts.push({ type: "error", text });
+    await this.flush();
+    await this.onTurnEnd();
+  }
+
   // Next seq to allocate, seeding from existing vault keys on first call so a
   // resumed session appends after stored messages.
   private async allocSeq(): Promise<number> {

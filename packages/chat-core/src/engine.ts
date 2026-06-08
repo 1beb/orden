@@ -60,11 +60,12 @@ export function createChatBackend(deps: {
   // Detached pump: drains the driver's async event stream into the reducer.
   // Not awaited by createSession so it runs concurrently for the session's life.
   function startPump(sessionId: string, l: Live): void {
+    // Per-session in-turn latch: the first event after idle is a turn "start";
+    // `turn-end` is a turn "end" and re-arms the latch. The `session` event
+    // (the harness handshake) is not real work, so it does not start a turn.
+    // Hoisted out of the loop so the catch below can close the turn on failure.
+    let inTurn = false;
     void (async () => {
-      // Per-session in-turn latch: the first event after idle is a turn "start";
-      // `turn-end` is a turn "end" and re-arms the latch. The `session` event
-      // (the harness handshake) is not real work, so it does not start a turn.
-      let inTurn = false;
       for await (const ev of l.driver.events) {
         if (onTurnBoundary && ev.kind !== "session" && !inTurn) {
           inTurn = true;
@@ -76,11 +77,20 @@ export function createChatBackend(deps: {
           if (onTurnBoundary) onTurnBoundary(sessionId, "end");
         }
       }
-    })().catch((err) => {
-      // A pump failure silently ends the session's event stream; surface it
-      // rather than letting it die as an unhandled rejection. Task 10 (host
-      // wiring) can route this to a real logger / session-error state.
+    })().catch(async (err) => {
+      // A pump failure silently ends the session's event stream. Log it, then
+      // surface it into the transcript as a visible error part so the Chat view
+      // shows the failure instead of a half-streamed reply, and fire the
+      // turn-end boundary so a GUI session's card doesn't stay stuck "working".
       console.error(`chat engine: pump failed for session ${sessionId}:`, err);
+      try {
+        await l.reducer.applyError(
+          `stream ended unexpectedly: ${String((err as { message?: unknown })?.message ?? err)}`,
+        );
+      } catch (inner) {
+        console.error(`chat engine: failed to record error for session ${sessionId}:`, inner);
+      }
+      if (inTurn && onTurnBoundary) onTurnBoundary(sessionId, "end");
     });
   }
 
