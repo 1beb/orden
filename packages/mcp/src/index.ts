@@ -30,3 +30,12 @@ export {
 export type { SessionRec, CardRec, FindResult, PlanDocSessions } from "./sessionLink";
 export { renderSingle, renderBatch } from "./annotationMessage";
 export type { DeliverableAnnotation } from "./annotationMessage";
+export {
+  putLearning,
+  getLearning,
+  listLearnings,
+  listLearningsForCard,
+  setLearningStatus,
+  addLearningComment,
+} from "./learnings";
+export type { Learning, LearningType, LearningStatus } from "./learnings";
