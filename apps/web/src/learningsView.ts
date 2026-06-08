@@ -2,8 +2,10 @@
 // completing card's proposed README/ADR/AGENTS.md/skill changes one at a time. Each
 // step shows the proposed file change as a plain diff, a "why this" recap, and an
 // accept / reject / comment action bar. Accept/reject flip status away from "pending"
-// so the cursor auto-advances; a comment keeps status "pending" (it's feedback to
-// refine THIS learning), so the cursor stays put and the input is cleared on send.
+// so the cursor auto-advances; a comment sends the learning to the agent to revise
+// and flips it pending→revising — which also drops it out of the pending cursor, so
+// the stepper advances to the next pending learning while the agent re-iterates. The
+// revised proposal flips revising→pending and resurfaces. Input is cleared on send.
 // Ported from docs/mockups/learnings-review.html onto orden's real tokens.
 //
 // Progress is over the card's FULL learning list (all statuses), not the pending
@@ -98,6 +100,26 @@ function renderEmpty(container: HTMLElement, hasCard: boolean): void {
   container.append(wrap);
 }
 
+// Nothing pending, but N learnings are mid-revision (the user commented and the
+// agent is re-iterating before re-proposing). Reads as in-progress, not done —
+// the agent's revision will flip one back to pending and resurface the stepper.
+function renderWaiting(container: HTMLElement, revisingCount: number): void {
+  container.replaceChildren();
+  const wrap = el("div", "lr lr-waiting");
+  const inner = el("div", "lr-empty-inner");
+  const noun = revisingCount === 1 ? "learning" : "learnings";
+  inner.append(
+    el("div", "lr-empty-title", `Waiting for the agent to revise ${revisingCount} ${noun}…`),
+    el(
+      "div",
+      "lr-empty-note",
+      "Your comment was sent. The revised proposal will resurface here for re-review.",
+    ),
+  );
+  wrap.append(inner);
+  container.append(wrap);
+}
+
 export function renderLearnings(container: HTMLElement, deps: LearningsDeps): void {
   if (!deps.cardId) {
     renderEmpty(container, false);
@@ -108,10 +130,17 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   // strip and a non-shrinking denominator.
   const all = learningsForCard(deps.cardId);
   const total = all.length;
-  // The cursor is the first still-pending learning. None pending → all reviewed.
+  // The cursor is the first still-pending learning. `revising` is skipped, so a
+  // comment (which flips pending→revising) auto-advances the cursor to the next
+  // pending learning.
   const currentIndex = all.findIndex((l) => l.status === "pending");
   if (currentIndex === -1) {
-    renderEmpty(container, true);
+    // Nothing pending. If any learning is mid-revision, show the in-progress
+    // waiting state (the agent's re-proposal will flip it back to pending and
+    // resurface the stepper); otherwise every learning is resolved → reviewed.
+    const revisingCount = all.filter((l) => l.status === "revising").length;
+    if (revisingCount > 0) renderWaiting(container, revisingCount);
+    else renderEmpty(container, true);
     return;
   }
   const learning = all[currentIndex];
@@ -130,12 +159,15 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   dots.setAttribute("aria-valuemin", "1");
   dots.setAttribute("aria-valuemax", String(total));
   dots.setAttribute("aria-label", `Learning ${currentIndex + 1} of ${total}`);
-  // One dot per learning: resolved (non-pending) → done (dimmed), the cursor → cur
-  // (solid), everything still ahead → remaining (base). Drive off status so resolved
-  // items always read as done even if they interleave with pending ones.
+  // One dot per learning, by status: accepted/rejected → done (dimmed, resolved);
+  // revising → revising (in-flight, the user commented and the agent is re-iterating);
+  // the cursor (first pending) → cur (solid); any other pending ahead → remaining
+  // (base). Drive off status so the four states read distinctly even when interleaved.
   for (let i = 0; i < total; i++) {
     const dot = el("span", "dot");
-    if (all[i].status !== "pending") dot.classList.add("done");
+    const status = all[i].status;
+    if (status === "accepted" || status === "rejected") dot.classList.add("done");
+    else if (status === "revising") dot.classList.add("revising");
     else if (i === currentIndex) dot.classList.add("cur");
     dots.append(dot);
   }
@@ -196,9 +228,9 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
     const text = input.value.trim();
     if (!text) return; // no-op on empty/whitespace
     deps.onComment(learning.id, text);
-    // Clear immediately so the field is empty even if no re-render lands (a comment
-    // keeps status pending, so the cursor stays on THIS learning). A re-render rebuilds
-    // the input empty anyway; this just makes the cleared state independent of it.
+    // Clear immediately so the field is empty even if no re-render lands. The
+    // re-render rebuilds the input empty anyway (the cursor advances past this
+    // now-revising learning); this just makes the cleared state independent of it.
     input.value = "";
   };
   send.addEventListener("click", submitComment);

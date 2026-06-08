@@ -41,6 +41,7 @@ import {
   addLearningComment,
 } from "./learningsStore";
 import { renderLearnings } from "./learningsView";
+import { learningsCommentFocused } from "./learningsFocus";
 import {
   hydrateSessions,
   reapDeadSessions,
@@ -1169,8 +1170,13 @@ function renderLearningsView(): void {
       }
     },
     onComment: async (id, text) => {
-      // Persist + re-render immediately so the UI never blocks on delivery.
+      // A comment is a revise-signal. Persist it AND flip the learning to
+      // "revising" synchronously, then re-render — this drops the learning out of
+      // the pending cursor so the stepper advances to the next pending one
+      // immediately (the card stays in the Learnings column because openForCard
+      // still counts revising). The agent's re-proposal flips it back to pending.
       addLearningComment(id, text, Date.now());
+      setLearningStatus(id, "revising");
       renderLearningsView();
       // Then deliver the feedback back to the proposing agent (relaunching a dead
       // session with it queued). Browser hosts have no agents — method is absent.
@@ -1179,6 +1185,8 @@ function renderLearningsView(): void {
           const r = await host.deliverLearningComment(id, text);
           if (r.delivered === "not-linked" || r.delivered === "failed") {
             showToast("Comment saved; couldn't reach the agent");
+          } else {
+            showToast("Sent — the agent will revise this learning");
           }
         }
       } catch (err) {
@@ -2051,7 +2059,11 @@ onVaultChange((ns, key, projectId) => {
       case "learnings":
         await hydrateLearnings(host);
         refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
-        if (v === "learnings") renderLearningsView(); // refresh the stepper on external changes
+        // Refresh the stepper on external changes (e.g. the agent's revision flips
+        // revising→pending) — but NOT while the user is mid-typing a comment, since
+        // re-rendering would rebuild the DOM and lose their text + focus. The next
+        // user interaction (or view switch) will refresh it.
+        if (v === "learnings" && !learningsCommentFocused()) renderLearningsView();
         break;
       case "projects":
         await hydrateProjects(host);
