@@ -8,7 +8,7 @@ import type { Host, VaultStore } from "@orden/host-api";
 // kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
 import { journalKey } from "@orden/outliner/page";
 import { findCard, type CardRec, type SessionRec } from "./sessionLink";
-import { putLearning, type Learning, type LearningType } from "./learnings";
+import { putLearning, getLearning, type Learning, type LearningType } from "./learnings";
 
 export interface ToolResult {
   content: { type: "text"; text: string }[];
@@ -454,6 +454,12 @@ export async function docRender(host: Host, projectId: string, path: string): Pr
 // fn stays unit-testable; `now` and `id` are injected for deterministic tests.
 // The current file content (when present) is stashed as baseContent for the
 // diff, and decides edit-vs-create.
+//
+// REVISE-in-place: when `id` names an EXISTING learning (the user commented and
+// the agent is re-iterating), the record is UPDATED — its id/binding/createdAt
+// and the user's comments are preserved, the proposal fields are replaced,
+// baseContent is re-derived, and status returns to "pending" for re-review. With
+// an absent or unknown id, a fresh record is created exactly as before.
 export async function learningPropose(
   host: Host,
   binding: { cardId: string; projectId: string; sessionId?: string },
@@ -470,6 +476,25 @@ export async function learningPropose(
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
     op = "create"; // file genuinely absent
   }
+
+  const existing = await getLearning(host.vault, id);
+  if (existing) {
+    // Revision: preserve identity/binding/history, replace the proposal.
+    const updated: Learning = {
+      ...existing,
+      type: input.type,
+      title: input.title.trim(),
+      recap: input.recap.trim(),
+      targetPath: input.path,
+      op,
+      proposedContent: input.content,
+      baseContent,
+      status: "pending",
+    };
+    await putLearning(host.vault, updated);
+    return text(`revised learning ${id}: ${updated.title} (${op} ${updated.targetPath})`);
+  }
+
   const learning: Learning = {
     id,
     cardId: binding.cardId,

@@ -18,11 +18,13 @@ export interface DeliverCommentDeps {
   deliver: (sessionId: string, text: string) => Promise<DeliveredState>;
 }
 
-/** Render the user's review comment as an actionable instruction for the agent. */
+/** Render the user's review comment as an actionable revise instruction for the agent. */
 export function renderComment(learning: Learning, text: string): string {
   return (
-    `Feedback on your proposed learning "${learning.title}" (${learning.targetPath}): ${text}\n\n` +
-    `Please revise the proposal accordingly (re-run learning_propose with the updated content).`
+    `The user reviewed your proposed learning "${learning.title}" (${learning.targetPath}) and asked you to revise it.\n\n` +
+    `Their instruction: ${text}\n\n` +
+    `Re-run learning_propose with id="${learning.id}" and the full updated file content (NOT a diff). ` +
+    `This replaces the existing proposal in place for them to review again.`
   );
 }
 

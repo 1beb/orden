@@ -74,6 +74,64 @@ describe("learningPropose tool", () => {
     expect(t).toContain("create");
   });
 
+  it("updates in place when given an existing id (revision)", async () => {
+    const host = fakeHost(async () => "fresh base content");
+    // Seed an original proposal with a comment + binding to preserve.
+    await learningPropose(host, binding, input, 1000, "learn_rev");
+    // Simulate a user comment landing on it before the revision.
+    const seeded = await getLearning(host.vault, "learn_rev");
+    await host.vault.set("learnings", "learn_rev", {
+      ...seeded!,
+      comments: [{ at: 1500, text: "be more concise" }],
+    });
+
+    const revised = {
+      type: "adr" as const,
+      title: "  Revised title  ",
+      recap: "  revised recap  ",
+      path: "docs/ADR-1.md",
+      content: "# Revised\n",
+    };
+    const res = await learningPropose(host, binding, revised, 2000, "learn_rev");
+
+    // Exactly one record — updated, not duplicated.
+    expect(await host.vault.list("learnings")).toHaveLength(1);
+    const l = await getLearning(host.vault, "learn_rev");
+    expect(l).toMatchObject({
+      id: "learn_rev",
+      cardId: "item_1",
+      projectId: "repo",
+      sessionId: "sess_1",
+      createdAt: 1000, // preserved
+      type: "adr", // replaced
+      title: "Revised title", // replaced + trimmed
+      recap: "revised recap", // replaced + trimmed
+      targetPath: "docs/ADR-1.md", // replaced
+      op: "edit",
+      proposedContent: "# Revised\n", // replaced
+      baseContent: "fresh base content", // re-derived
+      status: "pending", // back to pending for re-review
+    });
+    // Existing comment preserved.
+    expect(l?.comments).toEqual([{ at: 1500, text: "be more concise" }]);
+
+    const t = resultText(res);
+    expect(t).toContain("learn_rev");
+    expect(t).toContain("revised");
+  });
+
+  it("creates a new record when given an unknown id", async () => {
+    const host = fakeHost(async () => "base");
+    const res = await learningPropose(host, binding, input, 7, "learn_new_id");
+
+    const l = await getLearning(host.vault, "learn_new_id");
+    expect(l).not.toBeNull();
+    expect(l?.status).toBe("pending");
+    expect(l?.createdAt).toBe(7);
+    expect(await host.vault.list("learnings")).toHaveLength(1);
+    expect(resultText(res)).toContain("learn_new_id");
+  });
+
   it("propagates a non-ENOENT read error and writes nothing", async () => {
     const host = fakeHost(async () => {
       throw Object.assign(new Error("denied"), { code: "EACCES" });

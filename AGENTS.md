@@ -200,7 +200,10 @@ README/ADR/AGENTS.md edit or new skill, carrying the FULL post-change file conte
 diff). They land in the `"learnings"` vault ns as `pending` and surface in a derived
 **Learnings** kanban column (a `complete` card with pending learnings buckets there) and
 the **learnings** review view, where the user accepts (writes the file), rejects, or
-comments (sent back to the agent). Not memories — README/ADR/AGENTS/skill only.
+comments (sent back to the agent). A user **comment is a revise-signal**: the agent
+re-runs `learning_propose` with that learning's `id` (and the full updated content),
+which updates the proposal in place and returns it to `pending` for re-review — it does
+not create a new learning. Not memories — README/ADR/AGENTS/skill only.
 
 ### Annotations (`packages/annotation-core`)
 

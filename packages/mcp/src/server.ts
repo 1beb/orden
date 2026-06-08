@@ -18,6 +18,7 @@ const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - card_move("in-progress") when you start real work; card_move("blocked") only when you genuinely need the user's input or are done with the turn.
 - NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done. When you do, pass a one- or two-sentence summary — it is written to today's journal.
 - Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.
+- A Comment on a proposed learning is a request to REVISE that learning: re-run learning_propose with that learning's id (passed as the id arg) and the updated full file content — it replaces the proposal in place and returns it to pending for re-review. Do not create a new learning for a revision.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
 - Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
@@ -280,20 +281,25 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
         recap: z.string().describe("1-3 sentences: why this learning, from the session's work"),
         path: z.string().describe("project-relative target file (created if missing)"),
         content: z.string().describe("the FULL proposed file content after the change"),
+        id: z
+          .string()
+          .optional()
+          .describe(
+            "to REVISE an existing learning (e.g. after the user commented), pass its id — the proposal updates that learning in place; omit to create a new one",
+          ),
       },
     },
-    async ({ type, title, recap, path, content }) => {
+    async ({ type, title, recap, path, content, id }) => {
       const cardId = await currentCardId();
       if (!cardId) return unbound();
       const projectId = (await currentProjectId()) ?? "repo";
       const sessionId = await currentSessionId();
-      const id = tools.rid("learn");
       return tools.learningPropose(
         host,
         { cardId, projectId, sessionId },
         { type, title, recap, path, content },
         Date.now(),
-        id,
+        id ?? tools.rid("learn"),
       );
     },
   );

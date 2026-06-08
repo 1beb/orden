@@ -41,6 +41,9 @@ describe("deliverLearningComment", () => {
     expect(text).toContain("docs/WATCHER.md");
     expect(text).toContain("tighten the example");
     expect(text).toContain("learning_propose");
+    // A revise-signal that names the learning id to update in place.
+    expect(text).toContain("L1");
+    expect(text.toLowerCase()).toContain("revise");
   });
 
   test("maps the delivery state through (relaunched)", async () => {
@@ -79,5 +82,8 @@ describe("renderComment", () => {
     expect(text).toContain('"Document the watcher"');
     expect(text).toContain("docs/WATCHER.md");
     expect(text).toContain("be more concise");
+    expect(text).toContain("L1");
+    expect(text).toContain("learning_propose");
+    expect(text.toLowerCase()).toContain("revise");
   });
 });

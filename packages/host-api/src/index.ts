@@ -228,7 +228,13 @@ export interface RenderResult {
  * `@orden/web` and `@orden/mcp` import it from here.
  */
 export type LearningType = "readme" | "adr" | "agents" | "skill";
-export type LearningStatus = "pending" | "accepted" | "rejected";
+/**
+ * Lifecycle of a proposed learning. `pending` = awaiting the user's review;
+ * `revising` = the user commented and the agent is re-iterating in place (an
+ * in-flight state, not actionable by the user until the agent re-proposes it
+ * back to `pending`); `accepted`/`rejected` = terminal user decisions.
+ */
+export type LearningStatus = "pending" | "revising" | "accepted" | "rejected";
 export interface LearningComment {
   /** Epoch ms. */
   at: number;
