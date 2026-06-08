@@ -61,7 +61,7 @@ describe("fuzzyScore", () => {
 
 describe("fuzzyRank", () => {
   it("drops non-matches and sorts by score desc", () => {
-    const items = [{ t: "apple" }, { t: "grape" }, { t: "maple" }];
+    const items = [{ t: "apple" }, { t: "kiwi" }, { t: "maple" }];
     const ranked = fuzzyRank("ap", items, (i) => i.t);
     expect(ranked.map((r) => r.item.t)).toEqual(["apple", "maple"]);
   });
