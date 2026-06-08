@@ -18,6 +18,7 @@ export {
   sessionCreate,
   panelOpen,
   docRender,
+  learningPropose,
 } from "./tools";
 export type { ToolResult } from "./tools";
 export {

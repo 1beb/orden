@@ -43,6 +43,12 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
     return session?.projectId ?? undefined;
   }
 
+  async function currentSessionId(): Promise<string | undefined> {
+    if (!ctx?.conversationId) return undefined;
+    const session = await sessionForConversation(host.vault, ctx.conversationId);
+    return session?.id ?? undefined;
+  }
+
   server.registerTool(
     "page_list",
     { description: "List the names of all orden pages.", inputSchema: {} },
@@ -259,6 +265,35 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
       // there's no explicit project and no session binding.
       const pid = project ?? (await currentProjectId()) ?? "repo";
       return tools.docRender(host, pid, path);
+    },
+  );
+
+  server.registerTool(
+    "learning_propose",
+    {
+      description:
+        "Propose a learning — a concrete edit to README/ADR/AGENTS.md or a new skill — distilled from this session's work, for the user to review. Provide the FULL post-change file content, not a diff. Call once per proposed change when completing a card. Do NOT propose memories.",
+      inputSchema: {
+        type: z.enum(["readme", "adr", "agents", "skill"]),
+        title: z.string(),
+        recap: z.string().describe("1-3 sentences: why this learning, from the session's work"),
+        path: z.string().describe("project-relative target file (created if missing)"),
+        content: z.string().describe("the FULL proposed file content after the change"),
+      },
+    },
+    async ({ type, title, recap, path, content }) => {
+      const cardId = await currentCardId();
+      if (!cardId) return unbound();
+      const projectId = (await currentProjectId()) ?? "repo";
+      const sessionId = await currentSessionId();
+      const id = `learn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      return tools.learningPropose(
+        host,
+        { cardId, projectId, sessionId },
+        { type, title, recap, path, content },
+        Date.now(),
+        id,
+      );
     },
   );
 

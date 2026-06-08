@@ -8,6 +8,7 @@ import type { Host, VaultStore } from "@orden/host-api";
 // kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
 import { journalKey } from "@orden/outliner/page";
 import { findCard, type CardRec, type SessionRec } from "./sessionLink";
+import { putLearning, type Learning, type LearningType } from "./learnings";
 
 export interface ToolResult {
   content: { type: "text"; text: string }[];
@@ -445,6 +446,46 @@ export async function docRender(host: Host, projectId: string, path: string): Pr
   const r = await host.render(projectId, path);
   if (r.ok) return text(`rendered ${path} -> ${r.outputPath}`);
   return text(`render FAILED for ${path}:\n${r.errors ?? "unknown error"}`);
+}
+
+// Capture one proposed learning — a concrete README/ADR/AGENTS edit or a new
+// skill distilled from a session — as a pending record for the user to review.
+// Binding (card/project/session) is resolved by the caller and passed in, so the
+// fn stays unit-testable; `now` and `id` are injected for deterministic tests.
+// The current file content (when present) is stashed as baseContent for the
+// diff, and decides edit-vs-create.
+export async function learningPropose(
+  host: Host,
+  binding: { cardId: string; projectId: string; sessionId?: string },
+  input: { type: LearningType; title: string; recap: string; path: string; content: string },
+  now: number,
+  id: string,
+): Promise<ToolResult> {
+  let baseContent: string | undefined;
+  let op: "edit" | "create" = "create";
+  try {
+    baseContent = await host.files.read(binding.projectId, input.path);
+    op = "edit";
+  } catch {
+    op = "create"; // file doesn't exist yet
+  }
+  const learning: Learning = {
+    id,
+    cardId: binding.cardId,
+    sessionId: binding.sessionId,
+    projectId: binding.projectId,
+    type: input.type,
+    title: input.title.trim(),
+    recap: input.recap.trim(),
+    targetPath: input.path,
+    op,
+    proposedContent: input.content,
+    baseContent,
+    status: "pending",
+    createdAt: now,
+  };
+  await putLearning(host.vault, learning);
+  return text(`proposed learning ${id}: ${learning.title} (${op} ${learning.targetPath})`);
 }
 
 export async function panelOpen(
