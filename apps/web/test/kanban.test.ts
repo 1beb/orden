@@ -103,6 +103,68 @@ describe("kanban — derived Learnings column", () => {
     expect(columnOf(container, card.id)).toBe("complete");
   });
 
+  it("counts a blocked card in the returned needs-action total", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "blocked");
+
+    const container = document.createElement("div");
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 0,
+    });
+
+    expect(needs).toBe(1);
+  });
+
+  it("counts a complete card with pending learnings in the returned needs total", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 1,
+    });
+
+    expect(needs).toBe(1);
+  });
+
+  it("does not count a complete card with no pending learnings", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 0,
+    });
+
+    expect(needs).toBe(0);
+  });
+
+  it("counts both a blocked card and a complete-with-pending card", () => {
+    const blocked = createSession({ title: "Blocked work", agent: "claude", projectId: "p1" });
+    setItemState(cardFor(blocked.id).id, "blocked");
+    const done = createSession({ title: "Done work", agent: "claude", projectId: "p1" });
+    const doneCard = cardFor(done.id);
+    setItemState(doneCard.id, "complete");
+
+    const container = document.createElement("div");
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: (id) => (id === doneCard.id ? 1 : 0),
+    });
+
+    expect(needs).toBe(2);
+  });
+
   it("rejects a drop onto Learnings — a card can't be parked there via the board", () => {
     const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
     const card = cardFor(s.id);

@@ -1,6 +1,5 @@
 import {
   LIFECYCLE_ORDER,
-  isNeedsAction,
   isExpiredComplete,
   type CardState,
 } from "@orden/outliner";
@@ -81,7 +80,22 @@ function passesFilters(item: Item): boolean {
 export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   const allItems = listItems();
   const items = allItems.filter(passesFilters);
-  const needs = allItems.filter((i) => isNeedsAction(i.state)).length;
+
+  // The column an item buckets into. Cards live in their stored `state`'s
+  // column, EXCEPT a complete card with pending learnings, which is derived into
+  // the rightmost "learnings" column instead (and falls back to "complete" once
+  // it has none). No card is ever stored in state "learnings".
+  const columnFor = (i: Item): BoardColumn =>
+    i.state === "complete" && deps.pendingLearnings(i.id) > 0 ? "learnings" : i.state;
+
+  // Nav action badge: a card needs the user's attention when its DERIVED column
+  // is Blocked (waiting on the user) OR Learnings (pending learnings to review).
+  // Counted off the derived column, not `state`, so a complete-but-pending card
+  // still counts even though its stored state is "complete".
+  const needs = allItems.filter((i) => {
+    const col = columnFor(i);
+    return col === "blocked" || col === "learnings";
+  }).length;
 
   const rerender = (): number => renderKanban(container, deps);
 
@@ -222,13 +236,6 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     scheduleFade();
     return needs;
   }
-
-  // The column an item buckets into. Cards live in their stored `state`'s
-  // column, EXCEPT a complete card with pending learnings, which is derived into
-  // the rightmost "learnings" column instead (and falls back to "complete" once
-  // it has none). No card is ever stored in state "learnings".
-  const columnFor = (i: Item): BoardColumn =>
-    i.state === "complete" && deps.pendingLearnings(i.id) > 0 ? "learnings" : i.state;
 
   const columns = document.createElement("div");
   columns.className = "orden-board__columns";
