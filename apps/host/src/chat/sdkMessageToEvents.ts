@@ -134,6 +134,3 @@ export function createSdkTranslator(): (msg: SDKMessage) => DriverEvent[] {
     }
   };
 }
-
-// Back-compat singleton for callers that don't need per-stream dedupe state.
-export const sdkMessageToEvents = createSdkTranslator();
