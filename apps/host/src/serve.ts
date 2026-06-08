@@ -51,15 +51,20 @@ if (host.terminalChat instanceof NodeTerminalChat) {
 // they're unaffected (they still launch when their panel opens).
 async function maybeLaunch(host: NodeHost, defaultCwd: string, sessionId: string): Promise<void> {
   try {
-    const rec = await host.vault.get<{ pendingLaunch?: boolean; conversationId?: string }>(
-      "sessions",
-      sessionId,
-    );
+    const rec = await host.vault.get<{
+      pendingLaunch?: boolean;
+      conversationId?: string;
+      mode?: string;
+    }>("sessions", sessionId);
     if (!rec?.pendingLaunch) return;
     // Clear the flag FIRST to avoid a re-entrant loop. The clearing write fires
     // another "sessions" change, but it has no pendingLaunch so this returns early.
     const { pendingLaunch: _drop, ...rest } = rec;
     await host.vault.set("sessions", sessionId, rest);
+    // GUI sessions have no tmux — they stream via the SDK agent path, launched
+    // lazily when the Chat surface mounts. A stray pendingLaunch on a GUI record
+    // (e.g. MCP-flagged) must clear the flag (above) but NOT spawn a terminal.
+    if (rest.mode === "gui") return;
     await launchDetached(host, defaultCwd, sessionId);
   } catch (err) {
     // eslint-disable-next-line no-console
