@@ -23,6 +23,7 @@ export interface Session {
   title: string;
   agent: Agent;
   projectId: string;
+  mode?: "tui" | "gui"; // surface the session opens in; absent = legacy (both tabs)
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
   touched?: boolean; // user interacted (a TUI keystroke)
