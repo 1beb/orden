@@ -351,6 +351,46 @@ body {
   letter-spacing: normal;
 }
 
+/* Default-mode grid: a row label plus one centered radio per mode column. */
+.settings-mode-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-mode-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 16px;
+}
+
+.settings-mode-rowlabel {
+  font-size: calc(14px * var(--font-scale));
+}
+
+.settings-mode-colhead {
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  min-width: 36px;
+}
+
+.settings-mode-cell {
+  display: flex;
+  justify-content: center;
+  min-width: 36px;
+  cursor: pointer;
+}
+
+.settings-mode-cell input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* read-only vault path: monospace, wraps long absolute paths instead of clipping */
 .settings-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1417,6 +1457,27 @@ li.sess-done-head {
 }
 .chat-error {
   color: #b91c1c;
+}
+
+/* A pump/driver failure surfaced inline in the transcript. */
+.chat-error-part {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #b91c1c;
+  border-radius: 4px;
+  background: color-mix(in srgb, #b91c1c 10%, transparent);
+  color: #b91c1c;
+  font-size: calc(12.5px * var(--font-scale));
+}
+.chat-error-part-icon {
+  flex: none;
+}
+.chat-error-part-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .term-body {

@@ -408,6 +408,56 @@ export async function launchDetached(
   }
 }
 
+// A scratch terminal is a plain reattachable shell, not bound to any session
+// record: the URL asks for it via `scratch=1` or the reserved `session=scratch`.
+export function isScratchReq(url: URL): boolean {
+  return url.searchParams.get("scratch") === "1" || url.searchParams.get("session") === "scratch";
+}
+
+// The universal pty <-> socket wiring shared by every /term branch (agent and
+// scratch): pty output -> socket, pty exit -> close socket, socket keystrokes
+// (binary) -> pty, socket {"resize":[c,r]} (text) -> pty.resize, socket close ->
+// kill the pty (which only DETACHES the tmux client; the tmux session persists).
+// `onKeystroke` lets the agent path observe first-keystroke "touched" without
+// reimplementing the message loop. Returns nothing; both paths add their own
+// extra close handlers (title-timer cleanup, untouched-kill) on top.
+function pipePtyToSocket(
+  term: ReturnType<typeof ptySpawn>,
+  socket: WebSocket,
+  onKeystroke?: () => void,
+): void {
+  term.onData((d) => {
+    if (socket.readyState === socket.OPEN) socket.send(d);
+  });
+  term.onExit(() => {
+    try {
+      socket.close();
+    } catch {
+      /* ignore */
+    }
+  });
+  socket.on("message", (data: Buffer, isBinary: boolean) => {
+    if (isBinary) {
+      onKeystroke?.();
+      term.write(data.toString("utf8")); // keystrokes
+      return;
+    }
+    try {
+      const msg = JSON.parse(data.toString());
+      if (Array.isArray(msg.resize)) term.resize(Math.max(20, msg.resize[0]), Math.max(5, msg.resize[1]));
+    } catch {
+      /* ignore non-JSON control frames */
+    }
+  });
+  socket.on("close", () => {
+    try {
+      term.kill(); // detaches the tmux client
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 async function handle(
   host: Host,
   defaultCwd: string,
@@ -415,9 +465,38 @@ async function handle(
   req: IncomingMessage,
 ): Promise<void> {
   const url = new URL(req.url ?? "", "http://localhost");
-  const sessionId = url.searchParams.get("session");
   const cols = Math.max(20, Number(url.searchParams.get("cols")) || 80);
   const rows = Math.max(5, Number(url.searchParams.get("rows")) || 24);
+
+  // Scratch terminal: a single shared, reattachable plain login shell under the
+  // fixed tmux session `orden-scratch`. No Session record, no vault entry, no
+  // kanban card — `new-session -A` attaches-or-creates so reconnects share one
+  // shell and no orphans accumulate.
+  if (isScratchReq(url)) {
+    const shell = process.env.SHELL || "/bin/bash";
+    const term = ptySpawn(
+      "tmux",
+      [
+        "new-session", "-A", "-s", "orden-scratch",
+        "-x", String(cols), "-y", String(rows), "-c", defaultCwd,
+        shell,
+        ";", "set-option", "-g", "mouse", "on",
+        ";", "set-option", "-g", "window-size", "latest",
+        ";", "set-option", "-g", "aggressive-resize", "on",
+      ],
+      {
+        name: "xterm-256color",
+        cwd: defaultCwd,
+        cols,
+        rows,
+        env: process.env as Record<string, string>,
+      },
+    );
+    pipePtyToSocket(term, socket);
+    return;
+  }
+
+  const sessionId = url.searchParams.get("session");
   if (!sessionId) {
     socket.close();
     return;
@@ -484,14 +563,15 @@ async function handle(
     },
   );
 
-  term.onData((d) => {
-    if (socket.readyState === socket.OPEN) socket.send(d);
-  });
-  term.onExit(() => {
-    try {
-      socket.close();
-    } catch {
-      /* ignore */
+  // Universal pty <-> socket wiring (output, exit, keystrokes, resize, close ->
+  // detach). The agent path layers session-specific concerns on top: a
+  // first-keystroke "touched" mark, and title-timer cleanup + untouched-kill in
+  // its own close handler below.
+  let touched = false;
+  pipePtyToSocket(term, socket, () => {
+    if (!touched) {
+      touched = true;
+      void markTouched(host, sessionId); // a keystroke = the user used this session
     }
   });
 
@@ -522,35 +602,15 @@ async function handle(
   }, 5000);
   titleTimer.unref?.();
 
-  let touched = false;
-  socket.on("message", (data: Buffer, isBinary: boolean) => {
-    if (isBinary) {
-      if (!touched) {
-        touched = true;
-        void markTouched(host, sessionId); // a keystroke = the user used this session
-      }
-      term.write(data.toString("utf8")); // keystrokes
-      return;
-    }
-    try {
-      const msg = JSON.parse(data.toString());
-      if (Array.isArray(msg.resize)) term.resize(Math.max(20, msg.resize[0]), Math.max(5, msg.resize[1]));
-    } catch {
-      /* ignore non-JSON control frames */
-    }
-  });
+  // Session-specific close handling, layered on top of pipePtyToSocket's own
+  // close handler (which kills/detaches the pty): stop the title poller, and if
+  // the session was never touched, kill its tmux so nothing lingers (the web
+  // side deletes the session record in parallel).
   socket.on("close", () => {
     if (titleTimer) {
       clearInterval(titleTimer);
       titleTimer = null;
     }
-    try {
-      term.kill(); // detaches the tmux client
-    } catch {
-      /* ignore */
-    }
-    // An untouched session was abandoned — kill its tmux so nothing lingers
-    // (the web side deletes the session record in parallel).
     if (!touched) {
       void exec("tmux", ["kill-session", "-t", tmuxName]).catch(() => {});
     }

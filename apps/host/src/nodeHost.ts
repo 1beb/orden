@@ -33,6 +33,7 @@ import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
 import { makeOpencodeAdapter } from "./chat/adapters/opencode";
 import { NodeTerminalChat } from "./chat/nodeTerminalChat";
+import { applyChatTurnBoundary } from "./hooks";
 
 export interface NodeHostOptions {
   /** Directory the vault persists into. */
@@ -163,7 +164,20 @@ export class NodeHost implements Host {
     const registry = new AdapterRegistry();
     const adapters = opts.chatAdapters ?? [makeClaudeAdapter(), makeOpencodeAdapter()];
     for (const adapter of adapters) registry.register(adapter);
-    this.chat = createChatBackend({ vault: this.vault, registry });
+    // GUI-mode sessions have no tmux pane, so the claude --settings lifecycle
+    // hooks that drive kanban card state never fire. Drive the card from the
+    // chat engine's turn boundaries instead (Task 13): start => in-progress,
+    // end => blocked. applyChatTurnBoundary resolves chat id -> orden session id
+    // (via the chat-link map) and honors the never-clobber-complete guard.
+    this.chat = createChatBackend({
+      vault: this.vault,
+      registry,
+      onTurnBoundary: (chatSessionId, edge) => {
+        void applyChatTurnBoundary(this, chatSessionId, edge).catch((err) => {
+          console.error(`chat turn-boundary -> card state failed (${chatSessionId}):`, err);
+        });
+      },
+    });
     // Mirror a terminal session's transcript into the chat view + type into its
     // pane, so the Chat tab is a second view of the SAME session the Terminal
     // tab runs (vs `chat`, which spawns its own agent).

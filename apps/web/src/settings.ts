@@ -8,6 +8,7 @@ import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 
 export type StartupView = "journal" | "kanban" | "last";
 export type KanbanView = "board" | "list";
+export type SessionMode = "tui" | "gui";
 
 export interface Settings {
   startup: StartupView;
@@ -21,6 +22,8 @@ export interface Settings {
   completeFadeHours: number; // hours a card sits in Complete before it dims (one of FADE_HOURS_OPTIONS)
   htmlRender: boolean; // open .html files rendered (true) or as source code (false)
   timeZone: string; // IANA zone for journal day-keys; "" = inherit the host's zone
+  defaultMode: { claude: SessionMode; opencode: SessionMode }; // per-tool session UI default (TUI terminal vs native GUI chat)
+  showScratchTerminal: boolean; // show the scratch-terminal button in the session pane
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
@@ -73,6 +76,8 @@ const DEFAULT_SETTINGS: Settings = {
   completeFadeHours: 1,
   htmlRender: true,
   timeZone: "",
+  defaultMode: { claude: "tui", opencode: "tui" },
+  showScratchTerminal: true,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -83,7 +88,20 @@ function isKanbanView(value: unknown): value is KanbanView {
   return typeof value === "string" && (KANBAN_VIEWS as readonly string[]).includes(value);
 }
 
-function coerce(stored: unknown): Settings {
+function isMode(v: unknown): v is SessionMode {
+  return v === "tui" || v === "gui";
+}
+
+// Coerce a stored per-tool mode map, defaulting each tool to "tui".
+function coerceMode(v: unknown): Settings["defaultMode"] {
+  const o = (typeof v === "object" && v ? v : {}) as Record<string, unknown>;
+  return {
+    claude: isMode(o.claude) ? o.claude : "tui",
+    opencode: isMode(o.opencode) ? o.opencode : "tui",
+  };
+}
+
+export function coerce(stored: unknown): Settings {
   const s = (typeof stored === "object" && stored !== null ? stored : {}) as Record<string, unknown>;
   const size = s.fontSize;
   const pct = s.sessionPanelPct;
@@ -119,6 +137,11 @@ function coerce(stored: unknown): Settings {
     htmlRender:
       typeof s.htmlRender === "boolean" ? s.htmlRender : DEFAULT_SETTINGS.htmlRender,
     timeZone: isValidTimeZone(s.timeZone) ? s.timeZone : DEFAULT_SETTINGS.timeZone,
+    defaultMode: coerceMode(s.defaultMode),
+    showScratchTerminal:
+      typeof s.showScratchTerminal === "boolean"
+        ? s.showScratchTerminal
+        : DEFAULT_SETTINGS.showScratchTerminal,
   };
 }
 

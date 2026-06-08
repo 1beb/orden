@@ -12,7 +12,26 @@ import type { Host } from "@orden/host-api";
 import { createChatStore, mountChatView, type ChatClient } from "@orden/chat-ui";
 import { makeChatClient } from "./chatClient";
 import { renderMarkdown } from "./chatMarkdown";
+import { getProject } from "./projects";
 import type { Session } from "./sessions";
+
+// Resolve the cwd a standalone (agent-path) chat session should run in. We
+// prefer the session's project working dir — its explicit workingDir override,
+// else a local project's folder path — so a GUI session runs where its project
+// lives. Falls back to the host's global filesRoot when the project has no
+// concrete path (ephemeral/ssh/s3) or isn't found.
+//
+// NOTE: this only sets the cwd for the standalone chat session created here; the
+// tmux/PTY spawn path still launches in the global cwd (see projects.ts) until
+// per-project cwd is threaded host-side.
+function sessionCwd(session: Session, host: Host): string {
+  const fallback = host.capabilities().filesRoot ?? ".";
+  const project = getProject(session.projectId);
+  if (!project) return fallback;
+  if (project.workingDir) return project.workingDir;
+  if (project.source.kind === "local") return project.source.path;
+  return fallback;
+}
 
 // Build the mountChat fn bound to a host. Mirrors mountTerminal's shape:
 // (container, session) => disposeFn.
@@ -68,10 +87,17 @@ export function createChatMount(
 
     void (async () => {
       try {
+        // GUI-mode sessions have no terminal/tmux pane to mirror — they ARE the
+        // streaming agent. Force the agent path: skip mirror() and its retry
+        // loop so we drop straight into the standalone-agent branch below.
+        // Legacy (mode == null) sessions keep the mirror-preferred behaviour.
+        const forceAgent = panelSession.mode === "gui";
+
         // Prefer mirroring the terminal session; fall back to a separate agent.
-        let mirrored = host.terminalChat
-          ? await host.terminalChat.mirror(panelSession.id)
-          : false;
+        let mirrored =
+          !forceAgent && host.terminalChat
+            ? await host.terminalChat.mirror(panelSession.id)
+            : false;
 
         // A freshly-created session mints its conversationId host-side at
         // launch — a beat AFTER the panel synchronously opens this Chat tab, so
@@ -79,7 +105,7 @@ export function createChatMount(
         // back here would strand the tab on a SEPARATE, empty agent, and the
         // starter prompt (which went to the terminal session) would never show.
         // We therefore WAIT for the mirror to attach before falling back.
-        if (!mirrored && host.terminalChat) {
+        if (!forceAgent && !mirrored && host.terminalChat) {
           for (let i = 0; i < 60 && !mirrored; i++) {
             await new Promise((r) => setTimeout(r, 400));
             if (disposed) return;
@@ -100,7 +126,7 @@ export function createChatMount(
           } else {
             const created = await client.createSession({
               harness: panelSession.agent,
-              cwd: host.capabilities().filesRoot ?? ".",
+              cwd: sessionCwd(panelSession, host),
               title: panelSession.title,
             });
             chatSessionId = created.id;

@@ -224,6 +224,35 @@ export async function applyState(host: Host, claudeSessionId: string, state: str
   }
 }
 
+// GUI (native-chat) sessions drive their card from chat-engine turn boundaries
+// instead of tmux hooks — they have no PTY pane, so the claude `--settings`
+// lifecycle hooks never fire (see Task 13). The chat engine knows only its OWN
+// chat session id; the web's chatMount persists `chat-link: ordenSessionId ->
+// chatSessionId`, so we reverse that map to recover the orden session id, then
+// reuse the existing card-state setter (which honors the never-clobber-complete
+// rule). A mirrored terminal session keys chat:<panelId> directly, so its chat
+// id IS the orden session id; the reverse lookup falls through to that identity.
+// turn "start" => in-progress (working); turn "end" => blocked (done/waiting).
+async function ordenSessionForChat(host: Host, chatSessionId: string): Promise<string> {
+  for (const key of await host.vault.list("chat-link")) {
+    const linked = await host.vault.get<string>("chat-link", key);
+    if (linked === chatSessionId) return key; // key == ordenSessionId
+  }
+  return chatSessionId; // mirror case (chat id == orden id) or unlinked
+}
+
+export async function applyChatTurnBoundary(
+  host: Host,
+  chatSessionId: string,
+  edge: "start" | "end",
+): Promise<void> {
+  const ordenSessionId = await ordenSessionForChat(host, chatSessionId);
+  const state = edge === "start" ? "in-progress" : "blocked";
+  // Reuse the by-session-id setter: it resolves the card and refuses to touch a
+  // "complete" card, so a GUI turn can never knock a completed card off complete.
+  await applyStateBySessionId(host, ordenSessionId, state);
+}
+
 // Plugin-driven transition: the opencode kanban plugin passes the orden session
 // ID directly (via orden_session_id), so we don't need the conversationId lookup.
 // On the first event (session.created) the plugin also hands us the opencode
