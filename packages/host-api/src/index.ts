@@ -265,6 +265,13 @@ export interface ApplyLearningResult {
   path: string;
 }
 
+/** Result of delivering a learning's review comment back to the proposing agent. */
+export interface DeliverCommentResult {
+  /** "queued"/"relaunched" from the delivery primitive, "failed" on a delivery
+   *  error, "not-linked" when no session backs the learning to reach. */
+  delivered: "queued" | "relaunched" | "failed" | "not-linked";
+}
+
 export interface Host {
   identity: Identity;
   vault: VaultStore;
@@ -288,5 +295,12 @@ export interface Host {
    * files (browser).
    */
   applyLearning?(learningId: string): Promise<ApplyLearningResult>;
+  /**
+   * Deliver a learning's comment to the agent that proposed it: resolve the
+   * learning's session and type the rendered feedback into its live pane (or
+   * relaunch a dead session with it queued). "not-linked" when no session backs
+   * the learning. Absent on hosts without agents (browser).
+   */
+  deliverLearningComment?(learningId: string, text: string): Promise<DeliverCommentResult>;
   capabilities(): HostCapabilities;
 }

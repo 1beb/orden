@@ -74,6 +74,27 @@ describe("Host RPC", () => {
     await rm(projDir, { recursive: true, force: true });
   });
 
+  test("deliverLearningComment round-trips through the transport", async () => {
+    // A learning with no sessionId yields the tmux-free not-linked path, so the
+    // round-trip exercises the forwarder + dispatch without touching a real pane.
+    await server.vault.set("learnings", "L2", {
+      id: "L2",
+      cardId: "C2",
+      projectId: "p1",
+      type: "readme",
+      title: "Doc it",
+      recap: "",
+      targetPath: "NOTES.md",
+      op: "create",
+      proposedContent: "# Notes\n",
+      status: "pending",
+      createdAt: 0,
+    });
+
+    const res = await client.deliverLearningComment!("L2", "please clarify");
+    expect(res).toEqual({ delivered: "not-linked" });
+  });
+
   test("a method that throws on the host rejects on the client with its message", async () => {
     await expect(
       client.sessions.spawn("p1", { title: "x", agent: "claude" }),

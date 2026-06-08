@@ -26,6 +26,7 @@ import type {
   HarnessAdapter,
   Learning,
   ApplyLearningResult,
+  DeliverCommentResult,
 } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { relative, join } from "node:path";
@@ -34,6 +35,8 @@ import { FsFiles } from "./fsFiles";
 import { makeProjectRootResolver, type ProjectRootResolver } from "./projectRoots";
 import { renderDoc } from "./docRender";
 import { applyLearning } from "./applyLearning";
+import { deliverLearningComment } from "./deliverLearningComment";
+import { queueToSession, defaultPaneOps } from "./annotationDelivery";
 import type { RenderResult } from "@orden/host-api";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
@@ -240,6 +243,28 @@ export class NodeHost implements Host {
         resolveRoot: (pid) => this.rootResolver(pid),
       },
       learningId,
+    );
+  }
+
+  /**
+   * Deliver a learning's review comment back to the agent that proposed it.
+   * Wires the pure resolve+render logic to the real queueToSession delivery
+   * primitive (typing into the live tmux pane, or relaunching a dead session
+   * with the feedback queued). defaultCwd mirrors NodeSessions' construction.
+   */
+  async deliverLearningComment(learningId: string, text: string): Promise<DeliverCommentResult> {
+    const defaultCwd = this.filesRoot ?? process.cwd();
+    const ops = defaultPaneOps(this, defaultCwd);
+    return deliverLearningComment(
+      {
+        getLearning: (id) => this.vault.get<Learning>("learnings", id),
+        deliver: async (sessionId, msg) => {
+          const r = await queueToSession(this, sessionId, msg, ops);
+          return r.delivered;
+        },
+      },
+      learningId,
+      text,
     );
   }
 

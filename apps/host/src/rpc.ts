@@ -98,6 +98,15 @@ export async function connectHostClient(transport: Transport): Promise<Host> {
     if (!res.ok) throw new Error(res.error);
     return res.result;
   };
+  client.deliverLearningComment = async (learningId: string, text: string) => {
+    const res = await transport({
+      id: nextId(),
+      path: ["deliverLearningComment"],
+      args: [learningId, text],
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.result;
+  };
 
   return client as unknown as Host;
 }

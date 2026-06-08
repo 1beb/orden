@@ -1086,9 +1086,23 @@ function renderLearningsView(): void {
         showToast(`Couldn't accept: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
-    onComment: (id, text) => {
+    onComment: async (id, text) => {
+      // Persist + re-render immediately so the UI never blocks on delivery.
       addLearningComment(id, text, Date.now());
       renderLearningsView();
+      // Then deliver the feedback back to the proposing agent (relaunching a dead
+      // session with it queued). Browser hosts have no agents — method is absent.
+      try {
+        if (host.deliverLearningComment) {
+          const r = await host.deliverLearningComment(id, text);
+          if (r.delivered === "not-linked" || r.delivered === "failed") {
+            showToast("Comment saved; couldn't reach the agent");
+          }
+        }
+      } catch (err) {
+        console.error("comment delivery failed", err);
+        showToast("Comment saved; delivery failed");
+      }
     },
   });
 }
