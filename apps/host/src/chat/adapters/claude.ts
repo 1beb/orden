@@ -133,6 +133,9 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
         settingSources: [],
         canUseTool,
         abortController,
+        // Emit SDKPartialAssistantMessage stream_events so the GUI streams text
+        // and thinking live (token-by-token) instead of only whole messages.
+        includePartialMessages: true,
       };
       if (cwd) options.cwd = cwd;
 
