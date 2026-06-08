@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Learning } from "@orden/host-api";
 import { BrowserHost } from "../src/host/browserHost";
-import { hydrateLearnings, setLearningStatus } from "../src/learningsStore";
+import { addLearningComment, getLearning, hydrateLearnings, setLearningStatus } from "../src/learningsStore";
 import { renderLearnings, diffLines } from "../src/learningsView";
 
 function mk(over: Partial<Learning> & Pick<Learning, "id" | "cardId">): Learning {
@@ -128,6 +128,88 @@ describe("learnings stepper view", () => {
     const reject = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Reject/.test(b.textContent ?? ""))!;
     reject.click();
     expect(deps.onReject).toHaveBeenCalledWith("l1");
+  });
+
+  it("Reject advances the cursor to the next pending learning over a FIXED total", async () => {
+    const host = new BrowserHost();
+    await seed(host, [
+      mk({ id: "l1", cardId: "c1", createdAt: 10 }),
+      mk({ id: "l2", cardId: "c1", createdAt: 20 }),
+    ]);
+    await hydrateLearnings(host);
+
+    const container = document.createElement("div");
+    const deps = noopDeps("c1");
+    // onReject flips status the way main.ts would, then re-renders.
+    deps.onReject.mockImplementation((id: string) => {
+      setLearningStatus(id, "rejected");
+      renderLearnings(container, deps);
+    });
+    renderLearnings(container, deps);
+
+    expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 2");
+    expect(container.querySelector(".lr-title")?.textContent).toBe("l1");
+
+    const reject = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Reject/.test(b.textContent ?? ""))!;
+    reject.click();
+    expect(deps.onReject).toHaveBeenCalledWith("l1");
+    // l1 is rejected; cursor lands on l2. Denominator stays FIXED at 2.
+    expect(container.querySelector(".lr-count")?.textContent).toBe("2 / 2");
+    expect(container.querySelector(".lr-title")?.textContent).toBe("l2");
+    expect(container.querySelectorAll(".dots .dot").length).toBe(2);
+    expect(container.querySelectorAll(".dots .dot.done").length).toBe(1);
+    expect(container.querySelectorAll(".dots .dot.cur").length).toBe(1);
+  });
+
+  it("Comment stays on the current learning (status pending) and clears the input", async () => {
+    const host = new BrowserHost();
+    await seed(host, [
+      mk({ id: "l1", cardId: "c1", createdAt: 10 }),
+      mk({ id: "l2", cardId: "c1", createdAt: 20 }),
+    ]);
+    await hydrateLearnings(host);
+
+    const container = document.createElement("div");
+    const deps = noopDeps("c1");
+    // onComment records the comment the way main.ts would, then re-renders.
+    deps.onComment.mockImplementation((id: string, text: string) => {
+      addLearningComment(id, text, 123);
+      renderLearnings(container, deps);
+    });
+    renderLearnings(container, deps);
+
+    expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 2");
+    expect(container.querySelector(".lr-title")?.textContent).toBe("l1");
+
+    const input = container.querySelector<HTMLInputElement>(".comment-row input")!;
+    input.value = "please refine";
+    const send = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Send/.test(b.textContent ?? ""))!;
+    send.click();
+
+    expect(deps.onComment).toHaveBeenCalledWith("l1", "please refine");
+    // Comment keeps status pending, so the SAME learning is still shown.
+    expect(getLearning("l1")?.status).toBe("pending");
+    expect(container.querySelector(".lr-count")?.textContent).toBe("1 / 2");
+    expect(container.querySelector(".lr-title")?.textContent).toBe("l1");
+    expect(container.querySelectorAll(".dots .dot.done").length).toBe(0);
+    // The (freshly rendered) comment input is empty.
+    expect(container.querySelector<HTMLInputElement>(".comment-row input")!.value).toBe("");
+  });
+
+  it("Send is a no-op on empty / whitespace-only input", async () => {
+    const host = new BrowserHost();
+    await seed(host, [mk({ id: "l1", cardId: "c1" })]);
+    await hydrateLearnings(host);
+    const container = document.createElement("div");
+    const deps = noopDeps("c1");
+    renderLearnings(container, deps);
+    const input = container.querySelector<HTMLInputElement>(".comment-row input")!;
+    const send = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => /Send/.test(b.textContent ?? ""))!;
+
+    send.click(); // empty
+    input.value = "   \t  ";
+    send.click(); // whitespace only
+    expect(deps.onComment).not.toHaveBeenCalled();
   });
 
   it("Send passes the input text to onComment when non-empty", async () => {

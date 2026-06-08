@@ -1,8 +1,10 @@
 // Learnings review stepper — the main-panel surface that walks the user through a
 // completing card's proposed README/ADR/AGENTS.md/skill changes one at a time. Each
 // step shows the proposed file change as a plain diff, a "why this" recap, and an
-// accept / reject / comment action bar. Any action auto-advances to the next pending
-// learning. Ported from docs/mockups/learnings-review.html onto orden's real tokens.
+// accept / reject / comment action bar. Accept/reject flip status away from "pending"
+// so the cursor auto-advances; a comment keeps status "pending" (it's feedback to
+// refine THIS learning), so the cursor stays put and the input is cleared on send.
+// Ported from docs/mockups/learnings-review.html onto orden's real tokens.
 //
 // Progress is over the card's FULL learning list (all statuses), not the pending
 // queue: the dot strip is a fixed N = total learnings, partitioned into done /
@@ -192,7 +194,12 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   send.setAttribute("aria-label", "Send comment");
   const submitComment = () => {
     const text = input.value.trim();
-    if (text) deps.onComment(learning.id, text);
+    if (!text) return; // no-op on empty/whitespace
+    deps.onComment(learning.id, text);
+    // Clear immediately so the field is empty even if no re-render lands (a comment
+    // keeps status pending, so the cursor stays on THIS learning). A re-render rebuilds
+    // the input empty anyway; this just makes the cleared state independent of it.
+    input.value = "";
   };
   send.addEventListener("click", submitComment);
   input.addEventListener("keydown", (e) => {
