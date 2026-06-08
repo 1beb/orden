@@ -2962,6 +2962,25 @@ li.sess-done-head {
   margin: 0 0 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* The "Show completed" switch riding in the Items-by-state head. Opt out of the
+   head's uppercase/bold so it reads as a control, not a heading. */
+.issue-show-completed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+  user-select: none;
+}
+.issue-show-completed input {
+  cursor: pointer;
 }
 /* Foldable widget: the head doubles as the <summary> toggle. Swap the default
    disclosure marker for a triangle that rotates open, and make the whole head

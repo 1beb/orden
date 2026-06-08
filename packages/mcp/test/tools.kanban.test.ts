@@ -7,6 +7,7 @@ import {
   cardGet,
   cardMove,
   cardComplete,
+  logCardCompletion,
   cardSetPlan,
   cardCreate,
   projectList,
@@ -238,6 +239,52 @@ describe("cardComplete", () => {
     expect(journal).toMatch(
       /^- earlier entry\n- Automatic Logging\n  - \d\d:\d\d Completed "Fix login" — later \[\[Project: Alpha\]\]\n$/,
     );
+  });
+  it("does not write a duplicate journal/card-log entry when completion is logged twice", async () => {
+    // Reproduces the double-write seen in the field: a single completion that
+    // gets logged twice (e.g. an MCP double-dispatch, or the direct call plus
+    // the host reactor both firing). The two writes are byte-identical, so the
+    // append must collapse them to one.
+    const v = seed();
+    await cardComplete(v, "c1", "shipped");
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    // Re-log the *same* completion (same completedAt → same timestamp/entry).
+    await logCardCompletion(v, card as never);
+    const journal = await v.get<string>("pages", todayKey());
+    expect((journal!.match(/Completed "Fix login"/g) ?? []).length).toBe(1);
+    const log = await v.get<string>("pages", "card:c1");
+    expect((log!.match(/Completed/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("logCardCompletion", () => {
+  // A fixed completion instant so the entry is deterministic regardless of when
+  // the test runs (2026-06-05T20:09:32Z).
+  const AT = 1780690172706;
+  it("writes the journal entry off the card's own completedAt, not now", async () => {
+    const v = seed();
+    const card = {
+      ...(await v.get<Record<string, unknown>>("cards", "c1")),
+      state: "complete",
+      completedAt: AT,
+      completionSummary: "shipped",
+    };
+    await logCardCompletion(v, card as never);
+    const day = journalKey(new Date(AT));
+    const journal = await v.get<string>("pages", day);
+    expect(journal).toContain('Completed "Fix login" — shipped [[Project: Alpha]]');
+  });
+  it("logs a card completed without a summary (the web-UI path)", async () => {
+    const v = seed();
+    const card = {
+      ...(await v.get<Record<string, unknown>>("cards", "c2")),
+      state: "complete",
+      completedAt: AT,
+    };
+    await logCardCompletion(v, card as never);
+    const journal = await v.get<string>("pages", journalKey(new Date(AT)));
+    expect(journal).toContain('Completed "Write docs"');
+    expect(journal).not.toContain("—");
   });
 });
 

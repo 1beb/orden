@@ -188,8 +188,28 @@ export function deleteSession(id: string): void {
   if (cardId) removeItemSession(cardId, id);
 }
 
+// Fields the HOST authors and the web only ever reads: they flow
+// host -> vault -> cache (via the async change feed), never the other way. The
+// cache is refreshed only on that roundtrip, so right after the host mints a
+// `conversationId` (buildCommand, at launch) the cache still lacks it. Writing
+// the whole cached record straight back would clobber the host's value — and
+// because the hook->card mapping matches on conversationId
+// (sessionForConversation), that silently severs the auto-cycle and freezes the
+// card at planning. So persist re-reads the freshest record and always takes
+// these host-owned fields from it rather than from the (possibly stale) cache.
+const HOST_OWNED = ["conversationId", "prompted"] as const;
+
 function persist(session: Session): void {
-  if (host) void host.vault.set("sessions", session.id, session);
+  if (!host) return;
+  const h = host;
+  void (async () => {
+    const cur = (await h.vault.get<Record<string, unknown>>("sessions", session.id)) ?? {};
+    const merged: Record<string, unknown> = { ...session };
+    for (const f of HOST_OWNED) {
+      if (cur[f] !== undefined) merged[f] = cur[f];
+    }
+    await h.vault.set("sessions", session.id, merged);
+  })();
 }
 
 /**

@@ -133,6 +133,49 @@ describe("sessions store (host-backed)", () => {
     expect(getSession(s.id)?.touched).toBe(true);
   });
 
+  it("a web persist never clobbers the host-minted conversationId (cache-lag race)", async () => {
+    // The host mints conversationId in buildCommand at launch and writes it
+    // straight to the vault; the web cache only catches up on an async
+    // change-feed roundtrip, so right after launch the cache still has no id.
+    // A web-side persist in that window (the first-keystroke markSessionTouched)
+    // must NOT write its stale cached record back over the host's id — doing so
+    // severs the hook->card mapping (sessionForConversation matches on
+    // conversationId) and freezes the card at planning. Regression guard.
+    const h = new BrowserHost();
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    const s = createSession({ title: "Launch me", agent: "claude" });
+    await settle();
+    // Host writes conversationId directly to the vault, bypassing the cache.
+    const rec = (await h.vault.get<Session>("sessions", s.id)) as Session;
+    await h.vault.set("sessions", s.id, { ...rec, conversationId: "host-minted-id" });
+    // Web persist fires while the cache is still id-less.
+    markSessionTouched(s.id);
+    await settle();
+    const after = await h.vault.get<Session>("sessions", s.id);
+    expect(after?.conversationId).toBe("host-minted-id"); // survived
+    expect(after?.touched).toBe(true); // the web's own change still landed
+  });
+
+  it("a web persist never clobbers the host-authored `prompted` flag", async () => {
+    // Same mechanism as conversationId: `prompted` flows host -> vault -> cache
+    // only (reapDeadSessions reads it to spare real work). A stale-cache persist
+    // must preserve it.
+    const h = new BrowserHost();
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    const s = createSession({ title: "Untitled", agent: "claude" });
+    await settle();
+    const rec = (await h.vault.get<Session>("sessions", s.id)) as Session;
+    await h.vault.set("sessions", s.id, { ...rec, prompted: true });
+    markSessionTouched(s.id);
+    await settle();
+    const after = await h.vault.get<Session & { prompted?: boolean }>("sessions", s.id);
+    expect(after?.prompted).toBe(true);
+  });
+
   it("isSessionComplete is true once the linked card reaches Complete", () => {
     const s = createSession({ title: "Ship it", agent: "claude" });
     const card = listItems().find((i) => cardSessionIds(i).includes(s.id))!;

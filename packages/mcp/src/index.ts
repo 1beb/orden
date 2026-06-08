@@ -11,6 +11,7 @@ export {
   cardGet,
   cardMove,
   cardComplete,
+  logCardCompletion,
   cardSetPlan,
   cardCreate,
   projectList,

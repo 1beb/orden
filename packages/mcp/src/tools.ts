@@ -210,6 +210,11 @@ async function appendAutoLog(vault: VaultStore, key: string, entry: string): Pro
   const cur = mergeAutoSections((await vault.get<string>("pages", key)) ?? "");
   const child = `${INDENT}- ${entry}`;
   const lines = cur.split("\n");
+  // Idempotent: a byte-identical entry is already logged. Auto entries carry a
+  // timestamp + summary, so an exact match within the same minute is a repeat
+  // write (MCP double-dispatch, or the direct call and the host reactor both
+  // firing for one completion), not two distinct events — collapse to one.
+  if (lines.includes(child)) return;
   const head = lines.findIndex((l) => AUTO_SECTION_RE.test(l));
   if (head === -1) {
     const body = cur.trimEnd();
@@ -277,6 +282,36 @@ export async function cardMove(
   return text(`card "${card.title}" -> ${state}`);
 }
 
+// Write a completed card's two auto-log entries: a "Completed" line on the
+// card's own log page, and a journal entry on the day-page linking the project.
+//
+// Driven entirely off the card record (`completedAt`, `completionSummary`), so
+// it is deterministic and idempotent: whether the MCP `card_complete` tool calls
+// it directly, or the host's journal reactor calls it off the vault change a web
+// completion produced, both compute the byte-identical entry — and
+// appendAutoLog's exact-duplicate guard collapses the pair to one. This is the
+// single source of completion logging; both completion paths route through it.
+export async function logCardCompletion(vault: VaultStore, card: CardRec): Promise<void> {
+  const when = typeof card.completedAt === "number" ? new Date(card.completedAt) : new Date();
+  const tz = await journalZone(vault);
+  const time = hhmm(when, tz);
+  const sum =
+    typeof card.completionSummary === "string" ? card.completionSummary.trim() : "";
+
+  // Card log: a Completed line, with the summary when given.
+  await appendAutoLog(vault, cardLogKey(card.id), `${time} Completed${sum ? " — " + sum : ""}`);
+
+  // Journal: a single entry on the completion day's page linking back to the
+  // project (and the plan doc, when one is associated).
+  const link = await projectLink(vault, card.projectId);
+  const plan =
+    typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
+  const entry =
+    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
+    plan;
+  await appendAutoLog(vault, journalKey(when, tz), entry);
+}
+
 export async function cardComplete(
   vault: VaultStore,
   target: string,
@@ -284,26 +319,19 @@ export async function cardComplete(
 ): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
-  const now = new Date();
-  await vault.set("cards", card.id, { ...card, state: "complete", completedAt: now.getTime() });
-
-  const tz = await journalZone(vault);
-  const time = hhmm(now, tz);
-  const sum = summary?.trim();
-
-  // Card log: a Completed line, with the summary when given.
-  await appendAutoLog(vault, cardLogKey(card.id), `${time} Completed${sum ? " — " + sum : ""}`);
-
-  // Journal: a single entry on today's page linking back to the project (and
-  // the plan doc, when one is associated).
-  const link = await projectLink(vault, card.projectId);
-  const plan =
-    typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
-  const entry =
-    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
-    plan;
-  await appendAutoLog(vault, journalKey(now, tz), entry);
-
+  // Stamp completion + stash the summary on the card so logCardCompletion (and
+  // the host reactor, which fires off this very write) can render it. We also
+  // log directly here so the journal lands even when no reactor is wired (the
+  // MCP package standalone, or a non-NodeHost); the reactor's call is a no-op
+  // duplicate, collapsed by appendAutoLog.
+  const completed: CardRec = {
+    ...card,
+    state: "complete",
+    completedAt: Date.now(),
+    completionSummary: summary?.trim() || undefined,
+  };
+  await vault.set("cards", card.id, completed);
+  await logCardCompletion(vault, completed);
   return text(`card "${card.title}" -> complete`);
 }
 

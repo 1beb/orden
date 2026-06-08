@@ -12,6 +12,7 @@ import {
 import {
   getProject,
   listProjects,
+  updateProject,
   DEFAULT_PROJECT_ID,
   type Project,
 } from "./projects";
@@ -697,24 +698,47 @@ function itemsWidget(
 ): { section: HTMLElement; render: () => void } {
   const { section, body } = widget("Items by state");
 
+  // A per-project "Show completed" switch in the widget header. When on, the
+  // list keeps completed cards/sessions instead of fading them out after the
+  // dwell time. Persisted on the project (default off).
+  const toggle = document.createElement("label");
+  toggle.className = "issue-show-completed";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = getProject(projectId)?.showCompleted ?? false;
+  toggle.append(cb, document.createTextNode(" Show completed"));
+  cb.addEventListener("change", () => {
+    updateProject(projectId, { showCompleted: cb.checked });
+    onChange();
+    render();
+  });
+  section.querySelector(".project-widget-head")?.append(toggle);
+
   const list = document.createElement("div");
   list.className = "issue-list";
 
   const render = (): void => {
     const nowMs = Date.now();
     const ttlMs = loadSettings().completeFadeHours * 60 * 60 * 1000;
+    const showCompleted = getProject(projectId)?.showCompleted ?? false;
     const allItems = itemsByProject(projectId);
     // Completed items fall off the list after the configured dwell time,
-    // mirroring the board's Complete column.
-    const items = allItems.filter((i) => !isExpiredComplete(i, nowMs, ttlMs));
+    // mirroring the board's Complete column — unless the project opts to keep
+    // showing them.
+    const items = showCompleted
+      ? allItems
+      : allItems.filter((i) => !isExpiredComplete(i, nowMs, ttlMs));
     // Re-render at the soonest moment a still-visible completed item crosses its
     // TTL, so an idle page drops it without waiting for the next interaction.
+    // Not needed while showing completed items (nothing fades out).
     if (dropTimer) clearTimeout(dropTimer);
     let soonestDrop = Infinity;
-    for (const i of allItems) {
-      if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
-      const dropAt = i.completedAt + ttlMs;
-      if (dropAt > nowMs && dropAt < soonestDrop) soonestDrop = dropAt;
+    if (!showCompleted) {
+      for (const i of allItems) {
+        if (i.state !== "complete" || typeof i.completedAt !== "number") continue;
+        const dropAt = i.completedAt + ttlMs;
+        if (dropAt > nowMs && dropAt < soonestDrop) soonestDrop = dropAt;
+      }
     }
     if (soonestDrop !== Infinity) {
       dropTimer = setTimeout(render, soonestDrop - nowMs + 50);

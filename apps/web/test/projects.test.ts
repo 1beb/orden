@@ -61,6 +61,16 @@ describe("projects registry (host-backed)", () => {
     expect(() => updateProject("nope", { name: "x" })).not.toThrow();
   });
 
+  it("toggles showCompleted on, then clears it when set false", () => {
+    const p = addProject("Showy");
+    expect(getProject(p.id)?.showCompleted).toBeUndefined();
+    updateProject(p.id, { showCompleted: true });
+    expect(getProject(p.id)?.showCompleted).toBe(true);
+    updateProject(p.id, { showCompleted: false });
+    // Default is false, so it's stored as absence rather than an explicit false.
+    expect(getProject(p.id)?.showCompleted).toBeUndefined();
+  });
+
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {
     const p = addProject("Durable");
     await settle();

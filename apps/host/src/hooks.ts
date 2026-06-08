@@ -55,6 +55,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Host } from "@orden/host-api";
 import { sessionForConversation, cardForSession } from "@orden/mcp";
+import { noteHookActivity } from "./idleReconciler";
 
 // Hooks may only set the automatic cycle states. "complete" is intentionally
 // excluded — it comes solely from the `card_complete` MCP tool.
@@ -207,6 +208,10 @@ const WAITING_NOTIFICATIONS = new Set([
 ]);
 
 export async function applyState(host: Host, claudeSessionId: string, state: string): Promise<void> {
+  // Any state hook is a sign of life — stamp it so the idle reconciler (the
+  // safety net for missed Stop edges) doesn't block a card whose agent is plainly
+  // active. Keyed by conversationId, which for claude IS the hook's session_id.
+  noteHookActivity(claudeSessionId);
   const session = await sessionForConversation(host.vault, claudeSessionId);
   if (!session) return; // not an orden-tracked session
   const card = await cardForSession(host.vault, session.id);
@@ -230,6 +235,10 @@ export async function applyStateBySessionId(
   state: string,
   opencodeSessionId?: string,
 ): Promise<void> {
+  // opencode writes no claude transcript, so the reconciler leans on this hook
+  // stamp for liveness. Key by the opencode session id (== the persisted
+  // conversationId the sweep reads).
+  if (opencodeSessionId) noteHookActivity(opencodeSessionId);
   if (opencodeSessionId) {
     const ses = await host.vault.get<{ conversationId?: string; [k: string]: unknown }>(
       "sessions",

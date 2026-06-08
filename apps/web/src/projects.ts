@@ -28,6 +28,10 @@ export interface Project {
   // project override needs the spawn path to read this. Persisted now; the host
   // cwd-override plumbing is deferred.
   workingDir?: string;
+  // showCompleted: keep completed cards/sessions in the project page's "Items by
+  // state" list instead of letting them fade out after completeFadeHours. Absent
+  // / false = the default fade-out behaviour.
+  showCompleted?: boolean;
 }
 
 let host: Host | null = null;
@@ -109,6 +113,7 @@ export function updateProject(
     path?: string;
     defaultAgent?: Agent | null;
     workingDir?: string | null;
+    showCompleted?: boolean;
   },
 ): void {
   const project = cache.find((p) => p.id === id);
@@ -125,6 +130,12 @@ export function updateProject(
     const wd = patch.workingDir?.trim();
     if (wd) project.workingDir = wd;
     else delete project.workingDir;
+  }
+  if (patch.showCompleted !== undefined) {
+    // Default is false, so store only the truthy case and drop the field
+    // otherwise — keeps records clean and matches the absent-means-default rule.
+    if (patch.showCompleted) project.showCompleted = true;
+    else delete project.showCompleted;
   }
   if (host) void host.vault.set("projects", project.id, project);
 }

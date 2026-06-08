@@ -15,8 +15,10 @@ import { NodeHost } from "./nodeHost";
 import { NodeTerminalChat } from "./chat/nodeTerminalChat";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss, launchDetached } from "./terminal";
+import { startIdleReconciler } from "./idleReconciler";
 import { reconcileUntitledSessions } from "./sessionTitles";
 import { reapCompletedCard } from "./cardReaper";
+import { journalCompletedCard } from "./cardJournal";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 import { handleRepoFileRequest } from "./repoFileRoute";
@@ -79,6 +81,26 @@ host.onChange((change) => {
     console.warn(`orden: reapCompletedCard failed for ${change.key}:`, err);
   });
 });
+
+// Journal-on-complete reactor: log a completion to the journal + card log for
+// EITHER completion path. The MCP card_complete tool logs directly too; this
+// catches the web-UI drag-to-Done path, which only sets card state. Duplicate
+// writes collapse in logCardCompletion, so running both is safe.
+const journaledCards = new Set<string>();
+host.onChange((change) => {
+  if (change.ns !== "cards") return;
+  void journalCompletedCard(host, change.key, journaledCards).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: journalCompletedCard failed for ${change.key}:`, err);
+  });
+});
+
+// Idle reconciler: the hook cycle's safety net. A periodic sweep moves any
+// "in-progress" card whose agent has stopped producing output (stale transcript
+// mtime / no recent hook) to "blocked" — recovering cards left stuck by a missed
+// Stop edge or a host restart. Self-heals: a still-working agent's next hook
+// flips it back. Runs for the process lifetime (interval is unref'd).
+startIdleReconciler(host, filesRoot);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

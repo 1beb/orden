@@ -16,11 +16,38 @@ export function createChatStore(sessionId: string): ChatStore {
   let msgs: ChatMessage[] = [];
   // Messages keyed by numeric seq so each msg:<seq> change upserts in place.
   const bySeq = new Map<number, ChatMessage>();
+  // Optimistic local echoes (the user's just-sent message) kept OUTSIDE the seq
+  // keyspace so an in-flight mirror delta landing on the guessed next seq can't
+  // clobber them — the bug that made a sent message vanish ("looks like it
+  // didn't send"). `afterSeq` is the seq high-water mark at send time, so the
+  // echo renders right after the history that existed when the user sent.
+  let pending: { afterSeq: number; message: ChatMessage }[] = [];
   // Open permission requests keyed by permId; insertion order is request order.
   const perms = new Map<string, PermissionRequest>();
 
+  const textOf = (m: ChatMessage): string =>
+    m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+
   function rebuildMessages() {
-    msgs = [...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m);
+    const seqEntries = [...bySeq.entries()].sort((a, b) => a[0] - b[0]);
+    // Reconcile: once the source records a user turn with the same text (claude's
+    // transcript does; opencode never does — it drops user parts), drop the
+    // optimistic echo so it isn't shown twice. opencode echoes thus persist.
+    const confirmed = new Set(
+      seqEntries.filter(([, m]) => m.role === "user").map(([, m]) => textOf(m)),
+    );
+    pending = pending.filter((p) => !confirmed.has(textOf(p.message)));
+    // Merge: emit each pending echo before the first seq strictly greater than
+    // its afterSeq, so an idle-send echo precedes the reply it triggered and a
+    // mid-turn echo follows the history that existed when it was sent.
+    const out: ChatMessage[] = [];
+    let pi = 0;
+    for (const [seq, m] of seqEntries) {
+      while (pi < pending.length && pending[pi].afterSeq < seq) out.push(pending[pi++].message);
+      out.push(m);
+    }
+    while (pi < pending.length) out.push(pending[pi++].message);
+    msgs = out;
   }
 
   function notify() {
@@ -70,7 +97,7 @@ export function createChatStore(sessionId: string): ChatStore {
       for (const seq of bySeq.keys()) {
         if (seq > maxSeq) maxSeq = seq;
       }
-      bySeq.set(maxSeq + 1, message);
+      pending.push({ afterSeq: maxSeq, message });
       rebuildMessages();
       notify();
     },

@@ -115,6 +115,61 @@ describe("chatStore applyChange msg", () => {
   });
 });
 
+describe("chatStore addMessage (optimistic local echo)", () => {
+  const ns = `chat:${SID}`;
+  function userMsg(id: string, text: string): ChatMessage {
+    return { id, role: "user", parts: [{ type: "text", text }] };
+  }
+
+  it("shows an optimistically-added user message immediately, after existing history", () => {
+    const store = createChatStore(SID);
+    store.hydrateKeyed([{ seq: 200, message: msg("a200", "prior turn") }]);
+    store.addMessage(userMsg("u1", "hello"));
+    expect(store.messages().map((m) => m.id)).toEqual(["a200", "u1"]);
+  });
+
+  it("does NOT clobber the optimistic user message when a mid-turn mirror delta lands on the next seq", () => {
+    // The bug: addMessage used to place the user echo at maxSeq+1 inside the
+    // mirror's keyspace; the agent's in-flight transcript entry at that seq then
+    // overwrote it and the user's message vanished ("looks like it didn't send").
+    const store = createChatStore(SID);
+    store.hydrateKeyed([{ seq: 200, message: msg("a200", "prior turn") }]);
+    store.addMessage(userMsg("u1", "hello"));
+    // Agent is mid-turn: the mirror writes the turn's NEXT entry at seq 201.
+    store.applyChange(ns, "msg:0201", msg("a201", "tool call"));
+    const ids = store.messages().map((m) => m.id);
+    expect(ids).toContain("u1"); // survived
+    expect(ids).toContain("a201");
+  });
+
+  it("reconciles the optimistic echo once the transcript records the same user turn (claude)", () => {
+    const store = createChatStore(SID);
+    store.hydrateKeyed([{ seq: 200, message: msg("a200", "prior turn") }]);
+    store.addMessage(userMsg("u1", "hello"));
+    // claude later writes the user turn to the transcript at its real seq.
+    store.applyChange(ns, "msg:0201", userMsg("real-u", "hello"));
+    const users = store.messages().filter((m) => m.role === "user");
+    expect(users.length).toBe(1); // no duplicate "hello" bubble
+    expect(users[0].id).toBe("real-u"); // the real one wins
+  });
+
+  it("persists the optimistic echo for opencode (translator drops user parts) and orders it before the reply", () => {
+    const store = createChatStore(SID); // empty: opencode's first turn
+    store.addMessage(userMsg("u1", "hi"));
+    // Only assistant deltas ever arrive; the user message is never re-added.
+    store.applyChange(ns, "msg:0000", msg("a", "assistant reply"));
+    expect(store.messages().map((m) => m.id)).toEqual(["u1", "a"]);
+  });
+
+  it("fires onChange when an optimistic message is added", () => {
+    const store = createChatStore(SID);
+    const cb = vi.fn();
+    store.onChange(cb);
+    store.addMessage(userMsg("u1", "hello"));
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("chatStore applyChange perm", () => {
   const ns = `chat:${SID}`;
   function perm(id: string): PermissionRequest {

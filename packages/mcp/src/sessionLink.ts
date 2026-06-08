@@ -23,6 +23,13 @@ export interface CardRec {
   planDoc?: string;
   /** Epoch ms the card last entered "complete"; drives the kanban fade. */
   completedAt?: number;
+  /**
+   * Summary stashed by `card_complete` for the journal/card-log entry. Read by
+   * `logCardCompletion` (called directly and from the host journal reactor) so
+   * both completion paths render the same line; absent for a bare web-UI
+   * completion, which logs without a summary.
+   */
+  completionSummary?: string;
   [k: string]: unknown;
 }
 
