@@ -108,6 +108,10 @@ describe("NodeHost", () => {
     expect(host.capabilities().persistentVault).toBe(true);
   });
 
+  test("reports docRender as a boolean (quarto probe)", async () => {
+    expect(typeof host.capabilities().docRender).toBe("boolean");
+  });
+
   test("identity reports a local node user", async () => {
     const me = await host.identity.me();
     expect(me).not.toBeNull();

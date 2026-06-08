@@ -7,6 +7,7 @@
 // wiring surfaces loudly.
 
 import { userInfo } from "node:os";
+import { execFileSync } from "node:child_process";
 import type {
   Host,
   Identity,
@@ -46,6 +47,22 @@ export interface NodeHostOptions {
    * only spawn a process on driver `open()`).
    */
   chatAdapters?: HarnessAdapter[];
+}
+
+// Probe once whether quarto is on PATH, so the host can report the docRender
+// capability. Mirrors the pickDirectory probe: detect-once, cache the result for
+// the process lifetime. `quarto --version` is cheap but we still avoid re-running
+// it on every capabilities() call.
+let quartoCached: boolean | undefined;
+function hasQuarto(): boolean {
+  if (quartoCached !== undefined) return quartoCached;
+  try {
+    execFileSync("quarto", ["--version"], { stdio: "ignore" });
+    quartoCached = true;
+  } catch {
+    quartoCached = false;
+  }
+  return quartoCached;
 }
 
 class NodeIdentity implements Identity {
@@ -190,6 +207,7 @@ export class NodeHost implements Host {
       filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
       vaultRoot: this.vaultRoot, // so the web can show where the vault lives
       pickDirectory: hasDirectoryPicker(), // native folder chooser available?
+      docRender: hasQuarto(), // quarto on PATH? gates the doc_render flow
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // host's local zone; web defaults to it
     };
   }

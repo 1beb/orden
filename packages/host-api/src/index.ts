@@ -27,6 +27,12 @@ export interface HostCapabilities {
    */
   pickDirectory?: boolean;
   /**
+   * True when the host can render documents (quarto on PATH). The doc_render
+   * MCP tool and the agent render flow are gated on this. Absent/false on the
+   * in-browser host and hosts without quarto installed.
+   */
+  docRender?: boolean;
+  /**
    * The host process's IANA time zone (e.g. "America/Toronto"), from its system
    * clock. Journal day-pages are filed by local calendar day, so the web — which
    * may run in a different (or remote) browser zone — defaults to THIS zone
