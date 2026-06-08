@@ -159,8 +159,8 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   function scratchButton(): HTMLElement | null {
     if (!loadSettings().showScratchTerminal) return null;
     const b = iconButton(ICON.terminal, "sess-icon sess-scratch-btn");
-    b.title = "Open scratch terminal";
-    b.setAttribute("aria-label", "Open scratch terminal");
+    b.title = "Open Terminal Only";
+    b.setAttribute("aria-label", "Open Terminal Only");
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       scratchOpen = true;
@@ -187,11 +187,11 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       render();
     });
     const title = el("span", "sess-title");
-    title.textContent = "Scratch terminal";
+    title.textContent = "Terminal Only";
     head.append(back, title);
     c.append(head);
 
-    const body = el("div", "sess-detail-body");
+    const body = el("div", "sess-detail-body sess-scratch-body");
     c.append(body);
     disposeTab = deps.mountTerminal(body, "scratch");
     // A scratch shell is not a session; nothing to track as a mounted surface.

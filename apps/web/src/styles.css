@@ -933,17 +933,22 @@ li.sess-done-head {
   color: var(--accent);
   background: var(--accent-soft);
 }
-.sess-terminal {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  padding: 6px 8px;
-  background: #fbfbfa;
-  /* Re-enable selection the panel suppresses: terminal output is prose to copy. */
-  user-select: text;
+/* Breathing room around the Terminal Only scratch shell (agent terminals stay
+   flush). Padding sits on the CONTAINER, not the .xterm element: FitAddon reads
+   the parent's content-box height and shrinks the grid to fit, so the padding
+   shows orden's own background rather than xterm.css's hardcoded black viewport. */
+.sess-scratch-body {
+  padding: 8px 10px;
+  background: var(--bg);
 }
-.sess-terminal .xterm {
-  height: 100%;
+/* A sliver of left padding so agent terminal output isn't flush to the pane
+   edge. On the container (not .xterm) so the strip shows orden's bg rather than
+   xterm.css's black viewport; the :has guard keeps the Chat view — also hosted
+   in .sess-detail-body — flush, and :not() leaves the scratch shell's own fuller
+   padding alone. */
+.sess-detail-body:has(> .xterm):not(.sess-scratch-body) {
+  padding-left: 3px;
+  background: var(--bg);
 }
 
 /* Terminal | Chat tab toggle in the session detail view. */
