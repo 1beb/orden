@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Learning } from "@orden/host-api";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateLearnings, setLearningStatus } from "../src/learningsStore";
-import { renderLearnings, diffLines, resetLearningsStep } from "../src/learningsView";
+import { renderLearnings, diffLines } from "../src/learningsView";
 
 function mk(over: Partial<Learning> & Pick<Learning, "id" | "cardId">): Learning {
   return {
@@ -49,7 +49,6 @@ describe("diffLines helper", () => {
 describe("learnings stepper view", () => {
   beforeEach(() => {
     localStorage.clear();
-    resetLearningsStep();
   });
 
   it("renders the first learning: title, progress 1 / 2, diff, recap, controls", async () => {

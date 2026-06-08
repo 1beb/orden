@@ -19,10 +19,6 @@ export interface LearningsDeps {
   onComment(id: string, text: string): void;
 }
 
-/** Test/seam hook: kept for API compatibility; the cursor is now derived from
- *  status, so there is no module-level step state to reset. No-op. */
-export function resetLearningsStep(): void {}
-
 const TYPE_LABEL: Record<LearningType, string> = {
   readme: "README",
   adr: "ADR",
@@ -127,6 +123,11 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   const eyebrow = el("div", "lr-eyebrow");
   eyebrow.append(el("span", "name", "Learnings"), el("span", "lr-count", `${currentIndex + 1} / ${total}`));
   const dots = el("div", "dots");
+  dots.setAttribute("role", "progressbar");
+  dots.setAttribute("aria-valuenow", String(currentIndex + 1));
+  dots.setAttribute("aria-valuemin", "1");
+  dots.setAttribute("aria-valuemax", String(total));
+  dots.setAttribute("aria-label", `Learning ${currentIndex + 1} of ${total}`);
   // One dot per learning: resolved (non-pending) → done (dimmed), the cursor → cur
   // (solid), everything still ahead → remaining (base). Drive off status so resolved
   // items always read as done even if they interleave with pending ones.
@@ -150,7 +151,7 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   const diff = el("div", "diff");
   for (const row of diffLines(learning.baseContent, learning.proposedContent)) {
     const r = el("div", "row");
-    r.append(el("span", "gutter", row.gutter === " " ? " " : row.gutter));
+    r.append(el("span", "gutter", row.gutter));
     r.append(document.createTextNode(row.text));
     diff.append(r);
   }
@@ -169,10 +170,16 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   const actions = el("div", "lr-actions");
   const verdict = el("div", "verdict");
   const reject = el("button", "btn reject");
-  reject.append(el("span", "ic", "✕"), document.createTextNode("Reject"));
+  reject.setAttribute("aria-label", "Reject");
+  const rejectIc = el("span", "ic", "✕");
+  rejectIc.setAttribute("aria-hidden", "true");
+  reject.append(rejectIc, document.createTextNode("Reject"));
   reject.addEventListener("click", () => deps.onReject(learning.id));
   const accept = el("button", "btn accept");
-  accept.append(el("span", "ic", "✓"), document.createTextNode("Accept"));
+  accept.setAttribute("aria-label", "Accept");
+  const acceptIc = el("span", "ic", "✓");
+  acceptIc.setAttribute("aria-hidden", "true");
+  accept.append(acceptIc, document.createTextNode("Accept"));
   accept.addEventListener("click", () => deps.onAccept(learning.id));
   verdict.append(reject, accept);
 
@@ -180,7 +187,9 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   const input = el("input");
   input.type = "text";
   input.placeholder = "Comment…";
+  input.setAttribute("aria-label", "Comment");
   const send = el("button", "send", "Send");
+  send.setAttribute("aria-label", "Send comment");
   const submitComment = () => {
     const text = input.value.trim();
     if (text) deps.onComment(learning.id, text);

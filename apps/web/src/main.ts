@@ -1051,6 +1051,10 @@ let activeLearningsCardId: string | null = null;
 // is review work to do.
 function renderLearningsView(): void {
   if (!activeLearningsCardId) {
+    // Demo seam: auto-pick the first card with pending learnings and STICK to it
+    // until that card's learnings are exhausted (then it shows the empty state) — it
+    // does NOT auto-advance across cards. D3 replaces this with an explicit
+    // board-click selection.
     const firstPending = listLearnings()
       .filter((l) => l.status === "pending")
       .sort((a, b) => a.createdAt - b.createdAt)[0];
