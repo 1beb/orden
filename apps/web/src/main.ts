@@ -1170,28 +1170,34 @@ function renderLearningsView(): void {
       }
     },
     onComment: async (id, text) => {
-      // A comment is a revise-signal. Persist it AND flip the learning to
-      // "revising" synchronously, then re-render — this drops the learning out of
-      // the pending cursor so the stepper advances to the next pending one
-      // immediately (the card stays in the Learnings column because openForCard
-      // still counts revising). The agent's re-proposal flips it back to pending.
+      // A comment is a revise-signal. Optimistically persist it AND flip the
+      // learning to "revising", then re-render — this drops it out of the pending
+      // cursor so the stepper advances immediately (the card stays in the Learnings
+      // column because openForCard still counts revising). The agent's re-proposal
+      // flips it back to pending.
       addLearningComment(id, text, Date.now());
       setLearningStatus(id, "revising");
       renderLearningsView();
-      // Then deliver the feedback back to the proposing agent (relaunching a dead
-      // session with it queued). Browser hosts have no agents — method is absent.
+      // Deliver the feedback to the proposing agent (relaunching a dead session
+      // with it queued). Only a genuine hand-off (queued/relaunched) leaves the
+      // learning "revising"; anything else (no agent/browser host, not-linked,
+      // failed, threw) means nothing will ever revise it — so REVERT to pending so
+      // it resurfaces in the stepper for the user to retry rather than hanging.
+      let reached = false;
       try {
         if (host.deliverLearningComment) {
           const r = await host.deliverLearningComment(id, text);
-          if (r.delivered === "not-linked" || r.delivered === "failed") {
-            showToast("Comment saved; couldn't reach the agent");
-          } else {
-            showToast("Sent — the agent will revise this learning");
-          }
+          reached = r.delivered === "queued" || r.delivered === "relaunched";
         }
       } catch (err) {
         console.error("comment delivery failed", err);
-        showToast("Comment saved; delivery failed");
+      }
+      if (reached) {
+        showToast("Sent — the agent will revise this learning");
+      } else {
+        setLearningStatus(id, "pending");
+        renderLearningsView();
+        showToast("Comment saved, but couldn't reach the agent — left it for you to retry");
       }
     },
   });
