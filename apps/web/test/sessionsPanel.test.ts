@@ -164,3 +164,77 @@ describe("sessionsPanel Terminal/Chat tabs", () => {
     );
   });
 });
+
+describe("sessionsPanel mode-gated surfaces", () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  // Build deps for a single open session of the given mode, spying on both mounts.
+  function modeDeps(
+    mode: Session["mode"],
+    over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {},
+  ) {
+    const s = makeSession({ id: "s1", mode });
+    const termMounts: string[] = [];
+    const chatMounts: Session[] = [];
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {};
+      },
+      mountChat: (_c: HTMLElement, session: Session) => {
+        chatMounts.push(session);
+        return () => {};
+      },
+      ...over,
+    });
+    return { deps: base, termMounts, chatMounts, session: s };
+  }
+
+  it("gui: shows only Chat — chat mounts, terminal does not, no Terminal tab", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("gui");
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(chatMounts.map((s) => s.id)).toEqual(["s1"]);
+    expect(termMounts).toEqual([]);
+    expect(d.container.querySelector(".term-tab")).toBeNull();
+  });
+
+  it("tui: shows only Terminal — terminal mounts, chat does not, no Chat tab", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("tui");
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(chatMounts).toEqual([]);
+    expect(d.container.querySelector(".chat-tab")).toBeNull();
+  });
+
+  it("absent mode: legacy — both tabs present when mountChat provided, terminal active", () => {
+    const { deps: d, termMounts } = modeDeps(undefined);
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".term-tab")).not.toBeNull();
+    expect(d.container.querySelector(".chat-tab")).not.toBeNull();
+    expect(termMounts).toEqual(["s1"]);
+    expect(d.container.querySelector<HTMLElement>(".term-tab")?.classList.contains("active")).toBe(
+      true,
+    );
+  });
+
+  it("gui without a chat backend: falls back to Terminal with an inline notice", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("gui", { mountChat: undefined });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(chatMounts).toEqual([]);
+    expect(d.container.querySelector(".sess-mode-notice")).not.toBeNull();
+  });
+});
