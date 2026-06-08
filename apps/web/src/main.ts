@@ -18,7 +18,11 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages } from "./pages";
+import { hydratePages, pageNames, getPageMarkdown, pagesIndex } from "./pages";
+import { listFiles } from "./files";
+import { fuzzyRank, fuzzyScore } from "./fuzzy";
+import { createCommandPalette } from "./commandPalette";
+import type { SearchSource, Command } from "./commandPalette";
 import {
   hydrateCards,
   listItems,
@@ -304,7 +308,7 @@ function wireHideShow(
   });
   return { setHidden, isHidden: () => section.classList.contains("section-hidden") };
 }
-wireHideShow(docmap, "#hide-outline", "#show-outline");
+const outlineHideShow = wireHideShow(docmap, "#hide-outline", "#show-outline");
 // Annotations auto-reveal: the first annotation pops the panel open if it was
 // hidden — UNLESS the user deliberately hid it while it already had annotations.
 let prevAnnTotal = 0;
@@ -1685,36 +1689,133 @@ if (vaultLocationEl) {
   if (vaultRoot) vaultLocationEl.title = vaultRoot;
 }
 
-// --- Omnisearch: a multi-purpose search field in the topbar. What it searches
-// (pages / sessions / files / commands) is still TBD; this wires the UI and a
-// single onSearch() seam so the behaviour can drop in later without touching
-// markup. Cmd/Ctrl+K focuses it, Enter submits, Escape clears + blurs. ---
+// --- Omnisearch / command palette: one topbar box that fuzzy-finds across
+// Journal, Pages, Projects, Sessions, Files, and runs actions in ">" mode.
+// See docs/plans/2026-06-08-omnisearch-command-palette-design.md.
 const searchForm = document.querySelector<HTMLFormElement>("#omnisearch-form");
 const searchInput = document.querySelector<HTMLInputElement>("#omnisearch");
+const paletteMount = document.querySelector<HTMLElement>("#palette-results");
 
-function onSearch(query: string): void {
-  // Seam: broadcast the query so a future feature can listen, without committing
-  // to a search target yet. Replace with real routing when decided.
-  document.dispatchEvent(new CustomEvent("orden:search", { detail: { query } }));
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// First doc line containing the query — a result subtitle for body matches.
+function snippet(md: string, q: string): string | undefined {
+  if (!q) return undefined;
+  const line = md.split("\n").find((l) => l.toLowerCase().includes(q.toLowerCase()));
+  return line?.trim().slice(0, 80) || undefined;
 }
 
-if (searchForm && searchInput) {
-  searchForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    onSearch(searchInput.value.trim());
+const searchSources: SearchSource[] = [
+  {
+    id: "journal",
+    label: "Journal",
+    search: (q) => {
+      const days = pageNames().filter((n) => DATE_RE.test(n));
+      const hits = days.filter(
+        (d) => fuzzyScore(q, d) !== null || (q !== "" && getPageMarkdown(d).toLowerCase().includes(q.toLowerCase())),
+      );
+      return hits
+        .sort((a, b) => b.localeCompare(a)) // newest first
+        .map((d) => ({
+          id: `journal:${d}`,
+          title: d,
+          subtitle: snippet(getPageMarkdown(d), q),
+          open: () => { journal.showPage(d); viewStore.set("journal"); },
+        }));
+    },
+  },
+  {
+    id: "pages",
+    label: "Pages",
+    search: (q) => {
+      const pages = pagesIndex().filter((p) => !DATE_RE.test(p.name));
+      const byName = fuzzyRank(q, pages, (p) => p.name).map((r) => r.item);
+      const extra = q === ""
+        ? []
+        : pages.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
+      return [...byName, ...extra].map((p) => ({
+        id: `page:${p.name}`,
+        title: p.name,
+        subtitle: snippet(getPageMarkdown(p.name), q),
+        open: () => openPage(p.name),
+      }));
+    },
+  },
+  {
+    id: "projects",
+    label: "Projects",
+    search: (q) =>
+      fuzzyRank(q, listProjects(), (p) => `${p.name} ${p.source.kind === "local" ? p.source.path : ""}`).map(
+        ({ item }) => ({
+          id: `project:${item.id}`,
+          title: item.name,
+          subtitle: item.source.kind === "local" ? item.source.path : item.source.kind,
+          open: () => openProject(item.id),
+        }),
+      ),
+  },
+  {
+    id: "sessions",
+    label: "Sessions",
+    search: (q) => {
+      const stateBySession = new Map<string, string>();
+      for (const it of listItems()) for (const sid of it.sessionIds) stateBySession.set(sid, it.state);
+      return fuzzyRank(q, listSessions(), (s) => `${s.title} ${stateBySession.get(s.id) ?? ""}`).map(({ item }) => ({
+        id: `session:${item.id}`,
+        title: item.title,
+        subtitle: stateBySession.get(item.id),
+        open: () => openSessionInPanel(item.id),
+      }));
+    },
+  },
+  {
+    id: "files",
+    label: "Files",
+    search: (q) =>
+      fuzzyRank(q, listFiles(), (f) => f.path).map(({ item }) => ({
+        id: `file:${item.path}`,
+        title: item.title,
+        subtitle: item.path,
+        open: () => void openRepoFile("repo", item.path),
+      })),
+  },
+];
+
+const paletteCommands: Command[] = [
+  { id: "new-session", title: "New session", run: () => startProjectSession("claude") },
+  { id: "toggle-outline", title: "Toggle outline", run: () => outlineHideShow.setHidden(!outlineHideShow.isHidden()) },
+  { id: "toggle-annotations", title: "Toggle annotations", run: () => annHideShow.setHidden(!annHideShow.isHidden()) },
+  { id: "toggle-nav", title: "Toggle navigation pane", run: () => toggleLeft() },
+  { id: "toggle-session", title: "Toggle session pane", run: () => toggleRight() },
+  { id: "view-journal", title: "Go to Journal", run: () => { journal.showJournal(); viewStore.set("journal"); } },
+  { id: "view-pages", title: "Go to Pages", run: () => viewStore.set("pages") },
+  { id: "view-kanban", title: "Go to Kanban", run: () => viewStore.set("kanban") },
+  { id: "open-settings", title: "Open settings", run: () => settingsCog.click() },
+];
+
+if (searchForm && searchInput && paletteMount) {
+  const palette = createCommandPalette({
+    form: searchForm,
+    input: searchInput,
+    mount: paletteMount,
+    sources: searchSources,
+    commands: paletteCommands,
   });
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      searchInput.value = "";
-      searchInput.blur();
-    }
-  });
+
   document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === "k" || k === "p") {
       e.preventDefault();
-      searchInput.focus();
+      palette.open(e.shiftKey && k === "p" ? ">" : "");
       searchInput.select();
     }
+  });
+
+  // Close when focus/click leaves the search pill + dropdown.
+  document.addEventListener("click", (e) => {
+    const t = e.target as Node;
+    if (!searchForm.contains(t) && !paletteMount.contains(t)) palette.close();
   });
 }
 
