@@ -39,4 +39,13 @@ describe("renderDoc", () => {
     expect(r.ok).toBe(false);
     expect(r.errors).toContain("bad chunk");
   });
+
+  it("falls back to stdout for errors when stderr is empty", async () => {
+    const r = await renderDoc(
+      "/repo/doc.qmd",
+      fake({ stdout: "compilation failed: undefined ref", stderr: "", code: 1 }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.errors).toContain("undefined ref");
+  });
 });

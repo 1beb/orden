@@ -70,7 +70,7 @@ export async function renderDoc(
   const { stdout, stderr, code } = await run(absSourcePath);
 
   if (code !== 0) {
-    const errors = (stderr.trim() || stdout.trim()).trim();
+    const errors = stderr.trim() || stdout.trim();
     return { ok: false, errors };
   }
 
