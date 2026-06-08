@@ -29,6 +29,7 @@ import {
   removeItem,
   type Item,
 } from "./cards";
+import { hydrateLearnings } from "./learningsStore";
 import {
   hydrateSessions,
   reapDeadSessions,
@@ -107,6 +108,7 @@ async function hydrateAll(): Promise<void> {
     hydrateProjects(host),
     hydrateDocs(host),
     hydrateCards(host),
+    hydrateLearnings(host),
     hydrateSessions(host),
     hydrateRecentFiles(host),
     annotationStore.hydrate(),
@@ -1759,6 +1761,10 @@ onVaultChange((ns, key, projectId) => {
         refreshBoard(); // kanban board + badge count
         notifyBlockedTransitions(); // toast when a session starts waiting on you
         refreshProject();
+        break;
+      case "learnings":
+        await hydrateLearnings(host);
+        refreshBoard(); // the derived Learnings column reads pendingForCard (C2)
         break;
       case "projects":
         await hydrateProjects(host);
