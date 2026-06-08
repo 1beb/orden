@@ -51,7 +51,7 @@ export function buildModeGrid(current: ModeMap, onChange: (next: ModeMap) => voi
     rowLabel.textContent = toolLabel;
     row.append(rowLabel);
 
-    for (const [mode] of MODES) {
+    for (const [mode, modeLabel] of MODES) {
       const cell = document.createElement("label");
       cell.className = "settings-mode-cell";
 
@@ -59,6 +59,9 @@ export function buildModeGrid(current: ModeMap, onChange: (next: ModeMap) => voi
       input.type = "radio";
       input.name = `mode-${tool}`;
       input.value = mode;
+      // The cell label wraps only the radio (no visible text), so give screen
+      // readers a name beyond the raw value, e.g. "Claude Code GUI".
+      input.setAttribute("aria-label", `${toolLabel} ${modeLabel}`);
       input.checked = current[tool] === mode;
       input.addEventListener("change", () => {
         if (!input.checked) return;
