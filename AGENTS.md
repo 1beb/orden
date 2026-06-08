@@ -194,6 +194,14 @@ and only on the user's explicit say-so. The auto-cycle between states is driven 
 agent **hooks** (`apps/host/src/hooks.ts`), not MCP, because MCP can't observe the
 session lifecycle.
 
+**Learnings on completion.** Right before `card_complete`, the completing agent distills
+what the session changed into **learnings** via `learning_propose` — one per proposed
+README/ADR/AGENTS.md edit or new skill, carrying the FULL post-change file content (not a
+diff). They land in the `"learnings"` vault ns as `pending` and surface in a derived
+**Learnings** kanban column (a `complete` card with pending learnings buckets there) and
+the **learnings** review view, where the user accepts (writes the file), rejects, or
+comments (sent back to the agent). Not memories — README/ADR/AGENTS/skill only.
+
 ### Annotations (`packages/annotation-core`)
 
 Rendered review docs (md/html/qmd/ipynb) get inline annotations anchored to **block

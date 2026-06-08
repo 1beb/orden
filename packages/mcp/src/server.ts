@@ -17,6 +17,7 @@ import { sessionForConversation, cardForSession } from "./sessionLink";
 const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - card_move("in-progress") when you start real work; card_move("blocked") only when you genuinely need the user's input or are done with the turn.
 - NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done. When you do, pass a one- or two-sentence summary — it is written to today's journal.
+- Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
 - Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
