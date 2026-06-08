@@ -3750,3 +3750,255 @@ li.sess-done-head {
 ::highlight(orden-annotation-active) {
   background: color-mix(in srgb, var(--accent, #6d28d9) 40%, transparent);
 }
+
+/* ── Learnings review stepper (#view-learnings) ───────────────────────────────
+   Ported from docs/mockups/learnings-review.html onto orden's real tokens. One
+   learning per step: header (progress + dots + title + kind), scrollable body
+   (proposed change → plain diff → "why this" recap), sticky action bar. All rules
+   scoped under #view-learnings so the short lr-/diff/recap class names can't
+   collide with other surfaces. */
+#view-learnings.view.active {
+  display: flex;
+  flex-direction: column;
+}
+#view-learnings .lr {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+#view-learnings .lr-head {
+  flex: none;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-bg);
+}
+#view-learnings .lr-head-inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+#view-learnings .lr-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+#view-learnings .lr-eyebrow .name {
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+#view-learnings .lr-count {
+  font-variant-numeric: tabular-nums;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--muted);
+}
+#view-learnings .dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+#view-learnings .dot {
+  height: 4px;
+  flex: 1;
+  border-radius: 99px;
+  background: var(--line);
+}
+#view-learnings .dot.done {
+  background: var(--accent);
+  opacity: 0.4;
+}
+#view-learnings .dot.cur {
+  background: var(--accent);
+}
+#view-learnings .lr-title {
+  margin: 14px 0 0;
+  font-size: calc(17px * var(--font-scale));
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ink);
+}
+#view-learnings .lr-kind {
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+#view-learnings .lr-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 20px;
+}
+#view-learnings .lr-inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+#view-learnings .change-label {
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+#view-learnings .filepath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+#view-learnings .diff {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.6;
+  background: var(--panel-bg);
+}
+#view-learnings .diff .row {
+  display: flex;
+  padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+#view-learnings .diff .gutter {
+  flex: none;
+  width: 16px;
+  color: var(--muted);
+  user-select: none;
+}
+
+/* recap — bottom of the body, always visible, no well */
+#view-learnings .recap {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+#view-learnings .recap-head {
+  font-size: calc(11px * var(--font-scale));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+#view-learnings .recap-body {
+  color: var(--muted);
+  font-size: calc(13.5px * var(--font-scale));
+}
+#view-learnings .recap-body p {
+  margin: 8px 0 0;
+}
+#view-learnings .recap-body p:first-child {
+  margin-top: 0;
+}
+#view-learnings .recap-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--soft, #f4f4f3);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--ink);
+}
+
+/* sticky action bar */
+#view-learnings .lr-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-bg);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+#view-learnings .lr-actions .verdict,
+#view-learnings .lr-actions .comment-row {
+  max-width: 680px;
+  margin: 0 auto;
+  width: 100%;
+}
+#view-learnings .verdict {
+  display: flex;
+  gap: 10px;
+}
+#view-learnings .btn {
+  flex: 1;
+  border: 1px solid var(--line);
+  background: var(--panel-bg);
+  color: var(--ink);
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  padding: 12px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  -webkit-tap-highlight-color: transparent;
+}
+#view-learnings .btn .ic {
+  font-size: calc(16px * var(--font-scale));
+  line-height: 1;
+}
+#view-learnings .btn.accept {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+#view-learnings .comment-row {
+  display: flex;
+  gap: 8px;
+}
+#view-learnings .comment-row input {
+  flex: 1;
+  border: 1px solid var(--line);
+  background: var(--panel-bg);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: calc(14px * var(--font-scale));
+  color: var(--ink);
+  font-family: inherit;
+}
+#view-learnings .comment-row input::placeholder {
+  color: var(--muted);
+}
+#view-learnings .comment-row .send {
+  flex: none;
+  border: 1px solid var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 12px;
+  padding: 0 16px;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* empty state */
+#view-learnings .lr-empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+}
+#view-learnings .lr-empty-inner {
+  max-width: 420px;
+}
+#view-learnings .lr-empty-title {
+  font-size: calc(16px * var(--font-scale));
+  font-weight: 650;
+  color: var(--ink);
+}
+#view-learnings .lr-empty-note {
+  margin-top: 8px;
+  font-size: calc(13.5px * var(--font-scale));
+  color: var(--muted);
+}

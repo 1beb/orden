@@ -29,7 +29,14 @@ import {
   removeItem,
   type Item,
 } from "./cards";
-import { hydrateLearnings, pendingForCard } from "./learningsStore";
+import {
+  hydrateLearnings,
+  pendingForCard,
+  listLearnings,
+  setLearningStatus,
+  addLearningComment,
+} from "./learningsStore";
+import { renderLearnings } from "./learningsView";
 import {
   hydrateSessions,
   reapDeadSessions,
@@ -1028,11 +1035,44 @@ const viewEls: Record<View, HTMLElement> = {
   pages: document.querySelector<HTMLElement>("#view-pages")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
+  learnings: document.querySelector<HTMLElement>("#view-learnings")!,
 };
 const navBadge = document.querySelector<HTMLElement>(".nav-badge")!;
 let journalTitle = "Journal";
 let projectTitle = "Project";
 let currentProjectId: string | null = null;
+// Which card's learnings the review stepper is walking. D3 sets this from a board
+// click; until then renderLearningsView auto-picks the first card with pending
+// learnings so the view is demoable.
+let activeLearningsCardId: string | null = null;
+
+// Render the learnings stepper into its view, wiring the store write-throughs as
+// deps. Auto-picks a card when none is active so the view is never blank when there
+// is review work to do.
+function renderLearningsView(): void {
+  if (!activeLearningsCardId) {
+    const firstPending = listLearnings()
+      .filter((l) => l.status === "pending")
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+    activeLearningsCardId = firstPending?.cardId ?? null;
+  }
+  renderLearnings(viewEls.learnings, {
+    cardId: activeLearningsCardId,
+    onReject: (id) => {
+      setLearningStatus(id, "rejected");
+      renderLearningsView();
+    },
+    onAccept: (id) => {
+      // TODO(E2): accept must write the file on the host (RPC), not just flip status
+      setLearningStatus(id, "accepted");
+      renderLearningsView();
+    },
+    onComment: (id, text) => {
+      addLearningComment(id, text, Date.now());
+      renderLearningsView();
+    },
+  });
+}
 
 const journal = mountJournal(
   viewEls.journal,
@@ -1134,6 +1174,7 @@ viewStore.subscribe((v) => {
     pages: "Pages",
     project: projectTitle,
     kanban: "Kanban",
+    learnings: "Learnings",
   };
   viewTitle.textContent = titles[v];
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
@@ -1144,6 +1185,7 @@ viewStore.subscribe((v) => {
   if (v !== "html" && v !== "code") htmlToggle.hidden = true;
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
+  if (v === "learnings") renderLearningsView();
   // Text-annotation lifecycle: the code, html, and review views share the single
   // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
   // annotator + highlights — clearing the SAME realm it painted into (parent for
@@ -1766,6 +1808,7 @@ onVaultChange((ns, key, projectId) => {
       case "learnings":
         await hydrateLearnings(host);
         refreshBoard(); // the derived Learnings column reads pendingForCard (C2)
+        if (v === "learnings") renderLearningsView(); // refresh the stepper on external changes
         break;
       case "projects":
         await hydrateProjects(host);
