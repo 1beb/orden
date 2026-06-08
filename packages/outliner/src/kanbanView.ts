@@ -6,6 +6,7 @@ const STATE_LABELS: Record<CardState, string> = {
   "in-progress": "In-progress",
   blocked: "Blocked",
   complete: "Complete",
+  learnings: "Learnings",
 };
 
 /**

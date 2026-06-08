@@ -29,7 +29,7 @@ import {
   removeItem,
   type Item,
 } from "./cards";
-import { hydrateLearnings } from "./learningsStore";
+import { hydrateLearnings, pendingForCard } from "./learningsStore";
 import {
   hydrateSessions,
   reapDeadSessions,
@@ -1057,6 +1057,7 @@ function refreshBoard(): void {
   const count = renderKanban(viewEls.kanban, {
     onStartSession: startSessionForItem,
     onOpenSession: openSessionInPanel,
+    pendingLearnings: (id) => pendingForCard(id),
   });
   navBadge.textContent = String(count);
   navBadge.hidden = count === 0;

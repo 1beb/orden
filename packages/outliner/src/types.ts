@@ -1,9 +1,19 @@
-/** Session lifecycle states. The four columns on the Kanban board. */
+/**
+ * Session lifecycle states plus the derived board columns.
+ *
+ * The first four are real, stored card states. `"learnings"` is NOT a stored
+ * state — it is a render-only COLUMN id. A card's `state` is never literally
+ * `"learnings"`; instead a `complete` card with pending learnings is *bucketed*
+ * into the Learnings column at render time (and falls back to Complete once it
+ * has none). It lives in this union only so column-iteration and the per-column
+ * label `Record`s stay exhaustive.
+ */
 export type LifecycleState =
   | "planning"
   | "in-progress"
   | "blocked"
-  | "complete";
+  | "complete"
+  | "learnings";
 
 /**
  * A card's state is exactly its lifecycle state. Kept as an alias so existing

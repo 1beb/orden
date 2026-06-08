@@ -22,6 +22,7 @@ describe("renderBoard", () => {
       "in-progress",
       "blocked",
       "complete",
+      "learnings",
     ]);
   });
 

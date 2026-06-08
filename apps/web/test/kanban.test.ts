@@ -16,6 +16,12 @@ function buttonByText(root: ParentNode, text: string): HTMLButtonElement | undef
   );
 }
 
+// The column an item's card was rendered into, by its data-state attribute.
+function columnOf(root: ParentNode, itemId: string): string | undefined {
+  const card = root.querySelector<HTMLElement>(`.orden-card[data-item-id="${itemId}"]`);
+  return card?.closest<HTMLElement>(".orden-column")?.dataset.state;
+}
+
 describe("kanban card — resume affordance", () => {
   beforeEach(async () => {
     localStorage.clear();
@@ -34,11 +40,51 @@ describe("kanban card — resume affordance", () => {
     renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: (id) => opened.push(id),
+      pendingLearnings: () => 0,
     });
 
     const resume = buttonByText(container, "Resume");
     expect(resume).toBeDefined();
     resume!.click();
     expect(opened).toEqual([s.id]);
+  });
+});
+
+describe("kanban — derived Learnings column", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+  });
+
+  it("buckets a complete card with pending learnings under Learnings, not Complete", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 1,
+    });
+
+    expect(columnOf(container, card.id)).toBe("learnings");
+  });
+
+  it("buckets a complete card with no pending learnings under Complete", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      pendingLearnings: () => 0,
+    });
+
+    expect(columnOf(container, card.id)).toBe("complete");
   });
 });

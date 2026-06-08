@@ -20,12 +20,14 @@ const STATES: CardState[] = [...LIFECYCLE_ORDER];
 // would linger). Module-scoped so it survives the full re-render each call performs.
 let fadeTimer: ReturnType<typeof setTimeout> | undefined;
 
-// Capitalized column titles; the stored state stays lowercase.
+// Capitalized column titles; the stored state stays lowercase. "Learnings" is a
+// derived column (no card is stored in that state — see columnFor below).
 const STATE_LABELS: Record<CardState, string> = {
   planning: "Planning",
   "in-progress": "In-progress",
   blocked: "Blocked",
   complete: "Complete",
+  learnings: "Learnings",
 };
 
 // Board filters live at module scope so they survive the full re-render that
@@ -40,6 +42,11 @@ const filters: BoardFilters = { dueOnly: false, noSessions: false, projectId: ""
 export interface KanbanDeps {
   onStartSession: (item: Item, agent: Agent) => void;
   onOpenSession: (sessionId: string) => void;
+  // Count of a card's still-pending learnings. Injected (rather than importing
+  // learningsStore here) so this render module stays store-agnostic; main.ts
+  // wires it to learningsStore.pendingForCard. Drives the derived Learnings
+  // column: a complete card with >0 pending learnings buckets there.
+  pendingLearnings: (cardId: string) => number;
 }
 
 function todayISO(): string {
@@ -205,14 +212,25 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     return needs;
   }
 
+  // The column an item buckets into. Cards live in their stored `state`'s
+  // column, EXCEPT a complete card with pending learnings, which is derived into
+  // the rightmost "learnings" column instead (and falls back to "complete" once
+  // it has none). No card is ever stored in state "learnings".
+  const columnFor = (i: Item): CardState =>
+    i.state === "complete" && deps.pendingLearnings(i.id) > 0 ? "learnings" : i.state;
+
   const columns = document.createElement("div");
   columns.className = "orden-board__columns";
   for (const state of STATES) {
     // Completed cards fall off the board after the configured dwell time, so
-    // the Complete column shows only recently-finished work.
-    const colItems = items.filter(
-      (i) => i.state === state && !isExpiredComplete(i, nowMs, ttlMs),
-    );
+    // the Complete column shows only recently-finished work. The fade applies
+    // only to the Complete column — a card diverted to Learnings stays put until
+    // its pending learnings are resolved, so one can't silently age off.
+    const colItems = items.filter((i) => {
+      if (columnFor(i) !== state) return false;
+      if (state === "complete" && isExpiredComplete(i, nowMs, ttlMs)) return false;
+      return true;
+    });
     const col = document.createElement("div");
     col.className = "orden-column";
     col.dataset.state = state;
