@@ -36,6 +36,10 @@ function stringifyToolContent(content: unknown): string {
 // closure, so each driver gets its own instance via `createSdkTranslator()`.
 export function createSdkTranslator(): (msg: SDKMessage) => DriverEvent[] {
   let currentMessageId: string | null = null;
+  // Ids whose text already streamed via deltas. Intentionally NEVER reset per
+  // turn: an id is added on its text_delta and the final whole-message arrives
+  // later for that same id; resetting it (e.g. on message_start) would
+  // reintroduce the double-render bug.
   const streamedText = new Set<string>();
 
   return function sdkMessageToEvents(msg: SDKMessage): DriverEvent[] {

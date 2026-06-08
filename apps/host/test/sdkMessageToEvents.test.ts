@@ -42,4 +42,13 @@ describe("sdkMessageToEvents stream_event", () => {
     const out = t(finalAssistant);
     expect(out).toEqual([{ kind: "text", messageId: "m2", text: "whole" }]);
   });
+
+  it("does not suppress final text when only thinking streamed for that id", () => {
+    const t = createSdkTranslator();
+    t({ type: "stream_event", event: { type: "message_start", message: { id: "m3" } } } as any);
+    t({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "mull" } } } as any);
+    const finalAssistant = { type: "assistant", message: { id: "m3", content: [{ type: "text", text: "the answer" }] } } as any;
+    const out = t(finalAssistant);
+    expect(out).toEqual([{ kind: "text", messageId: "m3", text: "the answer" }]);
+  });
 });
