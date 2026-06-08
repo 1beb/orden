@@ -1472,6 +1472,7 @@ li.sess-done-head {
 /* Omnisearch: a multi-purpose search field; wired to onSearch() in main.ts,
    target/scope still to be decided. */
 .omnisearch {
+  position: relative; /* positioning context for the palette dropdown */
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1519,6 +1520,75 @@ li.sess-done-head {
   .omnisearch {
     width: 150px;
   }
+}
+
+/* Command palette: the results dropdown under the omnisearch pill. Hidden until
+   the controller adds .open (see commandPalette.ts). Anchored left, widened past
+   the pill so result rows have room. */
+.palette {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  display: none;
+  width: min(420px, 80vw);
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+.palette.open {
+  display: block;
+}
+.palette-group + .palette-group {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.palette-group-head {
+  padding: 4px 8px 2px;
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.palette-row:hover,
+.palette-row.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.palette-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--font-scale));
+  color: var(--muted);
+}
+.palette-more {
+  padding: 4px 8px;
+  font-size: calc(11px * var(--font-scale));
+  color: var(--muted);
 }
 
 /* floating annotator: pill + inline composer, anchored at the selection */
