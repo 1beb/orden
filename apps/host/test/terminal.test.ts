@@ -83,7 +83,7 @@ function parseSettings(arg: string): {
 describe("settingsArg", () => {
   test("injects the kanban state + subagent-tracking hooks, port-templated", () => {
     delete process.env.ORDEN_PORT;
-    const arg = settingsArg();
+    const arg = settingsArg("sess_test");
     expect(arg.startsWith("--settings ")).toBe(true);
     const s = parseSettings(arg);
     // The state edges that drive the automatic working/waiting cycle, plus the
@@ -110,8 +110,25 @@ describe("settingsArg", () => {
 
   test("uses ORDEN_PORT when set", () => {
     process.env.ORDEN_PORT = "5555";
-    const s = parseSettings(settingsArg());
+    const s = parseSettings(settingsArg("sess_test"));
     expect(s.hooks.PostToolUse[0].hooks[0].command).toContain("http://127.0.0.1:5555/");
+  });
+
+  // The stable orden session id rides every hook URL so the host can self-heal a
+  // record whose conversationId was lost (claude's payload carries only its own
+  // session_id). The query separator must adapt: state hooks already have `?`.
+  test("bakes the orden session id into every hook URL", () => {
+    delete process.env.ORDEN_PORT;
+    const s = parseSettings(settingsArg("sess_abc"));
+    const cmdOf = (e: string) => s.hooks[e][0].hooks[0].command;
+    expect(cmdOf("UserPromptSubmit")).toContain(
+      "/hooks/session-state?state=in-progress&orden_session_id=sess_abc",
+    );
+    expect(cmdOf("Stop")).toContain(
+      "/hooks/session-state?state=blocked&orden_session_id=sess_abc",
+    );
+    // The notification hook has no prior query string, so it joins with `?`.
+    expect(cmdOf("Notification")).toContain("/hooks/notification?orden_session_id=sess_abc");
   });
 });
 
@@ -243,20 +260,26 @@ describe("buildCommand (claude resume vs mint)", () => {
     writeFileSync(join(dir, `${convId}.jsonl`), "{}\n");
   }
 
-  // A vault that records the last record set, so we can assert what gets persisted.
-  function vaultHost(): { host: Host; saved: () => Record<string, unknown> | null } {
-    let last: Record<string, unknown> | null = null;
-    const host = {
-      vault: {
-        get: async () => null,
-        set: async (_ns: string, _key: string, val: unknown) => {
-          last = val as Record<string, unknown>;
-        },
-        list: async () => [],
-        delete: async () => {},
-      },
-    } as unknown as Host;
-    return { host, saved: () => last };
+  // An in-memory vault (mirrors hooks.test / packages/mcp fakeVault) seeded per
+  // test, so buildCommand's get/set across the "sessions" and "convindex"
+  // namespaces are observable.
+  function fakeVault(seed: Record<string, Record<string, unknown>> = {}) {
+    const store = new Map<string, Map<string, unknown>>();
+    for (const [ns, kv] of Object.entries(seed)) store.set(ns, new Map(Object.entries(kv)));
+    const nsMap = (ns: string) => store.get(ns) ?? store.set(ns, new Map()).get(ns)!;
+    return {
+      get: async <T>(ns: string, key: string) => (nsMap(ns).get(key) ?? null) as T | null,
+      set: async (ns: string, key: string, value: unknown) => void nsMap(ns).set(key, value),
+      list: async (ns: string) => [...nsMap(ns).keys()],
+      delete: async (ns: string, key: string) => void nsMap(ns).delete(key),
+    };
+  }
+  function vaultHost(seed: Record<string, Record<string, unknown>> = {}): {
+    host: Host;
+    vault: ReturnType<typeof fakeVault>;
+  } {
+    const vault = fakeVault(seed);
+    return { host: { vault } as unknown as Host, vault };
   }
 
   const CWD = "/work/repo";
@@ -299,16 +322,51 @@ describe("buildCommand (claude resume vs mint)", () => {
     expect(cmd.startsWith(`'${binPath}' `)).toBe(true);
   });
 
-  test("mints a fresh id and persists it for a brand-new session", async () => {
+  test("mints a fresh id and persists it (record + recovery index) for a new session", async () => {
     setup();
-    const { host, saved } = vaultHost();
+    const { host, vault } = vaultHost();
     const rec = { agent: "claude" } as never;
     const cmd = await buildCommand(host, rec, "sess_1", CWD);
     const m = cmd.match(/--session-id ([0-9a-f-]{36})/);
     expect(m).not.toBeNull();
     expect(cmd).not.toContain("--resume");
-    // The minted id is written back to the record.
-    expect((saved() as { conversationId?: string })?.conversationId).toBe(m![1]);
+    // The minted id is written back to the record AND to the host-owned index.
+    const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+    expect(saved?.conversationId).toBe(m![1]);
+    const idx = await vault.get<{ conversationId?: string }>("convindex", "sess_1");
+    expect(idx?.conversationId).toBe(m![1]);
+  });
+
+  // The reported bug: a record lost its conversationId, so the old fallback minted
+  // a BRAND-NEW id and orphaned the real transcript. The host-owned index lets a
+  // resume recover the lost id and heal the record instead of faking a new session.
+  test("recovers a lost conversationId from the host-owned index and heals the record", async () => {
+    setup();
+    writeTranscript(CWD, "conv-orig");
+    const { host, vault } = vaultHost({
+      convindex: { sess_1: { conversationId: "conv-orig" } },
+    });
+    // Record has NO conversationId (it was clobbered), but it has prior activity.
+    const rec = { agent: "claude", touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    // Resumes the recovered conversation — does NOT mint a fresh one.
+    expect(cmd).toContain("--resume conv-orig");
+    expect(cmd).not.toContain("--session-id");
+    // The record is healed back to the recovered id.
+    const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+    expect(saved?.conversationId).toBe("conv-orig");
+  });
+
+  // Recovery only resumes when the recovered transcript actually exists; a stale
+  // index entry whose file is gone must not --resume a ghost. It keeps the id
+  // (stable MCP binding) and relaunches under it rather than minting a random one.
+  test("does not resume from the index when the recovered transcript is missing", async () => {
+    setup();
+    const { host } = vaultHost({ convindex: { sess_1: { conversationId: "conv-gone" } } });
+    const rec = { agent: "claude", touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).not.toContain("--resume");
+    expect(cmd).toContain("--session-id conv-gone");
   });
 });
 
