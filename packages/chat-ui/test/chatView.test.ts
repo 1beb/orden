@@ -83,6 +83,26 @@ describe("mountChatView", () => {
     view.dispose();
   });
 
+  it("renders a thinking part in its own dimmed block", () => {
+    const store = createChatStore(SID);
+    store.hydrate([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "thinking", text: "weighing options" }],
+      },
+    ]);
+    const client = makeClient();
+    const view = mountChatView({ container, store, client, sessionId: SID, harness: HARNESS, renderMarkdown: md });
+
+    const thinking = container.querySelector(".chat-thinking") as HTMLElement;
+    expect(thinking).toBeTruthy();
+    expect(thinking.querySelector(".chat-thinking-label")?.textContent).toContain("Thinking");
+    expect(thinking.querySelector(".chat-thinking-body")?.textContent).toBe("weighing options");
+
+    view.dispose();
+  });
+
   it("renders Allow/Deny for a pending permission and wires respondPermission", () => {
     const store = createChatStore(SID);
     store.hydrate([hydrated]);
