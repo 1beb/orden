@@ -1,37 +1,8 @@
-import type { VaultStore } from "@orden/host-api";
+import type { VaultStore, Learning, LearningStatus } from "@orden/host-api";
 
-/**
- * A proposed artifact change captured during a session — a README/ADR/AGENTS
- * tweak or a new skill — surfaced for the user to review, edit, and accept or
- * reject. One record per proposed change, persisted in the vault ns
- * `"learnings"` keyed by `id`.
- */
-
-export type LearningType = "readme" | "adr" | "agents" | "skill";
-export type LearningStatus = "pending" | "accepted" | "rejected";
-
-export interface Learning {
-  id: string;
-  cardId: string;
-  sessionId?: string;
-  projectId: string;
-  type: LearningType;
-  title: string;
-  /** Per-learning context shown at the bottom of the review step. */
-  recap: string;
-  /** Project-relative file to edit/create. */
-  targetPath: string;
-  op: "edit" | "create";
-  /** FULL file content to write on accept (not a patch). */
-  proposedContent: string;
-  /** Current file content for diff display (edit only). */
-  baseContent?: string;
-  status: LearningStatus;
-  /** `at` is epoch ms. */
-  comments?: { at: number; text: string }[];
-  /** Epoch ms. */
-  createdAt: number;
-}
+// The Learning vault model is canonically declared in @orden/host-api; re-export
+// it here so existing consumers of @orden/mcp's barrel keep resolving these names.
+export type { Learning, LearningType, LearningStatus, LearningComment } from "@orden/host-api";
 
 const NS = "learnings";
 

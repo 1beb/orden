@@ -2,33 +2,11 @@
 // the user to accept (write the file), reject, or comment on. Backed by the host
 // vault (ns "learnings", one key per learning id); the host-side `learning_propose`
 // MCP tool persists the records. Accessors stay synchronous over a cache hydrated at
-// boot; writes write through. The vault record IS the contract — this file declares
-// its own Learning shape rather than importing the host-side type (mirrors cards.ts).
-import type { Host } from "@orden/host-api";
+// boot; writes write through. The vault record IS the contract — the Learning shape
+// is canonically declared in @orden/host-api and imported here (and by @orden/mcp).
+import type { Host, Learning, LearningStatus } from "@orden/host-api";
 
 const NS = "learnings";
-
-export interface LearningComment {
-  at: number;
-  text: string;
-}
-
-export interface Learning {
-  id: string;
-  cardId: string;
-  sessionId?: string;
-  projectId: string;
-  type: "readme" | "adr" | "agents" | "skill";
-  title: string;
-  recap: string;
-  targetPath: string;
-  op: "edit" | "create";
-  proposedContent: string;
-  baseContent?: string;
-  status: "pending" | "accepted" | "rejected";
-  comments?: LearningComment[];
-  createdAt: number;
-}
 
 let host: Host | null = null;
 let cache: Learning[] = [];
@@ -63,7 +41,7 @@ function persist(id: string): void {
   if (host && updated) void host.vault.set(NS, id, updated);
 }
 
-export function setLearningStatus(id: string, status: Learning["status"]): void {
+export function setLearningStatus(id: string, status: LearningStatus): void {
   cache = cache.map((l) => (l.id === id ? { ...l, status } : l));
   persist(id);
 }

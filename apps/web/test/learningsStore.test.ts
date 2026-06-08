@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Learning } from "@orden/host-api";
 import { BrowserHost } from "../src/host/browserHost";
 import {
   hydrateLearnings,
@@ -12,22 +13,7 @@ import {
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
-interface SeedLearning {
-  id: string;
-  cardId: string;
-  projectId: string;
-  type: "readme" | "adr" | "agents" | "skill";
-  title: string;
-  recap: string;
-  targetPath: string;
-  op: "edit" | "create";
-  proposedContent: string;
-  status: "pending" | "accepted" | "rejected";
-  createdAt: number;
-  comments?: { at: number; text: string }[];
-  sessionId?: string;
-  baseContent?: string;
-}
+type SeedLearning = Learning;
 
 function mk(over: Partial<SeedLearning> & Pick<SeedLearning, "id" | "cardId">): SeedLearning {
   return {

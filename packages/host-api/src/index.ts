@@ -218,6 +218,42 @@ export interface RenderResult {
   errors?: string;
 }
 
+/**
+ * A proposed artifact change captured during a session — a README/ADR/AGENTS
+ * tweak or a new skill — surfaced for the user to review, edit, and accept or
+ * reject. One record per proposed change, persisted in the vault ns
+ * `"learnings"` keyed by `id`. Canonical home for the cross-package type; both
+ * `@orden/web` and `@orden/mcp` import it from here.
+ */
+export type LearningType = "readme" | "adr" | "agents" | "skill";
+export type LearningStatus = "pending" | "accepted" | "rejected";
+export interface LearningComment {
+  /** Epoch ms. */
+  at: number;
+  text: string;
+}
+export interface Learning {
+  id: string;
+  cardId: string;
+  sessionId?: string;
+  projectId: string;
+  type: LearningType;
+  title: string;
+  /** Per-learning context shown at the bottom of the review step. */
+  recap: string;
+  /** Project-relative file to edit/create. */
+  targetPath: string;
+  op: "edit" | "create";
+  /** FULL file content to write on accept (not a patch). */
+  proposedContent: string;
+  /** Current file content for diff display (edit only). */
+  baseContent?: string;
+  status: LearningStatus;
+  comments?: LearningComment[];
+  /** Epoch ms. */
+  createdAt: number;
+}
+
 export interface Host {
   identity: Identity;
   vault: VaultStore;
