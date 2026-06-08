@@ -478,6 +478,13 @@ export async function learningPropose(
   }
 
   const existing = await getLearning(host.vault, id);
+  // A learning may only be revised by the card that owns it. If the id names a
+  // learning bound to a DIFFERENT card, refuse — never overwrite (creating with
+  // this id would clobber it just as much as updating, since the vault is keyed
+  // by id), so this is the only safe response.
+  if (existing && existing.cardId !== binding.cardId) {
+    return text(`learning ${id} belongs to a different card; not modifying it`);
+  }
   if (existing) {
     // Revision: preserve identity/binding/history, replace the proposal.
     const updated: Learning = {

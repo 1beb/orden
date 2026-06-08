@@ -132,6 +132,22 @@ describe("learningPropose tool", () => {
     expect(resultText(res)).toContain("learn_new_id");
   });
 
+  it("refuses to modify a learning owned by a different card", async () => {
+    const host = fakeHost(async () => "base");
+    // A learning owned by card item_1.
+    await learningPropose(host, binding, input, 1000, "learn_foreign");
+    const before = await getLearning(host.vault, "learn_foreign");
+
+    // A different card's session reuses that id: must NOT overwrite it.
+    const otherBinding = { cardId: "item_2", projectId: "repo", sessionId: "sess_2" };
+    const res = await learningPropose(host, otherBinding, { ...input, title: "Hijack" }, 2000, "learn_foreign");
+
+    // The original is untouched and no second record was created.
+    expect(await getLearning(host.vault, "learn_foreign")).toEqual(before);
+    expect(await host.vault.list("learnings")).toHaveLength(1);
+    expect(resultText(res)).toContain("different card");
+  });
+
   it("propagates a non-ENOENT read error and writes nothing", async () => {
     const host = fakeHost(async () => {
       throw Object.assign(new Error("denied"), { code: "EACCES" });
