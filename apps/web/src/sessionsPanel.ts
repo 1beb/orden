@@ -3,6 +3,7 @@
 // a new one. Plain DOM, matching the rest of the app.
 import type { Agent, Session } from "./sessions";
 import { markFor } from "./agentMarks";
+import { loadSettings } from "./settings";
 
 export interface SessionsPanelDeps {
   container: HTMLElement;
@@ -60,6 +61,8 @@ const ICON = {
   check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
   x: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
   collapse: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>',
+  // A `>_` shell prompt glyph for the scratch-terminal affordance.
+  terminal: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 8 9 12 5 16"/><line x1="12" y1="16" x2="18" y2="16"/></svg>',
 } as const;
 function iconButton(svg: string, cls: string): HTMLButtonElement {
   const b = document.createElement("button");
@@ -90,6 +93,10 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   // Completed sessions live in a furled bar pinned to the panel bottom; unfurled
   // they expand inline into the scroll list. Default furled.
   let completedOpen = false;
+  // The scratch terminal is a TRANSIENT surface — a plain shell, not a session.
+  // While open it takes over the panel body; closing returns to the prior view.
+  // It never creates a Session record or a card.
+  let scratchOpen = false;
 
   // Assign the open session and remember it, so a reload reopens it.
   function setCurrent(id: string | null): void {
@@ -114,6 +121,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   // the first turn). Drops the session we're leaving if it was never touched.
   function startNewSession(agent: Agent): void {
     teardownTab();
+    scratchOpen = false; // a real session replaces the transient scratch shell
     const leaving = currentId;
     const s = deps.create({ title: "Untitled", agent });
     setCurrent(s.id);
@@ -145,6 +153,52 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     return wrap;
   }
 
+  // Header affordance for the scratch terminal — only when the setting is on.
+  // Opening it parks whatever was showing and takes over the body with a plain
+  // shell; it is NOT a session, so no create()/cleanup() runs.
+  function scratchButton(): HTMLElement | null {
+    if (!loadSettings().showScratchTerminal) return null;
+    const b = iconButton(ICON.terminal, "sess-icon sess-scratch-btn");
+    b.title = "Open scratch terminal";
+    b.setAttribute("aria-label", "Open scratch terminal");
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      scratchOpen = true;
+      render();
+    });
+    return b;
+  }
+
+  // The transient scratch shell: a header with a back control and the plain
+  // terminal mounted into the body. Closing just clears the flag and re-renders
+  // back to the session that was open (or the list).
+  function renderScratch(): void {
+    teardownTab();
+    const c = deps.container;
+    c.replaceChildren();
+
+    const head = el("header", "sess-head");
+    const back = iconButton(ICON.back, "sess-icon");
+    back.title = "Back";
+    back.setAttribute("aria-label", "Back");
+    back.addEventListener("click", () => {
+      teardownTab();
+      scratchOpen = false;
+      render();
+    });
+    const title = el("span", "sess-title");
+    title.textContent = "Scratch terminal";
+    head.append(back, title);
+    c.append(head);
+
+    const body = el("div", "sess-detail-body");
+    c.append(body);
+    disposeTab = deps.mountTerminal(body, "scratch");
+    // A scratch shell is not a session; nothing to track as a mounted surface.
+    mountedSessionId = null;
+    mountedTab = null;
+  }
+
   function renderList(): void {
     const c = deps.container;
     c.replaceChildren();
@@ -158,7 +212,10 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     collapse.title = "Close sessions";
     collapse.setAttribute("aria-label", "Close sessions");
     collapse.addEventListener("click", () => deps.close());
-    head.append(collapse, title, newButtons());
+    head.append(collapse, title);
+    const scratch = scratchButton();
+    if (scratch) head.append(scratch);
+    head.append(newButtons());
     c.append(head);
 
     const sessions = deps.list();
@@ -268,7 +325,10 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       setCurrent(null);
       render();
     });
-    head.append(back, title, complete, newButtons());
+    head.append(back, title, complete);
+    const scratch = scratchButton();
+    if (scratch) head.append(scratch);
+    head.append(newButtons());
     c.append(head);
     back.addEventListener("click", () => {
       teardownTab();
@@ -378,6 +438,14 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   }
 
   function render(): void {
+    // The scratch shell overrides the normal list/detail view while open.
+    // Keep its live pty across refresh ticks (the change feed fires often) —
+    // only mount it the first time, like the session surfaces above.
+    if (scratchOpen) {
+      if (disposeTab && mountedSessionId === null) return;
+      renderScratch();
+      return;
+    }
     const s = currentId ? deps.get(currentId) : undefined;
     if (s) {
       // keep the active surface's mount alive across refreshes (don't tear down
@@ -397,6 +465,11 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   return {
     refresh: render,
     open: (id: string) => {
+      // Selecting a real session leaves the transient scratch shell.
+      if (scratchOpen) {
+        teardownTab();
+        scratchOpen = false;
+      }
       setCurrent(id);
       render();
     },

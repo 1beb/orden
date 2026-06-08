@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mountSessionsPanel } from "../src/sessionsPanel";
 import type { Agent, Session } from "../src/sessions";
+import { saveSettings } from "../src/settings";
 
 function makeSession(over: Partial<Session> = {}): Session {
   return {
@@ -162,6 +163,48 @@ describe("sessionsPanel Terminal/Chat tabs", () => {
     expect(d.container.querySelector<HTMLElement>(".chat-tab")?.classList.contains("active")).toBe(
       true,
     );
+  });
+});
+
+describe("sessionsPanel scratch terminal", () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it("renders the scratch-terminal button when showScratchTerminal is true", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const { deps: d } = deps();
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".sess-scratch-btn")).not.toBeNull();
+  });
+
+  it("omits the scratch-terminal button when showScratchTerminal is false", async () => {
+    await saveSettings({ showScratchTerminal: false });
+    const { deps: d } = deps();
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".sess-scratch-btn")).toBeNull();
+  });
+
+  it("clicking it mounts a scratch terminal and creates no session/card", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const termMounts: string[] = [];
+    const { created, deps: d } = deps({
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {};
+      },
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    d.container.querySelector<HTMLButtonElement>(".sess-scratch-btn")!.click();
+
+    expect(termMounts).toEqual(["scratch"]);
+    expect(created).toEqual([]);
   });
 });
 
