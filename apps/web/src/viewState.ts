@@ -1,4 +1,13 @@
-export type View = "review" | "code" | "image" | "html" | "journal" | "kanban" | "pages" | "project";
+export type View =
+  | "review"
+  | "code"
+  | "image"
+  | "html"
+  | "journal"
+  | "kanban"
+  | "pages"
+  | "project"
+  | "settings";
 
 export interface ViewStore {
   get(): View;

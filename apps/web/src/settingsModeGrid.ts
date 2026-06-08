@@ -1,4 +1,4 @@
-// The settings-popover "default session mode" control: a 2x2 grid letting the
+// The settings "default session mode" control: a 2x2 grid letting the
 // user pick, per agent tool, whether new sessions open as a TUI (the terminal)
 // or a GUI (the native chat). Two rows (Claude Code, opencode), two columns
 // (TUI, GUI); each row is its own radio group, so exactly one mode is selected

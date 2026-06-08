@@ -18,9 +18,9 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages, pageNames, getPageMarkdown, pagesIndex } from "./pages";
+import { hydratePages, getPageMarkdown, pagesIndex } from "./pages";
 import { listFiles } from "./files";
-import { fuzzyRank, fuzzyScore } from "./fuzzy";
+import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
 import type { SearchSource, Command } from "./commandPalette";
 import {
@@ -1021,7 +1021,80 @@ function seedSampleAnnotations(): void {
 }
 
 // --- Center views: review (the locked annotation core) / journal / kanban ---
-const viewTitle = document.querySelector<HTMLElement>("#view-title")!;
+const breadcrumbEl = document.querySelector<HTMLElement>("#breadcrumb")!;
+
+interface Crumb {
+  label: string;
+  go?: () => void;
+}
+
+// Render the location breadcrumb at the inner top of the main panel. Segments
+// are light/muted; the last is the current location, and any with a `go` handler
+// is a clickable link (e.g. the project root).
+function renderBreadcrumb(crumbs: Crumb[]): void {
+  breadcrumbEl.replaceChildren();
+  crumbs.forEach((c, i) => {
+    if (i > 0) {
+      const sep = document.createElement("span");
+      sep.className = "breadcrumb-sep";
+      sep.textContent = "/";
+      breadcrumbEl.append(sep);
+    }
+    const el = document.createElement(c.go ? "a" : "span");
+    el.className = "breadcrumb-seg";
+    el.textContent = c.label;
+    if (i === crumbs.length - 1) el.classList.add("current");
+    if (c.go) el.addEventListener("click", c.go);
+    breadcrumbEl.append(el);
+  });
+}
+
+// Breadcrumb for a project file (review/code/image/html views): the project
+// name (clickable → its page) followed by each path segment, current file last.
+function fileCrumbs(): Crumb[] {
+  const path = currentDocKey.startsWith("review:")
+    ? currentDocKey.slice("review:".length)
+    : currentDocKey;
+  const projName = getProject(currentDocProjectId)?.name;
+  const crumbs: Crumb[] = [];
+  if (projName) crumbs.push({ label: projName, go: () => openProject(currentDocProjectId) });
+  for (const seg of path.split("/").filter(Boolean)) crumbs.push({ label: seg });
+  if (crumbs.length === 0) crumbs.push({ label: currentDocTitle });
+  return crumbs;
+}
+
+// Recompute the breadcrumb for whatever view is currently active.
+function updateBreadcrumb(): void {
+  const v = viewStore.get();
+  let crumbs: Crumb[];
+  switch (v) {
+    case "review":
+    case "code":
+    case "image":
+    case "html":
+      crumbs = fileCrumbs();
+      break;
+    case "journal":
+      crumbs = journalTitle && journalTitle !== "Journal"
+        ? [{ label: "Journal", go: () => { journal.showJournal(); viewStore.set("journal"); } }, { label: journalTitle }]
+        : [{ label: "Journal" }];
+      break;
+    case "pages":
+      crumbs = [{ label: "Pages" }];
+      break;
+    case "project":
+      crumbs = [{ label: "Projects" }, { label: projectTitle }];
+      break;
+    case "kanban":
+      crumbs = [{ label: "Kanban" }];
+      break;
+    case "settings":
+      crumbs = [{ label: "Settings" }];
+      break;
+  }
+  renderBreadcrumb(crumbs);
+}
+
 const viewEls: Record<View, HTMLElement> = {
   review: document.querySelector<HTMLElement>("#main")!,
   code: document.querySelector<HTMLElement>("#view-code")!,
@@ -1031,6 +1104,7 @@ const viewEls: Record<View, HTMLElement> = {
   pages: document.querySelector<HTMLElement>("#view-pages")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
+  settings: document.querySelector<HTMLElement>("#view-settings")!,
 };
 const navBadge = document.querySelector<HTMLElement>(".nav-badge")!;
 let journalTitle = "Journal";
@@ -1041,7 +1115,7 @@ const journal = mountJournal(
   viewEls.journal,
   (t) => {
     journalTitle = t;
-    if (viewStore.get() === "journal") viewTitle.textContent = t;
+    if (viewStore.get() === "journal") updateBreadcrumb();
   },
   // [[Project: X]] links jump to project X's home page (case-insensitive match
   // on the project name). Consumed even when no such project exists, so it never
@@ -1127,17 +1201,7 @@ viewStore.subscribe((v) => {
   // re-sets it once the iframe loads and headings are found.
   if (v !== "html") viewArea.classList.remove("has-outline");
   syncPanelColumn();
-  const titles: Record<View, string> = {
-    review: currentDocTitle,
-    code: currentDocTitle,
-    image: currentDocTitle,
-    html: currentDocTitle,
-    journal: journalTitle,
-    pages: "Pages",
-    project: projectTitle,
-    kanban: "Kanban",
-  };
-  viewTitle.textContent = titles[v];
+  updateBreadcrumb();
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
@@ -1187,7 +1251,7 @@ function onProjectChanged(): void {
   renderProjects();
   if (currentProjectId) {
     projectTitle = getProject(currentProjectId)?.name ?? "Project";
-    if (viewStore.get() === "project") viewTitle.textContent = projectTitle;
+    if (viewStore.get() === "project") updateBreadcrumb();
   }
 }
 
@@ -1245,9 +1309,9 @@ document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore
 
 // --- Settings: cog popover + startup preference ---
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
-const settingsPopover = document.querySelector<HTMLElement>("#settings-popover")!;
+const settingsView = document.querySelector<HTMLElement>("#view-settings")!;
 const settings = loadSettings();
-for (const radio of settingsPopover.querySelectorAll<HTMLInputElement>('input[name="startup"]')) {
+for (const radio of settingsView.querySelectorAll<HTMLInputElement>('input[name="startup"]')) {
   radio.checked = radio.value === settings.startup;
   radio.addEventListener("change", () => {
     if (radio.checked) saveSettings({ startup: radio.value as StartupView });
@@ -1357,18 +1421,23 @@ tzSelect.addEventListener("change", () => {
   void saveSettings({ timeZone: tzSelect.value });
   journal.refresh();
 });
+// Settings now lives as a main-panel view. The cog toggles it: opening it
+// remembers the view you came from so the ✕ (and Escape) return you there.
+let preSettingsView: View = viewStore.get();
 settingsCog.addEventListener("click", (e) => {
   e.stopPropagation();
-  settingsPopover.hidden = !settingsPopover.hidden;
+  if (viewStore.get() === "settings") {
+    viewStore.set(preSettingsView);
+  } else {
+    preSettingsView = viewStore.get();
+    viewStore.set("settings");
+  }
 });
-document.addEventListener("click", (e) => {
-  if (settingsPopover.hidden) return;
-  const t = e.target as HTMLElement;
-  if (settingsPopover.contains(t) || t.closest("#settings-cog")) return;
-  settingsPopover.hidden = true;
+document.querySelector<HTMLElement>("#settings-close")?.addEventListener("click", () => {
+  viewStore.set(preSettingsView);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") settingsPopover.hidden = true;
+  if (e.key === "Escape" && viewStore.get() === "settings") viewStore.set(preSettingsView);
 });
 
 // --- Open real repo docs in the review editor (dogfooding) ---
@@ -1411,7 +1480,7 @@ function loadReviewDoc(opts: {
   }
   view.dispatch(tr);
   if (!saved && opts.seedIfEmpty) seedSampleAnnotations();
-  if (viewStore.get() === "review") viewTitle.textContent = currentDocTitle;
+  if (viewStore.get() === "review") updateBreadcrumb();
 }
 
 const recentList = document.querySelector<HTMLElement>("#recent-list")!;
@@ -1477,7 +1546,6 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
     } else {
       await showCodeFile(path, title, await host.files.read(projectId, path));
     }
-    viewTitle.textContent = title;
     viewStore.set(kind as View);
   }
   updateHtmlToggle(path);
@@ -1712,14 +1780,12 @@ if (vaultLocationEl) {
   if (vaultRoot) vaultLocationEl.title = vaultRoot;
 }
 
-// --- Omnisearch / command palette: one topbar box that fuzzy-finds across
-// Journal, Pages, Projects, Sessions, Files, and runs actions in ">" mode.
-// See docs/plans/2026-06-08-omnisearch-command-palette-design.md.
+// --- Omnisearch / command palette: one topbar box that fuzzy-finds across the
+// high-level nav links, Projects, Pages, Files, and Cards, and runs actions in
+// ">" mode. See docs/plans/2026-06-08-omnisearch-command-palette-design.md.
 const searchForm = document.querySelector<HTMLFormElement>("#omnisearch-form");
 const searchInput = document.querySelector<HTMLInputElement>("#omnisearch");
 const paletteMount = document.querySelector<HTMLElement>("#palette-results");
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // First doc line containing the query — a result subtitle for body matches.
 function snippet(md: string, q: string): string | undefined {
@@ -1728,41 +1794,32 @@ function snippet(md: string, q: string): string | undefined {
   return line?.trim().slice(0, 80) || undefined;
 }
 
+// The high-level destinations (mirrors the nav rail's top links). Surfaced first
+// in the palette so a single keystroke jumps there — "j" → Journal, "k" → Kanban.
+const navLinks: { id: string; title: string; open: () => void }[] = [
+  { id: "journal", title: "Journal", open: () => { journal.showJournal(); viewStore.set("journal"); } },
+  { id: "kanban", title: "Kanban", open: () => viewStore.set("kanban") },
+  { id: "pages", title: "Pages", open: () => viewStore.set("pages") },
+];
+
+// Open a card: reveal its latest linked session if it has one, else the board.
+function openCard(item: Item): void {
+  const sids = cardSessionIds(item);
+  if (sids.length > 0) openSessionInPanel(sids[sids.length - 1]);
+  else viewStore.set("kanban");
+}
+
+// Group order is deliberate — nav, projects, pages, files, cards.
 const searchSources: SearchSource[] = [
   {
-    id: "journal",
-    label: "Journal",
-    search: (q) => {
-      const days = pageNames().filter((n) => DATE_RE.test(n));
-      const hits = days.filter(
-        (d) => fuzzyScore(q, d) !== null || (q !== "" && getPageMarkdown(d).toLowerCase().includes(q.toLowerCase())),
-      );
-      return hits
-        .sort((a, b) => b.localeCompare(a)) // newest first
-        .map((d) => ({
-          id: `journal:${d}`,
-          title: d,
-          subtitle: snippet(getPageMarkdown(d), q),
-          open: () => { journal.showPage(d); viewStore.set("journal"); },
-        }));
-    },
-  },
-  {
-    id: "pages",
-    label: "Pages",
-    search: (q) => {
-      const pages = pagesIndex().filter((p) => !DATE_RE.test(p.name));
-      const byName = fuzzyRank(q, pages, (p) => p.name).map((r) => r.item);
-      const extra = q === ""
-        ? []
-        : pages.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
-      return [...byName, ...extra].map((p) => ({
-        id: `page:${p.name}`,
-        title: p.name,
-        subtitle: snippet(getPageMarkdown(p.name), q),
-        open: () => openPage(p.name),
-      }));
-    },
+    id: "nav",
+    label: "Go to",
+    search: (q) =>
+      fuzzyRank(q, navLinks, (l) => l.title).map(({ item }) => ({
+        id: `nav:${item.id}`,
+        title: item.title,
+        open: item.open,
+      })),
   },
   {
     id: "projects",
@@ -1778,16 +1835,19 @@ const searchSources: SearchSource[] = [
       ),
   },
   {
-    id: "sessions",
-    label: "Sessions",
+    id: "pages",
+    label: "Pages",
     search: (q) => {
-      const stateBySession = new Map<string, string>();
-      for (const it of listItems()) for (const sid of it.sessionIds) stateBySession.set(sid, it.state);
-      return fuzzyRank(q, listSessions(), (s) => `${s.title} ${stateBySession.get(s.id) ?? ""}`).map(({ item }) => ({
-        id: `session:${item.id}`,
-        title: item.title,
-        subtitle: stateBySession.get(item.id),
-        open: () => openSessionInPanel(item.id),
+      const pages = pagesIndex(); // all vault pages, including journal day-pages
+      const byName = fuzzyRank(q, pages, (p) => p.name).map((r) => r.item);
+      const extra = q === ""
+        ? []
+        : pages.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
+      return [...byName, ...extra].map((p) => ({
+        id: `page:${p.name}`,
+        title: p.name,
+        subtitle: snippet(getPageMarkdown(p.name), q),
+        open: () => openPage(p.name),
       }));
     },
   },
@@ -1800,6 +1860,17 @@ const searchSources: SearchSource[] = [
         title: item.title,
         subtitle: item.path,
         open: () => void openRepoFile("repo", item.path),
+      })),
+  },
+  {
+    id: "cards",
+    label: "Cards",
+    search: (q) =>
+      fuzzyRank(q, listItems(), (it) => `${it.title} ${it.state}`).map(({ item }) => ({
+        id: `card:${item.id}`,
+        title: item.title,
+        subtitle: item.state,
+        open: () => openCard(item),
       })),
   },
 ];
@@ -1828,9 +1899,14 @@ if (searchForm && searchInput && paletteMount) {
   document.addEventListener("keydown", (e) => {
     if (!(e.metaKey || e.ctrlKey)) return;
     const k = e.key.toLowerCase();
-    if (k === "k" || k === "p") {
+    // ⌘K opens search; ⌘⇧P opens the same palette pre-filtered to commands (">").
+    if (k === "k") {
       e.preventDefault();
-      palette.open(e.shiftKey && k === "p" ? ">" : "");
+      palette.open("", true);
+      searchInput.select();
+    } else if (k === "p" && e.shiftKey) {
+      e.preventDefault();
+      palette.open(">", true);
       searchInput.select();
     }
   });
