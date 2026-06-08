@@ -55,6 +55,7 @@ describe("kanban card — resume affordance", () => {
     renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: (id) => opened.push(id),
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 
@@ -82,6 +83,7 @@ describe("kanban — derived Learnings column", () => {
     renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 1,
     });
 
@@ -97,6 +99,7 @@ describe("kanban — derived Learnings column", () => {
     renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 
@@ -112,6 +115,7 @@ describe("kanban — derived Learnings column", () => {
     const needs = renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 
@@ -127,6 +131,7 @@ describe("kanban — derived Learnings column", () => {
     const needs = renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 1,
     });
 
@@ -142,6 +147,7 @@ describe("kanban — derived Learnings column", () => {
     const needs = renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 
@@ -159,10 +165,58 @@ describe("kanban — derived Learnings column", () => {
     const needs = renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: (id) => (id === doneCard.id ? 1 : 0),
     });
 
     expect(needs).toBe(2);
+  });
+
+  it("opens the learnings view (not the card modal) when a Learnings-column card is clicked", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    const openedLearnings: string[] = [];
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: (id) => openedLearnings.push(id),
+      pendingLearnings: () => 1,
+    });
+
+    const cardEl = container.querySelector<HTMLElement>(
+      `.orden-card[data-item-id="${card.id}"]`,
+    );
+    expect(cardEl).toBeTruthy();
+    // No card modal should be mounted by this click — assert the learnings dep fired.
+    cardEl!.click();
+    expect(openedLearnings).toEqual([card.id]);
+    expect(document.querySelector(".card-modal")).toBeNull();
+  });
+
+  it("does not call onOpenLearnings for a normal-column card click", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "blocked");
+
+    const container = document.createElement("div");
+    const openedLearnings: string[] = [];
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: (id) => openedLearnings.push(id),
+      pendingLearnings: () => 0,
+    });
+
+    const cardEl = container.querySelector<HTMLElement>(
+      `.orden-card[data-item-id="${card.id}"]`,
+    );
+    expect(cardEl).toBeTruthy();
+    cardEl!.click();
+    // Normal cards take the existing modal path, never the learnings path.
+    expect(openedLearnings).toEqual([]);
   });
 
   it("rejects a drop onto Learnings — a card can't be parked there via the board", () => {
@@ -174,6 +228,7 @@ describe("kanban — derived Learnings column", () => {
     renderKanban(container, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 
@@ -186,6 +241,7 @@ describe("kanban — derived Learnings column", () => {
     renderKanban(c2, {
       onStartSession: () => {},
       onOpenSession: () => {},
+      onOpenLearnings: () => {},
       pendingLearnings: () => 0,
     });
 

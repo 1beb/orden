@@ -57,6 +57,10 @@ export interface KanbanDeps {
   // wires it to learningsStore.pendingForCard. Drives the derived Learnings
   // column: a complete card with >0 pending learnings buckets there.
   pendingLearnings: (cardId: string) => number;
+  // Open the learnings review view for a card. Clicking a card that buckets into
+  // the derived Learnings column routes here instead of the normal card modal, so
+  // the user lands straight in the stepper for that card's pending learnings.
+  onOpenLearnings: (cardId: string) => void;
 }
 
 function todayISO(): string {
@@ -366,13 +370,19 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
       if (sessionIds.length === 0) {
         card.append(agentLauncher((agent) => deps.onStartSession(item, agent)));
       }
-      card.addEventListener("click", () =>
+      // A card in the derived Learnings column opens the learnings review view
+      // for that card; every other column keeps the normal card-modal behavior.
+      card.addEventListener("click", () => {
+        if (columnFor(item) === "learnings") {
+          deps.onOpenLearnings(item.id);
+          return;
+        }
         openCardModal(item.id, {
           onStartSession: deps.onStartSession,
           onOpenSession: deps.onOpenSession,
           onChange: rerender,
-        }),
-      );
+        });
+      });
       card.addEventListener("dragstart", (e) => {
         e.dataTransfer?.setData("text/plain", item.id);
         card.classList.add("dragging");

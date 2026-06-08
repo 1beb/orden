@@ -1102,6 +1102,14 @@ function refreshBoard(): void {
     onStartSession: startSessionForItem,
     onOpenSession: openSessionInPanel,
     pendingLearnings: (id) => pendingForCard(id),
+    // Clicking a Learnings-column card opens the review stepper for THAT card.
+    // Set the active card first, then switch views — viewStore's subscribe
+    // handler calls renderLearningsView() (which now respects the explicit id
+    // instead of auto-picking), so no extra render call is needed here.
+    onOpenLearnings: (cardId) => {
+      activeLearningsCardId = cardId;
+      viewStore.set("learnings");
+    },
   });
   navBadge.textContent = String(count);
   navBadge.hidden = count === 0;
