@@ -1070,10 +1070,16 @@ function renderLearningsView(): void {
       try {
         // The host writes the file on disk (and commits when it's a repo); only
         // then do we flip the learning to accepted. A browser host has no
-        // applyLearning, so it falls through to a status-only accept.
-        if (host.applyLearning) await host.applyLearning(id);
+        // applyLearning, so it falls through to a status-only accept (no toast).
+        const r = host.applyLearning ? await host.applyLearning(id) : undefined;
         setLearningStatus(id, "accepted");
         renderLearningsView();
+        // Honest toast from the result: warn only when a commit was attempted in a
+        // repo and failed (the real problem). Repo-committed and non-repo write-only
+        // are both normal — stay silent to avoid noise.
+        if (r && r.isRepo && !r.committed) {
+          showToast("Accepted and saved, but the commit failed");
+        }
       } catch (err) {
         // Leave the learning pending and surface the failure; do NOT mark accepted.
         console.error("accept failed", err);

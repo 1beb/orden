@@ -69,7 +69,7 @@ describe("Host RPC", () => {
 
     const res = await client.applyLearning!("L1");
 
-    expect(res).toEqual({ written: true, committed: false, path: "NOTES.md" });
+    expect(res).toEqual({ written: true, committed: false, isRepo: false, path: "NOTES.md" });
     expect(await readFile(join(projDir, "NOTES.md"), "utf8")).toBe("# Notes\n");
     await rm(projDir, { recursive: true, force: true });
   });

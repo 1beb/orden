@@ -40,7 +40,7 @@ describe("applyLearning", () => {
     const res = await applyLearning(deps, "L1", git);
 
     expect(writeFile).toHaveBeenCalledWith("repo", "docs/THING.md", learning.proposedContent);
-    expect(res).toEqual({ written: true, committed: true, path: "docs/THING.md" });
+    expect(res).toEqual({ written: true, committed: true, isRepo: true, path: "docs/THING.md" });
   });
 
   test("git work-tree: adds and commits the target with a learning: <title> message", async () => {
@@ -55,6 +55,7 @@ describe("applyLearning", () => {
     const res = await applyLearning(deps, "L1", git);
 
     expect(res.committed).toBe(true);
+    expect(res.isRepo).toBe(true);
     expect(calls).toContainEqual(["rev-parse", "--is-inside-work-tree"]);
     expect(calls).toContainEqual(["add", "--", "docs/THING.md"]);
     expect(calls).toContainEqual([
@@ -78,7 +79,7 @@ describe("applyLearning", () => {
 
     const res = await applyLearning(deps, "L1", git);
 
-    expect(res).toEqual({ written: true, committed: false, path: "docs/THING.md" });
+    expect(res).toEqual({ written: true, committed: false, isRepo: false, path: "docs/THING.md" });
     expect(calls).toEqual([["rev-parse", "--is-inside-work-tree"]]);
   });
 
@@ -92,7 +93,7 @@ describe("applyLearning", () => {
 
     const res = await applyLearning(deps, "L1", git);
 
-    expect(res).toEqual({ written: true, committed: false, path: "docs/THING.md" });
+    expect(res).toEqual({ written: true, committed: false, isRepo: true, path: "docs/THING.md" });
   });
 
   test("no project root: write-only success, committed:false, git never called", async () => {
@@ -106,7 +107,7 @@ describe("applyLearning", () => {
 
     const res = await applyLearning(deps, "L1", git);
 
-    expect(res).toEqual({ written: true, committed: false, path: "docs/THING.md" });
+    expect(res).toEqual({ written: true, committed: false, isRepo: false, path: "docs/THING.md" });
     expect(gitCalls).toBe(0);
   });
 

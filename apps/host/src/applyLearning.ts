@@ -2,7 +2,8 @@
 // to its targetPath, then opportunistically commit it when the target dir is a git
 // work-tree. The git shell-out is injectable so the logic is testable without a
 // real repo. A non-repo dir (or any git step failing) is still a successful write —
-// commit is best-effort and never throws.
+// commit is best-effort and never throws. The result's isRepo flag distinguishes
+// "not a repo" (write-only, normal) from "commit failed in a repo" (a real problem).
 
 import { spawnSync } from "node:child_process";
 import type { ApplyLearningResult, Learning } from "@orden/host-api";
@@ -38,11 +39,15 @@ export async function applyLearning(
   await deps.writeFile(projectId, targetPath, proposedContent);
 
   let committed = false;
+  let isRepo = false;
   const root = await deps.resolveRoot(projectId);
   if (root) {
-    // Detect a git work-tree, then add + commit. Any non-zero step (or no repo)
-    // degrades to committed:false — the write already succeeded.
-    if (git(root, ["rev-parse", "--is-inside-work-tree"]).code === 0) {
+    // Detect a git work-tree, then add + commit. isRepo records whether a commit
+    // was even attempted; committed stays true only when the commit step returns 0.
+    // Any non-zero step degrades committed to false — the write already succeeded.
+    const revParse = git(root, ["rev-parse", "--is-inside-work-tree"]);
+    isRepo = revParse.code === 0;
+    if (isRepo) {
       const added = git(root, ["add", "--", targetPath]);
       if (added.code === 0) {
         const done = git(root, ["commit", "-m", `learning: ${title}`, "--", targetPath]);
@@ -51,5 +56,5 @@ export async function applyLearning(
     }
   }
 
-  return { written: true, committed, path: targetPath };
+  return { written: true, committed, isRepo, path: targetPath };
 }

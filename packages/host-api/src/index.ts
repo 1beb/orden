@@ -257,8 +257,10 @@ export interface Learning {
 /** Result of applying an accepted learning to the project tree. */
 export interface ApplyLearningResult {
   written: boolean;
-  /** True only when the target was a git work-tree and the commit succeeded. */
+  /** True only when committed to a git repo. False for non-repo dirs AND commit failures — see isRepo to tell them apart. */
   committed: boolean;
+  /** True when the target dir is a git work-tree (a commit was attempted). When false, the file was written to disk only — that is normal, not an error. */
+  isRepo: boolean;
   /** Project-relative path that was written. */
   path: string;
 }
