@@ -22,4 +22,13 @@ describe("DiskSnapshotStore", () => {
     const b = await store.put("h1", "html", "<p>x</p>");
     expect(a).toBe(b);
   });
+  it("round-trips binary Buffer bytes via getBytes", async () => {
+    const store = new DiskSnapshotStore(root);
+    const bytes = Buffer.from([1, 2, 3]);
+    const path = await store.put("h2", "webp", bytes);
+    expect(path).toBe("snapshots/h2.webp");
+    const out = await store.getBytes(path);
+    expect(Buffer.isBuffer(out)).toBe(true);
+    expect(out).toEqual(bytes);
+  });
 });
