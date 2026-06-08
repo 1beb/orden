@@ -17,6 +17,7 @@ export {
   projectList,
   sessionCreate,
   panelOpen,
+  docRender,
 } from "./tools";
 export type { ToolResult } from "./tools";
 export {

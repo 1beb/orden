@@ -436,6 +436,17 @@ export async function sessionCreate(
   );
 }
 
+// Render a project-relative doc on the host (quarto) and report build status.
+// Deliberately does NOT open anything: a separate panel_open call surfaces the
+// output once the render is verified. Gated by host.render (capabilities.docRender).
+export async function docRender(host: Host, projectId: string, path: string): Promise<ToolResult> {
+  if (!host.render)
+    return text("doc_render unavailable: this host cannot render (quarto not installed?)");
+  const r = await host.render(projectId, path);
+  if (r.ok) return text(`rendered ${path} -> ${r.outputPath}`);
+  return text(`render FAILED for ${path}:\n${r.errors ?? "unknown error"}`);
+}
+
 export async function panelOpen(
   vault: VaultStore,
   kind: "doc" | "page" | "kanban" | "card",

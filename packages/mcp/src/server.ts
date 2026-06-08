@@ -238,5 +238,26 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
     ({ kind, target }) => tools.panelOpen(host.vault, kind, target ?? ""),
   );
 
+  server.registerTool(
+    "doc_render",
+    {
+      description:
+        "Render a .qmd/.md document on the host (runs quarto) and return build status. Does NOT open anything — on success, follow with panel_open to surface the output. Two tools on purpose: verify the render before opening.",
+      inputSchema: {
+        path: z
+          .string()
+          .describe("project-relative path to the source doc, e.g. docs/report.qmd"),
+        project: z
+          .string()
+          .optional()
+          .describe("project id; omit to use this session's project"),
+      },
+    },
+    async ({ path, project }) => {
+      const pid = project ?? (await currentProjectId()) ?? "repo";
+      return tools.docRender(host, pid, path);
+    },
+  );
+
   return server;
 }

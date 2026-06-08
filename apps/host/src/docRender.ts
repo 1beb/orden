@@ -5,14 +5,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, resolve, extname, basename, join } from "node:path";
+import type { RenderResult } from "@orden/host-api";
+
+// RenderResult lives in @orden/host-api (the spine) so Host.render can return it
+// without apps/host being imported upstream. Re-export for local callers/tests.
+export type { RenderResult };
 
 const execFileAsync = promisify(execFile);
-
-export interface RenderResult {
-  ok: boolean;
-  outputPath?: string; // absolute path to the rendered artifact, on success
-  errors?: string; // stderr/stdout summary, on failure
-}
 
 // Abstracts the child process. Given the absolute source path, run the renderer
 // and report its captured streams + exit code (0 = success).

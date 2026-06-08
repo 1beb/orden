@@ -205,6 +205,19 @@ export interface TerminalChat {
   answerQuestion(sessionId: string, toolId: string, response: QuestionResponse): Promise<void>;
 }
 
+/**
+ * The result of rendering a document on the host. `outputPath` is present on
+ * success (the rendered artifact); `errors` is a stderr/stdout summary on
+ * failure. Both the input path and `outputPath` are PROJECT-RELATIVE across the
+ * Host boundary (Host.render translates the absolute artifact path back to a
+ * repo-relative one), so the caller can hand `outputPath` straight to panel_open.
+ */
+export interface RenderResult {
+  ok: boolean;
+  outputPath?: string;
+  errors?: string;
+}
+
 export interface Host {
   identity: Identity;
   vault: VaultStore;
@@ -214,5 +227,12 @@ export interface Host {
   locks: LockService;
   chat?: ChatBackend;
   terminalChat?: TerminalChat;
+  /**
+   * Render a document (e.g. quarto) on the host. `path` is project-relative.
+   * Resolves to a RenderResult whose outputPath (on success) is ALSO
+   * project-relative. Absent on hosts that cannot render (browser, no quarto) —
+   * gated by capabilities().docRender.
+   */
+  render?(projectId: string, path: string): Promise<RenderResult>;
   capabilities(): HostCapabilities;
 }

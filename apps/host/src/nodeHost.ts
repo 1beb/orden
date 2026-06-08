@@ -26,9 +26,12 @@ import type {
   HarnessAdapter,
 } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
+import { relative, join } from "node:path";
 import { DiskVault } from "./diskVault";
 import { FsFiles } from "./fsFiles";
-import { makeProjectRootResolver } from "./projectRoots";
+import { makeProjectRootResolver, type ProjectRootResolver } from "./projectRoots";
+import { renderDoc } from "./docRender";
+import type { RenderResult } from "@orden/host-api";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
@@ -140,6 +143,7 @@ export class NodeHost implements Host {
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
   private readonly vaultRoot: string;
+  private readonly rootResolver: ProjectRootResolver;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
@@ -159,7 +163,8 @@ export class NodeHost implements Host {
     // until a client opens a doc, so an idle host holds no fs.watch handles (the
     // old MultiRootWatcher armed recursively over every project root incl.
     // node_modules and exhausted inotify).
-    this.files = new FsFiles(makeProjectRootResolver(this, opts.filesRoot), (projectId, path) => {
+    this.rootResolver = makeProjectRootResolver(this, opts.filesRoot);
+    this.files = new FsFiles(this.rootResolver, (projectId, path) => {
       for (const listener of this.changeListeners) listener({ ns: "files", key: path, projectId });
     });
     // Sessions run agents on the host; writes go through the emitting vault so
@@ -192,6 +197,24 @@ export class NodeHost implements Host {
    *  process lifetime); used by tests to avoid leaking fs.watch instances. */
   stop(): void {
     if (this.files instanceof FsFiles) this.files.stopWatching();
+  }
+
+  /**
+   * Render a project-relative document with quarto. Resolves the project root
+   * (same resolver FsFiles uses; "repo" -> filesRoot), renders the absolute
+   * source, then translates the absolute artifact path BACK to project-relative
+   * so the caller can pass outputPath straight to panel_open. ok/errors pass
+   * through unchanged.
+   */
+  async render(projectId: string, path: string): Promise<RenderResult> {
+    const root = await this.rootResolver(projectId);
+    if (!root) return { ok: false, errors: `no local root for project "${projectId}"` };
+    const abs = join(root, path);
+    const result = await renderDoc(abs);
+    if (result.ok && result.outputPath) {
+      return { ...result, outputPath: relative(root, result.outputPath) };
+    }
+    return result;
   }
 
   capabilities(): HostCapabilities {
