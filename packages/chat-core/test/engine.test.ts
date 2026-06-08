@@ -216,6 +216,65 @@ describe("createChatBackend resume over a shared vault", () => {
   });
 });
 
+describe("createChatBackend onTurnBoundary", () => {
+  function setupWithBoundary() {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    const driver = makeFakeDriver();
+    registry.register(makeFakeAdapter("claude", driver));
+    const edges: Array<[string, "start" | "end"]> = [];
+    const backend = createChatBackend({
+      vault,
+      registry,
+      genId: seqIds("s"),
+      onTurnBoundary: (id, edge) => edges.push([id, edge]),
+    });
+    return { backend, driver, edges };
+  }
+
+  it("fires start on the first event after idle and end on turn-end", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "text", messageId: "m1", text: "hi" });
+    driver.push({ kind: "tool", messageId: "m1", toolId: "t1", name: "bash", input: {} });
+    driver.push({ kind: "turn-end" });
+    await tick();
+
+    expect(edges).toEqual([
+      [s.id, "start"],
+      [s.id, "end"],
+    ]);
+  });
+
+  it("does not fire start for the session handshake event", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "session", sessionId: "conv1", slashCommands: [] });
+    await tick();
+    expect(edges).toEqual([]); // a handshake is not real work
+
+    driver.push({ kind: "text", messageId: "m1", text: "go" });
+    driver.push({ kind: "turn-end" });
+    await tick();
+    expect(edges.map((e) => e[1])).toEqual(["start", "end"]);
+  });
+
+  it("re-arms: a second turn fires start again", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "text", messageId: "m1", text: "one" });
+    driver.push({ kind: "turn-end" });
+    driver.push({ kind: "text", messageId: "m2", text: "two" });
+    driver.push({ kind: "turn-end" });
+    await tick();
+
+    expect(edges.map((e) => e[1])).toEqual(["start", "end", "start", "end"]);
+  });
+});
+
 describe("createChatBackend pump errors", () => {
   it("surfaces a pump failure instead of swallowing it", async () => {
     const vault = new MemVault();

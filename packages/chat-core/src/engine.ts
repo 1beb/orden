@@ -37,8 +37,16 @@ export function createChatBackend(deps: {
   registry: AdapterRegistry;
   genId?: () => string;
   now?: () => number;
+  // Turn-boundary callback. Fired with this engine's chat session id and the
+  // edge of a turn: "start" on the FIRST driver event after idle, "end" on
+  // `turn-end`. GUI-mode sessions have no tmux pane and so never fire the
+  // claude `--settings` lifecycle hooks that drive kanban card state; the host
+  // uses this callback to reflect working/waiting onto the session's card. Kept
+  // as a plain callback so chat-core stays free of host-api/kanban deps.
+  onTurnBoundary?: (sessionId: string, edge: "start" | "end") => void;
 }): ChatBackend {
   const { vault, registry } = deps;
+  const onTurnBoundary = deps.onTurnBoundary;
   const genId = deps.genId ?? (() => crypto.randomUUID());
   const now = deps.now ?? (() => Date.now());
   const live = new Map<string, Live>();
@@ -53,8 +61,20 @@ export function createChatBackend(deps: {
   // Not awaited by createSession so it runs concurrently for the session's life.
   function startPump(sessionId: string, l: Live): void {
     void (async () => {
+      // Per-session in-turn latch: the first event after idle is a turn "start";
+      // `turn-end` is a turn "end" and re-arms the latch. The `session` event
+      // (the harness handshake) is not real work, so it does not start a turn.
+      let inTurn = false;
       for await (const ev of l.driver.events) {
+        if (onTurnBoundary && ev.kind !== "session" && !inTurn) {
+          inTurn = true;
+          onTurnBoundary(sessionId, "start");
+        }
         await l.reducer.apply(ev);
+        if (ev.kind === "turn-end") {
+          inTurn = false;
+          if (onTurnBoundary) onTurnBoundary(sessionId, "end");
+        }
       }
     })().catch((err) => {
       // A pump failure silently ends the session's event stream; surface it

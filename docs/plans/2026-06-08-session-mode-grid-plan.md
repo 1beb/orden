@@ -577,6 +577,8 @@ git commit -m "web: GUI sessions mount the streaming agent path, not the mirror"
 
 ### Task 13: GUI session card state from turn boundaries
 
+Status: IMPLEMENTED (the explicit-callback path, not a vault-inference reactor). Two sites: `packages/chat-core/src/engine.ts` gained an optional `onTurnBoundary(sessionId, "start"|"end")` (fires "start" on the first non-`session` driver event after idle, "end" on `turn-end`, re-arming each turn). `apps/host/src/nodeHost.ts` wires it into `createChatBackend`, routing through `applyChatTurnBoundary` in `apps/host/src/hooks.ts`, which reverse-maps the chat session id to the orden session id via the `chat-link` vault ns and calls the existing `applyStateBySessionId` (so the never-clobber-complete guard is reused, not reimplemented). start → `in-progress`, end → `blocked`. `serve.ts` was not touched — the callback is constructed alongside the engine.
+
 GUI sessions have no tmux, so the injected claude hooks that drive kanban state never fire. Drive card state from the chat engine instead, reusing the existing `/hooks/session-state` semantics (in-progress on activity, blocked on turn-end).
 
 **Files:**
