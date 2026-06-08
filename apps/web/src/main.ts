@@ -76,6 +76,7 @@ import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
+import { buildModeGrid } from "./settingsModeGrid";
 import {
   hydrateSettings,
   loadSettings,
@@ -1674,6 +1675,28 @@ if (htmlRenderCb) {
       void openRepoFile(currentDocProjectId, path);
     }
   });
+}
+
+// Scratch terminal: show (or hide) the plain-shell scratch button in the
+// session pane. A per-user preference; no other view depends on it live.
+const scratchTermCb = document.querySelector<HTMLInputElement>("#show-scratch-terminal");
+if (scratchTermCb) {
+  scratchTermCb.checked = loadSettings().showScratchTerminal;
+  scratchTermCb.addEventListener("change", () => {
+    void saveSettings({ showScratchTerminal: scratchTermCb.checked });
+  });
+}
+
+// Default session mode: a 2x2 grid (Claude Code / opencode × TUI / GUI) picking
+// which surface a newly spawned session opens in, per tool. Selecting a cell
+// merges that tool's choice into the stored map.
+const modeGridMount = document.querySelector<HTMLElement>("#mode-grid");
+if (modeGridMount) {
+  modeGridMount.append(
+    buildModeGrid(loadSettings().defaultMode, (next) => {
+      void saveSettings({ defaultMode: next });
+    }),
+  );
 }
 
 // Vault location: a read-only path so the user knows where their data lives.

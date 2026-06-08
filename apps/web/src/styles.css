@@ -351,6 +351,46 @@ body {
   letter-spacing: normal;
 }
 
+/* Default-mode grid: a row label plus one centered radio per mode column. */
+.settings-mode-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-mode-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 16px;
+}
+
+.settings-mode-rowlabel {
+  font-size: calc(14px * var(--font-scale));
+}
+
+.settings-mode-colhead {
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  min-width: 36px;
+}
+
+.settings-mode-cell {
+  display: flex;
+  justify-content: center;
+  min-width: 36px;
+  cursor: pointer;
+}
+
+.settings-mode-cell input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* read-only vault path: monospace, wraps long absolute paths instead of clipping */
 .settings-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
