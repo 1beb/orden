@@ -14,12 +14,7 @@
     --panel-bg: #ffffff;
     --accent: #6d28d9;
     --accent-soft: color-mix(in srgb, var(--accent) 14%, #fff);
-    --human: #6366f1;
-    --human-soft: #e0e7ff;
-    /* derived for this surface, kept in-palette */
     --soft: #f4f4f3;
-    --add-bg: #ecfdf3;
-    --add-ink: #15803d;
     --reject: #b91c1c;
     --comment: #b45309;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -57,60 +52,53 @@
   .dot { height: 4px; flex: 1; border-radius: 99px; background: var(--line); }
   .dot.done { background: var(--accent); opacity: .4; }
   .dot.cur { background: var(--accent); }
-  .lr-titlerow { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; }
-  .badge {
-    flex: none; font-size: 11px; font-weight: 600; letter-spacing: .02em;
-    padding: 3px 8px; border-radius: 7px;
-    background: var(--accent-soft); color: var(--accent);
-  }
-  .badge.skill { background: var(--human-soft); color: var(--human); }
-  .badge.adr { background: #fef3c7; color: var(--comment); }
-  .badge.readme { background: var(--add-bg); color: var(--add-ink); }
-  .lr-title { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.3; color: var(--ink); }
+  .lr-title { margin: 14px 0 0; font-size: 17px; font-weight: 650; line-height: 1.3; color: var(--ink); }
+  .lr-kind { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
   .lr-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 20px; }
 
-  /* recap */
-  .recap { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-bg); overflow: hidden; margin-bottom: 18px; }
-  .recap > summary {
-    list-style: none; cursor: pointer; padding: 11px 14px;
-    display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-weight: 600;
-  }
-  .recap > summary::-webkit-details-marker { display: none; }
-  .recap > summary .chev { margin-left: auto; transition: transform .15s; color: var(--muted); }
-  .recap[open] > summary .chev { transform: rotate(90deg); }
-  .recap-body { padding: 0 14px 14px; color: var(--muted); font-size: 13.5px; }
-  .recap-body p { margin: 8px 0 0; }
-  .recap-body code, .filepath, .diff { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .recap-body code { background: var(--soft); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; color: var(--ink); }
-
   .change-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
-  .filepath { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
-  .diff { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 12.5px; line-height: 1.6; background: var(--panel-bg); }
-  .diff .row { display: flex; padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
-  .diff .row.add { background: var(--add-bg); color: var(--add-ink); }
-  .diff .row.ctx { color: var(--muted); }
-  .diff .gutter { flex: none; width: 16px; color: var(--muted); opacity: .6; user-select: none; }
+  .filepath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .diff { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.6; background: var(--panel-bg); }
+  .diff .row { display: flex; padding: 0 12px; white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+  .diff .gutter { flex: none; width: 16px; color: var(--muted); user-select: none; }
 
   .rationale { margin-top: 16px; font-size: 13.5px; color: var(--muted); }
   .rationale b { color: var(--ink); font-weight: 600; }
 
+  /* recap — at the bottom of the body, always visible, no well */
+  .recap { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .recap-head { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .recap-body { color: var(--muted); font-size: 13.5px; }
+  .recap-body p { margin: 8px 0 0; }
+  .recap-body p:first-child { margin-top: 0; }
+  .recap-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--soft); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; color: var(--ink); }
+
   /* sticky action bar */
   .lr-actions {
-    flex: none; display: flex; gap: 10px; padding: 12px 16px;
+    flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px;
     border-top: 1px solid var(--line); background: var(--panel-bg);
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
+  .verdict { display: flex; gap: 10px; }
   .btn {
     flex: 1; border: 1px solid var(--line); background: var(--panel-bg);
-    color: var(--ink); font-size: 14px; font-weight: 600; padding: 13px 10px;
+    color: var(--ink); font-size: 14px; font-weight: 600; padding: 12px 10px;
     border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px;
     -webkit-tap-highlight-color: transparent;
   }
-  .btn .ic { font-size: 15px; line-height: 1; }
-  .btn.reject { color: var(--reject); }
-  .btn.comment { color: var(--comment); }
-  .btn.accept { background: var(--accent); color: #fff; border-color: var(--accent); flex: 1.3; }
+  .btn .ic { font-size: 16px; line-height: 1; }
+  .btn.accept { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+  .comment-row { display: flex; gap: 8px; }
+  .comment-row input {
+    flex: 1; border: 1px solid var(--line); background: var(--panel-bg);
+    border-radius: 12px; padding: 11px 14px; font-size: 14px; color: var(--ink); font-family: inherit;
+  }
+  .comment-row input::placeholder { color: var(--muted); }
+  .comment-row .send {
+    flex: none; border: 1px solid var(--accent-soft); background: var(--accent-soft); color: var(--accent);
+    border-radius: 12px; padding: 0 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
   .advance-hint { max-width: 980px; margin: 10px auto 0; text-align: center; color: var(--muted); font-size: 12px; }
 
   /* desktop variant */
@@ -146,39 +134,40 @@
                   <span class="lr-count">1 / 3</span>
                 </div>
                 <div class="dots"><span class="dot cur"></span><span class="dot"></span><span class="dot"></span></div>
-                <div class="lr-titlerow">
-                  <span class="badge">AGENTS.md</span>
-                  <h1 class="lr-title">Document the host-rendered doc flow: doc_render + panel_open</h1>
-                </div>
+                <h1 class="lr-title">Document the host-rendered doc flow: doc_render + panel_open</h1>
+                <div class="lr-kind">Update · AGENTS.md</div>
               </div>
             </div>
             <div class="lr-body">
-              <details class="recap">
-                <summary>Why this <span class="chev">›</span></summary>
+              <p class="change-label">Proposed change</p>
+              <div class="filepath">AGENTS.md · under “MCP agent bus”</div>
+              <div class="diff">
+                <div class="row"><span class="gutter"> </span>Connect an external agent with `claude mcp add …`.</div>
+                <div class="row"><span class="gutter">+</span></div>
+                <div class="row"><span class="gutter">+</span><b>Rendering is host-owned, agent-driven.</b> The agent edits</div>
+                <div class="row"><span class="gutter">+</span>`.qmd`/`.md` source, calls `doc_render({path})` (host runs</div>
+                <div class="row"><span class="gutter">+</span>quarto, returns `{ok, outputPath, errors}`), verifies `ok`,</div>
+                <div class="row"><span class="gutter">+</span>then `panel_open(outputPath)`. Two tools on purpose: the</div>
+                <div class="row"><span class="gutter">+</span>verify-then-open step stays an explicit gate.</div>
+              </div>
+
+              <div class="recap">
+                <div class="recap-head">Why this</div>
                 <div class="recap-body">
                   <p>This session designed intelligent automation for orden. It settled that quarto/render always runs on the host, but the agent triggers it, confirms completion, then surfaces the result — so a new <code>doc_render</code> MCP tool returns build status and stays separate from <code>panel_open</code>, keeping the verify-then-open gate explicit.</p>
                   <p>That two-tool contract isn't written down anywhere an agent would read it. Future sessions will guess at one combined tool.</p>
                 </div>
-              </details>
-
-              <p class="change-label">Proposed change</p>
-              <div class="filepath">AGENTS.md · under “MCP agent bus”</div>
-              <div class="diff">
-                <div class="row ctx"><span class="gutter"> </span>Connect an external agent with `claude mcp add …`.</div>
-                <div class="row add"><span class="gutter">+</span></div>
-                <div class="row add"><span class="gutter">+</span><b>Rendering is host-owned, agent-driven.</b> The agent edits</div>
-                <div class="row add"><span class="gutter">+</span>`.qmd`/`.md` source, calls `doc_render({path})` (host runs</div>
-                <div class="row add"><span class="gutter">+</span>quarto, returns `{ok, outputPath, errors}`), verifies `ok`,</div>
-                <div class="row add"><span class="gutter">+</span>then `panel_open(outputPath)`. Two tools on purpose: the</div>
-                <div class="row add"><span class="gutter">+</span>verify-then-open step stays an explicit gate.</div>
               </div>
-
-              <p class="rationale"><b>Accept</b> writes this into AGENTS.md. <b>Comment</b> sends notes back to me to redraft. <b>Reject</b> drops it.</p>
             </div>
             <div class="lr-actions">
-              <button class="btn reject"><span class="ic">✕</span>Reject</button>
-              <button class="btn comment"><span class="ic">✎</span>Comment</button>
-              <button class="btn accept"><span class="ic">✓</span>Accept</button>
+              <div class="verdict">
+                <button class="btn reject"><span class="ic">✕</span>Reject</button>
+                <button class="btn accept"><span class="ic">✓</span>Accept</button>
+              </div>
+              <div class="comment-row">
+                <input type="text" placeholder="Comment…" />
+                <button class="send">Send</button>
+              </div>
             </div>
           </div>
         </div>
@@ -198,41 +187,42 @@
                 <span class="lr-count">2 / 3</span>
               </div>
               <div class="dots"><span class="dot done"></span><span class="dot cur"></span><span class="dot"></span></div>
-              <div class="lr-titlerow">
-                <span class="badge skill">New skill</span>
-                <h1 class="lr-title">Create skill: learnings-review triage</h1>
-              </div>
+              <h1 class="lr-title">Create skill: learnings-review triage</h1>
+              <div class="lr-kind">New file · skill</div>
             </div>
           </div>
           <div class="lr-body">
             <div class="lr-inner">
-              <details class="recap" open>
-                <summary>Why this <span class="chev">›</span></summary>
-                <div class="recap-body">
-                  <p>We defined a repeatable triage loop — accept / reject / comment, one learning at a time, auto-advance, with a conversation recap for context. That loop is a procedure an agent should follow every time it generates learnings, which is exactly what a skill is for.</p>
-                </div>
-              </details>
-
               <p class="change-label">Proposed new file</p>
               <div class="filepath">.claude/skills/learnings-review/SKILL.md</div>
               <div class="diff">
-                <div class="row add"><span class="gutter">+</span>---</div>
-                <div class="row add"><span class="gutter">+</span>name: learnings-review</div>
-                <div class="row add"><span class="gutter">+</span>description: Use when a card is completed — distill the</div>
-                <div class="row add"><span class="gutter">+</span>  session's diff into proposed README/ADR/AGENTS/skill edits.</div>
-                <div class="row add"><span class="gutter">+</span>---</div>
-                <div class="row add"><span class="gutter">+</span># Learnings review</div>
-                <div class="row add"><span class="gutter">+</span>One proposal per artifact change. No memories. Surface each</div>
-                <div class="row add"><span class="gutter">+</span>as an accept/reject/comment step in the main panel.</div>
+                <div class="row"><span class="gutter">+</span>---</div>
+                <div class="row"><span class="gutter">+</span>name: learnings-review</div>
+                <div class="row"><span class="gutter">+</span>description: Use when a card is completed — distill the</div>
+                <div class="row"><span class="gutter">+</span>  session's diff into proposed README/ADR/AGENTS/skill edits.</div>
+                <div class="row"><span class="gutter">+</span>---</div>
+                <div class="row"><span class="gutter">+</span># Learnings review</div>
+                <div class="row"><span class="gutter">+</span>One proposal per artifact change. No memories. Surface each</div>
+                <div class="row"><span class="gutter">+</span>as an accept/reject/comment step in the main panel.</div>
               </div>
 
-              <p class="rationale"><b>Accept</b> creates the skill file. <b>Comment</b> sends notes back to me. <b>Reject</b> drops it.</p>
+              <div class="recap">
+                <div class="recap-head">Why this</div>
+                <div class="recap-body">
+                  <p>We defined a repeatable triage loop — accept / reject / comment, one learning at a time, auto-advance, with a conversation recap for context. That loop is a procedure an agent should follow every time it generates learnings, which is exactly what a skill is for.</p>
+                </div>
+              </div>
             </div>
           </div>
           <div class="lr-actions">
-            <button class="btn reject"><span class="ic">✕</span>Reject</button>
-            <button class="btn comment"><span class="ic">✎</span>Comment</button>
-            <button class="btn accept"><span class="ic">✓</span>Accept &amp; next</button>
+            <div class="verdict">
+              <button class="btn reject"><span class="ic">✕</span>Reject</button>
+              <button class="btn accept"><span class="ic">✓</span>Accept</button>
+            </div>
+            <div class="comment-row">
+              <input type="text" placeholder="Comment…" />
+              <button class="send">Send</button>
+            </div>
           </div>
         </div>
       </div>
