@@ -50,7 +50,7 @@ describe("kanban card — resume affordance", () => {
       onStartSession: () => {},
       onOpenSession: (id) => opened.push(id),
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     // The Resume affordance is an icon-only button (SVG + aria-label, no visible
@@ -80,13 +80,13 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 1,
+      openLearnings: () => 1,
     });
 
     expect(columnOf(container, card.id)).toBe("learnings");
   });
 
-  it("buckets a complete card with no pending learnings under Complete", () => {
+  it("buckets a complete card with no open learnings under Complete", () => {
     const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
     const card = cardFor(s.id);
     setItemState(card.id, "complete");
@@ -96,10 +96,48 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     expect(columnOf(container, card.id)).toBe("complete");
+  });
+
+  it("buckets a complete card with only revising (open) learnings under Learnings and counts it", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    // openLearnings counts pending OR revising; a card whose only learning is
+    // revising still reports >0, so it stays diverted to Learnings and counts.
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 1,
+    });
+
+    expect(columnOf(container, card.id)).toBe("learnings");
+    expect(needs).toBe(1);
+  });
+
+  it("buckets a complete card whose learnings are all resolved under Complete and does not count it", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    // All learnings accepted/rejected → openLearnings is 0 → falls back to Complete
+    // and contributes nothing to the needs count.
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    expect(columnOf(container, card.id)).toBe("complete");
+    expect(needs).toBe(0);
   });
 
   it("counts a blocked card in the returned needs-action total", () => {
@@ -112,7 +150,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     expect(needs).toBe(1);
@@ -128,7 +166,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 1,
+      openLearnings: () => 1,
     });
 
     expect(needs).toBe(1);
@@ -144,7 +182,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     expect(needs).toBe(0);
@@ -162,7 +200,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: (id) => (id === doneCard.id ? 1 : 0),
+      openLearnings: (id) => (id === doneCard.id ? 1 : 0),
     });
 
     expect(needs).toBe(2);
@@ -179,7 +217,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: (id) => openedLearnings.push(id),
-      pendingLearnings: () => 1,
+      openLearnings: () => 1,
     });
 
     const cardEl = container.querySelector<HTMLElement>(
@@ -203,7 +241,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: (id) => openedLearnings.push(id),
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     const cardEl = container.querySelector<HTMLElement>(
@@ -225,7 +263,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     // Sanity: real columns DO accept drops (proves the harness fires the handler).
@@ -238,7 +276,7 @@ describe("kanban — derived Learnings column", () => {
       onStartSession: () => {},
       onOpenSession: () => {},
       onOpenLearnings: () => {},
-      pendingLearnings: () => 0,
+      openLearnings: () => 0,
     });
 
     // Dropping onto Learnings is a no-op: the column wires no drop handler, so

@@ -31,9 +31,26 @@ export function learningsForCard(cardId: string): Learning[] {
   return cache.filter((l) => l.cardId === cardId).sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** How many of a card's learnings are still awaiting a decision. */
+/**
+ * How many of a card's learnings are user-actionable right now: status
+ * `pending`. Drives the stepper, which only steps through proposals awaiting a
+ * decision. Narrower than `openForCard` — it excludes in-flight `revising`.
+ */
 export function pendingForCard(cardId: string): number {
   return cache.filter((l) => l.cardId === cardId && l.status === "pending").length;
+}
+
+/**
+ * How many of a card's learnings are still "open": `pending` (awaiting the
+ * user) OR `revising` (the user commented and the agent is re-iterating before
+ * re-proposing). Excludes the resolved states `accepted`/`rejected`. Drives the
+ * derived Learnings column and the nav action badge, so a card stays in the
+ * column while a comment-triggered revision is in flight.
+ */
+export function openForCard(cardId: string): number {
+  return cache.filter(
+    (l) => l.cardId === cardId && (l.status === "pending" || l.status === "revising"),
+  ).length;
 }
 
 function persist(id: string): void {

@@ -35,7 +35,7 @@ import {
 } from "./cards";
 import {
   hydrateLearnings,
-  pendingForCard,
+  openForCard,
   listLearnings,
   setLearningStatus,
   addLearningComment,
@@ -1212,7 +1212,7 @@ function refreshBoard(): void {
   const count = renderKanban(viewEls.kanban, {
     onStartSession: startSessionForItem,
     onOpenSession: openSessionInPanel,
-    pendingLearnings: (id) => pendingForCard(id),
+    openLearnings: (id) => openForCard(id),
     // Clicking a Learnings-column card opens the review stepper for THAT card.
     // Set the active card first, then switch views — viewStore's subscribe
     // handler calls renderLearningsView() (which now respects the explicit id
@@ -2050,7 +2050,7 @@ onVaultChange((ns, key, projectId) => {
         break;
       case "learnings":
         await hydrateLearnings(host);
-        refreshBoard(); // the derived Learnings column reads pendingForCard (C2)
+        refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
         if (v === "learnings") renderLearningsView(); // refresh the stepper on external changes
         break;
       case "projects":

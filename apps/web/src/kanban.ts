@@ -52,11 +52,13 @@ const filters: BoardFilters = { dueOnly: false, noSessions: false, projectId: ""
 export interface KanbanDeps {
   onStartSession: (item: Item, agent: Agent) => void;
   onOpenSession: (sessionId: string) => void;
-  // Count of a card's still-pending learnings. Injected (rather than importing
-  // learningsStore here) so this render module stays store-agnostic; main.ts
-  // wires it to learningsStore.pendingForCard. Drives the derived Learnings
-  // column: a complete card with >0 pending learnings buckets there.
-  pendingLearnings: (cardId: string) => number;
+  // Count of a card's still-OPEN learnings — those `pending` (awaiting the user)
+  // or `revising` (commented, agent re-iterating). Injected (rather than
+  // importing learningsStore here) so this render module stays store-agnostic;
+  // main.ts wires it to learningsStore.openForCard. Drives the derived Learnings
+  // column: a complete card with >0 open learnings buckets there and stays put
+  // while a comment-triggered revision is in flight.
+  openLearnings: (cardId: string) => number;
   // Open the learnings review view for a card. Clicking a card that buckets into
   // the derived Learnings column routes here instead of the normal card modal, so
   // the user lands straight in the stepper for that card's pending learnings.
@@ -86,16 +88,17 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   const items = allItems.filter(passesFilters);
 
   // The column an item buckets into. Cards live in their stored `state`'s
-  // column, EXCEPT a complete card with pending learnings, which is derived into
-  // the rightmost "learnings" column instead (and falls back to "complete" once
-  // it has none). No card is ever stored in state "learnings".
+  // column, EXCEPT a complete card with open learnings (pending or revising),
+  // which is derived into the rightmost "learnings" column instead (and falls
+  // back to "complete" once every learning is accepted/rejected). No card is
+  // ever stored in state "learnings".
   const columnFor = (i: Item): BoardColumn =>
-    i.state === "complete" && deps.pendingLearnings(i.id) > 0 ? "learnings" : i.state;
+    i.state === "complete" && deps.openLearnings(i.id) > 0 ? "learnings" : i.state;
 
   // Nav action badge: a card needs the user's attention when its DERIVED column
-  // is Blocked (waiting on the user) OR Learnings (pending learnings to review).
-  // Counted off the derived column, not `state`, so a complete-but-pending card
-  // still counts even though its stored state is "complete".
+  // is Blocked (waiting on the user) OR Learnings (open learnings — pending or
+  // revising). Counted off the derived column, not `state`, so a complete card
+  // with open learnings still counts even though its stored state is "complete".
   const needs = allItems.filter((i) => {
     const col = columnFor(i);
     return col === "blocked" || col === "learnings";

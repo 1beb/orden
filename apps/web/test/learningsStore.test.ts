@@ -6,6 +6,7 @@ import {
   listLearnings,
   learningsForCard,
   pendingForCard,
+  openForCard,
   getLearning,
   setLearningStatus,
   addLearningComment,
@@ -76,6 +77,20 @@ describe("learnings store (host-backed)", () => {
     expect(pendingForCard("c1")).toBe(2);
     expect(pendingForCard("c2")).toBe(1);
     expect(pendingForCard("none")).toBe(0);
+  });
+
+  it("openForCard counts pending and revising, excludes accepted and rejected", async () => {
+    const host = new BrowserHost();
+    await seed(host, [
+      mk({ id: "p", cardId: "c1", status: "pending" }),
+      mk({ id: "v", cardId: "c1", status: "revising" }),
+      mk({ id: "a", cardId: "c1", status: "accepted" }),
+      mk({ id: "r", cardId: "c1", status: "rejected" }),
+    ]);
+    await hydrateLearnings(host);
+    expect(openForCard("c1")).toBe(2);
+    expect(pendingForCard("c1")).toBe(1);
+    expect(openForCard("none")).toBe(0);
   });
 
   it("getLearning returns by id, undefined when absent", async () => {
