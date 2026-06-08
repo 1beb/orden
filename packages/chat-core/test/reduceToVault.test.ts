@@ -66,6 +66,31 @@ describe("VaultReducer: text event", () => {
   });
 });
 
+describe("VaultReducer: thinking event", () => {
+  it("concatenates consecutive thinking deltas into one thinking part", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "thinking", messageId: "m1", text: "Plan" });
+    await r.apply({ kind: "thinking", messageId: "m1", text: "ning…" });
+
+    const m = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(m?.parts).toEqual([{ type: "thinking", text: "Planning…" }]);
+  });
+
+  it("keeps thinking and text as separate parts in order", async () => {
+    const vault = new MemVault();
+    const r = new VaultReducer(vault, "s1");
+    await r.apply({ kind: "thinking", messageId: "m1", text: "hmm" });
+    await r.apply({ kind: "text", messageId: "m1", text: "answer" });
+
+    const m = await vault.get<ChatMessage>(ns("s1"), "msg:0000");
+    expect(m?.parts).toEqual([
+      { type: "thinking", text: "hmm" },
+      { type: "text", text: "answer" },
+    ]);
+  });
+});
+
 describe("VaultReducer: tool event", () => {
   it("adds a running tool part to the current message", async () => {
     const vault = new MemVault();

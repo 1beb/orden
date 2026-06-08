@@ -35,6 +35,9 @@ export class VaultReducer {
       case "text":
         await this.onText(ev);
         return;
+      case "thinking":
+        await this.onThinking(ev);
+        return;
       case "tool":
         await this.onTool(ev);
         return;
@@ -106,6 +109,18 @@ export class VaultReducer {
       last.text += ev.text;
     } else {
       const part: ChatPart = { type: "text", text: ev.text };
+      msg.parts.push(part);
+    }
+    await this.flush();
+  }
+
+  private async onThinking(ev: { messageId: string; text: string }): Promise<void> {
+    const msg = await this.openMessage(ev.messageId);
+    const last = msg.parts[msg.parts.length - 1];
+    if (last && last.type === "thinking") {
+      last.text += ev.text;
+    } else {
+      const part: ChatPart = { type: "thinking", text: ev.text };
       msg.parts.push(part);
     }
     await this.flush();
