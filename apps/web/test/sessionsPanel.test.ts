@@ -237,4 +237,57 @@ describe("sessionsPanel mode-gated surfaces", () => {
     expect(chatMounts).toEqual([]);
     expect(d.container.querySelector(".sess-mode-notice")).not.toBeNull();
   });
+
+  // refresh() is wired to the vault change feed and fires on every streamed token.
+  // A moded session's fixed surface must NOT be torn down + remounted on refresh,
+  // or each token would kill and respawn the live agent/pty pane.
+  it("gui: refresh() preserves the live Chat mount (no remount, no dispose)", () => {
+    const s = makeSession({ id: "s1", mode: "gui" });
+    const chatMounts: Session[] = [];
+    let disposes = 0;
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountChat: (_c: HTMLElement, session: Session) => {
+        chatMounts.push(session);
+        return () => {
+          disposes += 1;
+        };
+      },
+    });
+    document.body.append(base.container);
+    const panel = mountSessionsPanel(base);
+
+    panel.refresh();
+    panel.refresh();
+
+    expect(chatMounts.map((m) => m.id)).toEqual(["s1"]); // mounted once, never remounted
+    expect(disposes).toBe(0); // live surface never torn down
+  });
+
+  it("tui: refresh() preserves the live Terminal mount (no remount, no dispose)", () => {
+    const s = makeSession({ id: "s1", mode: "tui" });
+    const termMounts: string[] = [];
+    let disposes = 0;
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {
+          disposes += 1;
+        };
+      },
+    });
+    document.body.append(base.container);
+    const panel = mountSessionsPanel(base);
+
+    panel.refresh();
+    panel.refresh();
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(disposes).toBe(0);
+  });
 });
