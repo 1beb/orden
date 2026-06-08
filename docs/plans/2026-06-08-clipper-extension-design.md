@@ -2,6 +2,29 @@
 
 Status: design (brainstormed 2026-06-08). Implementation not started.
 
+## Reconciliation with the web-annotation design (read this first)
+
+This feature is Phase 4 of `docs/plans/2026-05-31-orden-web-annotation-design.md`
+("Browser extension — Chrome / Firefox companion... POST OrdenAnnotation records to the
+host. Reuses everything from phases 1-3"). Phases 1-2 (WADM types, source-keyed storage,
+overlay renderer, in-app viewers) are shipped. The clipper therefore does NOT invent a
+capture format — it produces orden's existing artifacts:
+
+- Annotations are `OrdenAnnotation` records (`packages/annotation-core/src/wadm.ts`) with
+  `source = { kind: "web", url, snapshotPath, contentHash, title }`, stored in vault ns
+  `annotations` keyed by `sourceHash(source)` — exactly what the in-app web viewer reads.
+- The snapshot is the durable artifact, pinned by `contentHash`, stored under
+  `.orden/snapshots/<contentHash>.<ext>`; `source.snapshotPath` points at it.
+- The anchoring engine (`annotation-core`: `blockId.ts`, `anchor.ts`, `textOffsets.ts`) is
+  DOM-first and is imported directly into the content script (resolves that doc's deferred
+  "own build vs import" question — import directly).
+
+What this design adds on top of phases 1-3 (the genuinely new parts): Readability
+snapshotting from the live DOM, per-highlight context screenshots, and the second-brain
+journal / project / optional-session linking. Where sections below describe a bespoke
+"capture page" or `captures` namespace, prefer the OrdenAnnotation + snapshot model above;
+those sections predate this reconciliation and are kept for their UX / MV3 detail.
+
 ## What this is
 
 A browser extension (`extensions/clipper`) that lets you annotate generic external
