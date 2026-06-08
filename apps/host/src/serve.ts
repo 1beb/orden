@@ -28,6 +28,7 @@ import { DiskSnapshotStore } from "./clipper/snapshotStore";
 import { applyCapture } from "./clipper/applyCapture";
 import type { CaptureBundle } from "./clipper/applyCapture";
 import { isClipperRequest, handleCaptureRequest } from "./clipper/captureRoute";
+import { handleSnapshotRequest } from "./clipper/snapshotServe";
 import { journalKey } from "@orden/outliner";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
@@ -185,6 +186,13 @@ function makeServer() {
     }
     if (req.url && req.url.startsWith("/repo-file/")) {
       void handleRepoFileRequest(resolveRoot, req, res);
+      return;
+    }
+    // Read-only, same-origin serving of stored capture snapshots + screenshots out
+    // of the vault (the /repo-file/ route serves PROJECT roots, not the vault). The
+    // handler enforces the strict traversal guard internally.
+    if (req.url && req.url.startsWith("/snapshot/")) {
+      void handleSnapshotRequest(snapshotStore, req, res);
       return;
     }
     // Browser clipper ingestion. The path is matched exactly (query string
