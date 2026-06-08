@@ -57,7 +57,14 @@ export function mountTerminal(
   liveTerms.add(entry);
 
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${scheme}//${location.host}/term?session=${encodeURIComponent(sessionId)}&cols=${term.cols}&rows=${term.rows}`;
+  // The reserved id "scratch" opens the transient plain shell the host exposes
+  // at /term?scratch=1 — not a real agent session. Everything else attaches to
+  // the named session's agent pty.
+  const query =
+    sessionId === "scratch"
+      ? `scratch=1`
+      : `session=${encodeURIComponent(sessionId)}`;
+  const url = `${scheme}//${location.host}/term?${query}&cols=${term.cols}&rows=${term.rows}`;
   const ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
 

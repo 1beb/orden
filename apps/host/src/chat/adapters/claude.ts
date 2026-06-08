@@ -12,7 +12,7 @@ import type {
   ModelOption,
   SlashCommand,
 } from "@orden/chat-core";
-import { sdkMessageToEvents } from "../sdkMessageToEvents";
+import { createSdkTranslator } from "../sdkMessageToEvents";
 
 // The SDK `query` entrypoint, injected so the adapter is testable without a
 // live Claude process. Mirrors the real signature exactly.
@@ -133,16 +133,23 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
         settingSources: [],
         canUseTool,
         abortController,
+        // Emit SDKPartialAssistantMessage stream_events so the GUI streams text
+        // and thinking live (token-by-token) instead of only whole messages.
+        includePartialMessages: true,
       };
       if (cwd) options.cwd = cwd;
 
       // Start the query eagerly in streaming-input mode; `send` feeds `input`.
       const q = query({ prompt: input, options });
 
+      // Per-driver translator: holds the stream-dedupe state so partial deltas
+      // and the final whole assistant message don't double-render this session.
+      const translate = createSdkTranslator();
+
       async function* events(): AsyncGenerator<DriverEvent, void> {
         try {
           for await (const msg of q) {
-            yield* sdkMessageToEvents(msg);
+            yield* translate(msg);
           }
         } finally {
           // The query ended (naturally, by error, or by close): end the input

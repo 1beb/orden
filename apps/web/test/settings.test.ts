@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
-import { hydrateSettings, loadSettings, saveSettings } from "../src/settings";
+import { coerce, hydrateSettings, loadSettings, saveSettings } from "../src/settings";
 
 const DEFAULTS = {
   startup: "last",
@@ -14,6 +14,8 @@ const DEFAULTS = {
   completeFadeHours: 1,
   htmlRender: true,
   timeZone: "",
+  defaultMode: { claude: "tui", opencode: "tui" },
+  showScratchTerminal: true,
 };
 
 describe("settings store (host-backed)", () => {
@@ -65,6 +67,8 @@ describe("settings store (host-backed)", () => {
       completeFadeHours: 1,
       htmlRender: true,
       timeZone: "",
+      defaultMode: { claude: "tui", opencode: "tui" },
+      showScratchTerminal: true,
     });
   });
 
@@ -133,5 +137,25 @@ describe("settings store (host-backed)", () => {
     await h.vault.set("settings", "app", { fontSize: 999 });
     await hydrateSettings(h);
     expect(loadSettings().fontSize).toBe(16);
+  });
+
+  it("defaults defaultMode to tui for both tools and showScratchTerminal to true", () => {
+    const s = coerce({});
+    expect(s.defaultMode).toEqual({ claude: "tui", opencode: "tui" });
+    expect(s.showScratchTerminal).toBe(true);
+  });
+
+  it("accepts a valid defaultMode and rejects garbage per-tool", () => {
+    expect(coerce({ defaultMode: { claude: "gui", opencode: "tui" } }).defaultMode)
+      .toEqual({ claude: "gui", opencode: "tui" });
+    expect(coerce({ defaultMode: { claude: "nonsense" } }).defaultMode)
+      .toEqual({ claude: "tui", opencode: "tui" });
+    expect(coerce({ defaultMode: "not-an-object" }).defaultMode)
+      .toEqual({ claude: "tui", opencode: "tui" });
+  });
+
+  it("coerces a non-boolean showScratchTerminal to the default", () => {
+    expect(coerce({ showScratchTerminal: "yes" }).showScratchTerminal).toBe(true);
+    expect(coerce({ showScratchTerminal: false }).showScratchTerminal).toBe(false);
   });
 });

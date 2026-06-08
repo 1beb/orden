@@ -216,15 +216,72 @@ describe("createChatBackend resume over a shared vault", () => {
   });
 });
 
-describe("createChatBackend pump errors", () => {
-  it("surfaces a pump failure instead of swallowing it", async () => {
+describe("createChatBackend onTurnBoundary", () => {
+  function setupWithBoundary() {
     const vault = new MemVault();
     const registry = new AdapterRegistry();
-    // A driver whose event stream throws as soon as the pump iterates it.
-    const throwing: HarnessDriver = {
+    const driver = makeFakeDriver();
+    registry.register(makeFakeAdapter("claude", driver));
+    const edges: Array<[string, "start" | "end"]> = [];
+    const backend = createChatBackend({
+      vault,
+      registry,
+      genId: seqIds("s"),
+      onTurnBoundary: (id, edge) => edges.push([id, edge]),
+    });
+    return { backend, driver, edges };
+  }
+
+  it("fires start on the first event after idle and end on turn-end", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "text", messageId: "m1", text: "hi" });
+    driver.push({ kind: "tool", messageId: "m1", toolId: "t1", name: "bash", input: {} });
+    driver.push({ kind: "turn-end" });
+    await tick();
+
+    expect(edges).toEqual([
+      [s.id, "start"],
+      [s.id, "end"],
+    ]);
+  });
+
+  it("does not fire start for the session handshake event", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "session", sessionId: "conv1", slashCommands: [] });
+    await tick();
+    expect(edges).toEqual([]); // a handshake is not real work
+
+    driver.push({ kind: "text", messageId: "m1", text: "go" });
+    driver.push({ kind: "turn-end" });
+    await tick();
+    expect(edges.map((e) => e[1])).toEqual(["start", "end"]);
+  });
+
+  it("re-arms: a second turn fires start again", async () => {
+    const { backend, driver, edges } = setupWithBoundary();
+    await backend.createSession({ harness: "claude", cwd: "/w" });
+
+    driver.push({ kind: "text", messageId: "m1", text: "one" });
+    driver.push({ kind: "turn-end" });
+    driver.push({ kind: "text", messageId: "m2", text: "two" });
+    driver.push({ kind: "turn-end" });
+    await tick();
+
+    expect(edges.map((e) => e[1])).toEqual(["start", "end", "start", "end"]);
+  });
+});
+
+describe("createChatBackend pump errors", () => {
+  // A driver whose event stream yields the scripted events, then throws.
+  function throwingDriver(pre: import("../src/index").DriverEvent[]): HarnessDriver {
+    return {
       events: {
-        // eslint-disable-next-line require-yield
         async *[Symbol.asyncIterator]() {
+          for (const ev of pre) yield ev;
           throw new Error("boom");
         },
       },
@@ -236,7 +293,12 @@ describe("createChatBackend pump errors", () => {
       onPermission() {},
       async close() {},
     };
-    registry.register(makeFakeAdapter("claude", throwing));
+  }
+
+  it("surfaces a pump failure instead of swallowing it", async () => {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    registry.register(makeFakeAdapter("claude", throwingDriver([])));
     const backend = createChatBackend({ vault, registry, genId: seqIds("s") });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -244,6 +306,56 @@ describe("createChatBackend pump errors", () => {
       await tick();
       expect(errSpy).toHaveBeenCalled();
       expect(errSpy.mock.calls.flat().join(" ")).toContain("s1");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("writes a visible error part to the session vault when the pump throws", async () => {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    // Stream some text, then throw mid-turn.
+    registry.register(
+      makeFakeAdapter("claude", throwingDriver([{ kind: "text", messageId: "m1", text: "half" }])),
+    );
+    const backend = createChatBackend({ vault, registry, genId: seqIds("s") });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+      await tick();
+      const msgs = await backend.getMessages(s.id);
+      const parts = msgs[0].parts;
+      expect(parts[0]).toEqual({ type: "text", text: "half" });
+      const errPart = parts.find((p) => p.type === "error");
+      expect(errPart).toBeTruthy();
+      if (errPart && errPart.type === "error") expect(errPart.text).toContain("boom");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("fires the turn-boundary end edge when the pump throws mid-turn", async () => {
+    const vault = new MemVault();
+    const registry = new AdapterRegistry();
+    registry.register(
+      makeFakeAdapter("claude", throwingDriver([{ kind: "text", messageId: "m1", text: "half" }])),
+    );
+    const edges: Array<[string, "start" | "end"]> = [];
+    const backend = createChatBackend({
+      vault,
+      registry,
+      genId: seqIds("s"),
+      onTurnBoundary: (id, edge) => edges.push([id, edge]),
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const s = await backend.createSession({ harness: "claude", cwd: "/w" });
+      await tick();
+      // start fired on the first text; end must fire on the error so the card unblocks.
+      expect(edges).toEqual([
+        [s.id, "start"],
+        [s.id, "end"],
+      ]);
     } finally {
       errSpy.mockRestore();
     }

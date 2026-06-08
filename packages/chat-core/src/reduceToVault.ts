@@ -35,6 +35,9 @@ export class VaultReducer {
       case "text":
         await this.onText(ev);
         return;
+      case "thinking":
+        await this.onThinking(ev);
+        return;
       case "tool":
         await this.onTool(ev);
         return;
@@ -60,6 +63,17 @@ export class VaultReducer {
     if (changed) await this.flush();
     // Close the message: the next text/tool starts a fresh msg:<seq>.
     this.current = null;
+  }
+
+  // Surface a stream/driver failure into the transcript as an error part on the
+  // current open message (or a fresh synthetic assistant message if none is
+  // open), then close the turn so a half-streamed reply doesn't hang forever and
+  // any still-running tool is marked errored.
+  async applyError(text: string): Promise<void> {
+    const msg = await this.openMessage(this.current?.msg.id ?? "error");
+    msg.parts.push({ type: "error", text });
+    await this.flush();
+    await this.onTurnEnd();
   }
 
   // Next seq to allocate, seeding from existing vault keys on first call so a
@@ -106,6 +120,18 @@ export class VaultReducer {
       last.text += ev.text;
     } else {
       const part: ChatPart = { type: "text", text: ev.text };
+      msg.parts.push(part);
+    }
+    await this.flush();
+  }
+
+  private async onThinking(ev: { messageId: string; text: string }): Promise<void> {
+    const msg = await this.openMessage(ev.messageId);
+    const last = msg.parts[msg.parts.length - 1];
+    if (last && last.type === "thinking") {
+      last.text += ev.text;
+    } else {
+      const part: ChatPart = { type: "thinking", text: ev.text };
       msg.parts.push(part);
     }
     await this.flush();

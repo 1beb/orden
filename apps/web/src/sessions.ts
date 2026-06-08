@@ -15,6 +15,7 @@ import {
   type Item,
 } from "./cards";
 import { ensureDefaultProject } from "./projects";
+import { loadSettings } from "./settings";
 
 export type Agent = "claude" | "opencode";
 
@@ -23,6 +24,7 @@ export interface Session {
   title: string;
   agent: Agent;
   projectId: string;
+  mode?: "tui" | "gui"; // surface the session opens in; absent = legacy (both tabs)
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
   touched?: boolean; // user interacted (a TUI keystroke)
@@ -239,21 +241,32 @@ export function createSession(opts: {
   // No project chosen → drop it in the default "Homeroom" project.
   const projectId = opts.projectId || ensureDefaultProject().id;
   const prompt = opts.initialPrompt?.trim();
+  // The per-tool default surface (TUI terminal vs native GUI chat), stamped at
+  // creation so the session's mode is fixed even if the setting later changes.
+  const mode = loadSettings().defaultMode[opts.agent];
   const session: Session = {
     id: `sess_${Date.now().toString(36)}_${counter}`,
     title: opts.title.trim() || "Untitled session",
     agent: opts.agent,
     projectId,
+    mode,
     ...(prompt ? { initialPrompt: prompt } : {}),
   };
   cache.push(session);
-  // Starting a session from the web is always an explicit user action, so tell
-  // the host to spawn the agent NOW (the pendingLaunch reactor in serve.ts clears
-  // the flag and launches detached). Don't wait for the Terminal tab's /term
-  // socket to attach: the panel may open on the Chat tab, which only mirrors an
-  // existing transcript and never spawns the agent. The flag is written to the
-  // vault only, not the cache, so later persists don't re-trigger a launch.
-  if (host) void host.vault.set("sessions", session.id, { ...session, pendingLaunch: true });
+  // Starting a TUI session from the web is always an explicit user action, so
+  // tell the host to spawn the agent NOW (the pendingLaunch reactor in serve.ts
+  // clears the flag and launches the tmux/pty detached). Don't wait for the
+  // Terminal tab's /term socket to attach. A GUI session has no tmux — it
+  // launches lazily when its Chat surface mounts — so it must NOT carry
+  // pendingLaunch. The flag is written to the vault only, not the cache, so
+  // later persists don't re-trigger a launch.
+  if (host) {
+    if (mode === "gui") {
+      void host.vault.set("sessions", session.id, session);
+    } else {
+      void host.vault.set("sessions", session.id, { ...session, pendingLaunch: true });
+    }
+  }
   // separate-but-linked: a card on the kanban points back to this session.
   // Started from an existing card → link that one; otherwise drop a new card.
   if (opts.linkToCardId) addItemSession(opts.linkToCardId, session.id);

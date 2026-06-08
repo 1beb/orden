@@ -27,7 +27,10 @@ export type ChatPart =
       input: unknown;
       state: "pending" | "running" | "done" | "error";
       output?: string;
-    };
+    }
+  // A failure surfaced into the transcript (e.g. the event pump died mid-stream),
+  // so the user sees something went wrong instead of a silently truncated reply.
+  | { type: "error"; text: string };
 
 export interface ChatMessage {
   id: string;
@@ -111,6 +114,7 @@ export interface ChatBackend {
 export type DriverEvent =
   | { kind: "session"; sessionId: string; slashCommands: string[] }
   | { kind: "text"; messageId: string; text: string }
+  | { kind: "thinking"; messageId: string; text: string }
   | { kind: "tool"; messageId: string; toolId: string; name: string; input: unknown }
   | { kind: "tool-result"; toolId: string; output: string; ok: boolean }
   | { kind: "turn-end" };

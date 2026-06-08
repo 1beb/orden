@@ -626,6 +626,17 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
     return s;
   }
 
+  // ---- Rendering: error (a surfaced pump/driver failure — visibly distinct) ----
+  function renderError(part: Extract<ChatPart, { type: "error" }>): HTMLElement {
+    const card = el("div", "chat-error-part");
+    const icon = el("span", "chat-error-part-icon");
+    icon.textContent = "⚠";
+    const text = el("span", "chat-error-part-text");
+    text.textContent = part.text;
+    card.append(icon, text);
+    return card;
+  }
+
   function renderMessage(msg: ChatMessage): HTMLElement {
     const wrap = el("div", `chat-msg ${msg.role}`);
     for (const part of msg.parts) {
@@ -635,6 +646,8 @@ export function mountChatView(opts: ChatViewOpts): { dispose(): void } {
         wrap.append(textWrap);
       } else if (part.type === "thinking") {
         wrap.append(renderThinking(part));
+      } else if (part.type === "error") {
+        wrap.append(renderError(part));
       } else {
         wrap.append(renderToolPart(part));
       }

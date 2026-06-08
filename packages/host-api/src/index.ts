@@ -121,6 +121,8 @@ export interface Session {
   conversationId?: string;
   cwd: string;
   agent: "claude" | "opencode";
+  /** Surface this session opens in. Absent = legacy (both tabs, terminal default). */
+  mode?: "tui" | "gui";
 }
 
 export interface SessionManager {

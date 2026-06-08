@@ -47,6 +47,7 @@
               autocomplete="off"
               aria-label="Search"
             />
+            <div id="palette-results"></div>
           </form>
           <button id="toggle-right" class="pane-toggle" title="Toggle session"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 8 9 12 5 16"/><line x1="12" y1="16" x2="18" y2="16"/></svg></button>
         </header>
@@ -146,7 +147,10 @@
         <input type="range" id="panel-width" class="settings-range" min="15" max="50" step="1" />
         <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
         <label class="settings-opt"><input type="checkbox" id="session-autolaunch" /> Launch new sessions immediately</label>
+        <label class="settings-opt"><input type="checkbox" id="show-scratch-terminal" /> Show scratch terminal button</label>
         <label class="settings-opt"><input type="checkbox" id="html-render" /> Render HTML files (off = show source)</label>
+        <div class="settings-label">Default session mode</div>
+        <div id="mode-grid"></div>
         <div class="settings-label">Vault location</div>
         <div id="vault-location" class="settings-path"></div>
       </div>

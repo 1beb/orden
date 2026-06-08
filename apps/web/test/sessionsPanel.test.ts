@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mountSessionsPanel } from "../src/sessionsPanel";
 import type { Agent, Session } from "../src/sessions";
+import { saveSettings } from "../src/settings";
 
 function makeSession(over: Partial<Session> = {}): Session {
   return {
@@ -162,5 +163,174 @@ describe("sessionsPanel Terminal/Chat tabs", () => {
     expect(d.container.querySelector<HTMLElement>(".chat-tab")?.classList.contains("active")).toBe(
       true,
     );
+  });
+});
+
+describe("sessionsPanel scratch terminal", () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it("renders the scratch-terminal button when showScratchTerminal is true", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const { deps: d } = deps();
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".sess-scratch-btn")).not.toBeNull();
+  });
+
+  it("omits the scratch-terminal button when showScratchTerminal is false", async () => {
+    await saveSettings({ showScratchTerminal: false });
+    const { deps: d } = deps();
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".sess-scratch-btn")).toBeNull();
+  });
+
+  it("clicking it mounts a scratch terminal and creates no session/card", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const termMounts: string[] = [];
+    const { created, deps: d } = deps({
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {};
+      },
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    d.container.querySelector<HTMLButtonElement>(".sess-scratch-btn")!.click();
+
+    expect(termMounts).toEqual(["scratch"]);
+    expect(created).toEqual([]);
+  });
+});
+
+describe("sessionsPanel mode-gated surfaces", () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+  });
+
+  // Build deps for a single open session of the given mode, spying on both mounts.
+  function modeDeps(
+    mode: Session["mode"],
+    over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {},
+  ) {
+    const s = makeSession({ id: "s1", mode });
+    const termMounts: string[] = [];
+    const chatMounts: Session[] = [];
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {};
+      },
+      mountChat: (_c: HTMLElement, session: Session) => {
+        chatMounts.push(session);
+        return () => {};
+      },
+      ...over,
+    });
+    return { deps: base, termMounts, chatMounts, session: s };
+  }
+
+  it("gui: shows only Chat — chat mounts, terminal does not, no Terminal tab", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("gui");
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(chatMounts.map((s) => s.id)).toEqual(["s1"]);
+    expect(termMounts).toEqual([]);
+    expect(d.container.querySelector(".term-tab")).toBeNull();
+  });
+
+  it("tui: shows only Terminal — terminal mounts, chat does not, no Chat tab", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("tui");
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(chatMounts).toEqual([]);
+    expect(d.container.querySelector(".chat-tab")).toBeNull();
+  });
+
+  it("absent mode: legacy — both tabs present when mountChat provided, terminal active", () => {
+    const { deps: d, termMounts } = modeDeps(undefined);
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(d.container.querySelector(".term-tab")).not.toBeNull();
+    expect(d.container.querySelector(".chat-tab")).not.toBeNull();
+    expect(termMounts).toEqual(["s1"]);
+    expect(d.container.querySelector<HTMLElement>(".term-tab")?.classList.contains("active")).toBe(
+      true,
+    );
+  });
+
+  it("gui without a chat backend: falls back to Terminal with an inline notice", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("gui", { mountChat: undefined });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(chatMounts).toEqual([]);
+    expect(d.container.querySelector(".sess-mode-notice")).not.toBeNull();
+  });
+
+  // refresh() is wired to the vault change feed and fires on every streamed token.
+  // A moded session's fixed surface must NOT be torn down + remounted on refresh,
+  // or each token would kill and respawn the live agent/pty pane.
+  it("gui: refresh() preserves the live Chat mount (no remount, no dispose)", () => {
+    const s = makeSession({ id: "s1", mode: "gui" });
+    const chatMounts: Session[] = [];
+    let disposes = 0;
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountChat: (_c: HTMLElement, session: Session) => {
+        chatMounts.push(session);
+        return () => {
+          disposes += 1;
+        };
+      },
+    });
+    document.body.append(base.container);
+    const panel = mountSessionsPanel(base);
+
+    panel.refresh();
+    panel.refresh();
+
+    expect(chatMounts.map((m) => m.id)).toEqual(["s1"]); // mounted once, never remounted
+    expect(disposes).toBe(0); // live surface never torn down
+  });
+
+  it("tui: refresh() preserves the live Terminal mount (no remount, no dispose)", () => {
+    const s = makeSession({ id: "s1", mode: "tui" });
+    const termMounts: string[] = [];
+    let disposes = 0;
+    const { deps: base } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {
+          disposes += 1;
+        };
+      },
+    });
+    document.body.append(base.container);
+    const panel = mountSessionsPanel(base);
+
+    panel.refresh();
+    panel.refresh();
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(disposes).toBe(0);
   });
 });
