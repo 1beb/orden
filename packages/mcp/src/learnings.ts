@@ -27,7 +27,9 @@ export interface Learning {
   /** Current file content for diff display (edit only). */
   baseContent?: string;
   status: LearningStatus;
+  /** `at` is epoch ms. */
   comments?: { at: number; text: string }[];
+  /** Epoch ms. */
   createdAt: number;
 }
 
@@ -66,6 +68,9 @@ export async function setLearningStatus(
   return updated;
 }
 
+// Read-modify-write, not atomic. Safe under orden's single-writer-per-record
+// assumption; if the web and a delivering agent ever race on one learning, last
+// write wins. `at` is epoch ms, passed in for deterministic tests.
 export async function addLearningComment(
   vault: VaultStore,
   id: string,
