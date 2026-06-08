@@ -7,7 +7,7 @@
 // wiring surfaces loudly.
 
 import { userInfo } from "node:os";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import type {
   Host,
   Identity,
@@ -50,18 +50,13 @@ export interface NodeHostOptions {
 }
 
 // Probe once whether quarto is on PATH, so the host can report the docRender
-// capability. Mirrors the pickDirectory probe: detect-once, cache the result for
-// the process lifetime. `quarto --version` is cheap but we still avoid re-running
-// it on every capabilities() call.
+// capability. Mirrors the pickDirectory probe: a `which` PATH lookup, detect-once,
+// cache the result for the process lifetime — never actually launches quarto.
 let quartoCached: boolean | undefined;
 function hasQuarto(): boolean {
   if (quartoCached !== undefined) return quartoCached;
-  try {
-    execFileSync("quarto", ["--version"], { stdio: "ignore" });
-    quartoCached = true;
-  } catch {
-    quartoCached = false;
-  }
+  const r = spawnSync("which", ["quarto"], { stdio: "ignore" });
+  quartoCached = r.status === 0;
   return quartoCached;
 }
 
