@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "orden clipper",
+  "version": "0.1.0",
+  "description": "Annotate external pages and send them to orden",
+  "background": { "service_worker": "sw.js", "type": "module" },
+  "action": { "default_title": "Annotate for orden" },
+  "options_page": "options.html",
+  "permissions": ["activeTab", "scripting", "storage", "offscreen"],
+  "host_permissions": ["http://127.0.0.1:4319/*"],
+  "commands": {
+    "toggle-annotation-mode": {
+      "suggested_key": { "default": "Ctrl+Shift+E", "mac": "Command+Shift+E" },
+      "description": "Toggle orden annotation mode"
+    }
+  }
+}

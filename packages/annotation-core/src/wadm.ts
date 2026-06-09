@@ -54,4 +54,6 @@ export interface OrdenAnnotation {
   "orden:status": OrdenStatus;
   "orden:audience": OrdenAudience;
   "orden:thread": AnnotationReply[];
+  /** Optional per-highlight context screenshot (vault-relative path). Clipper-only. */
+  "orden:shot"?: string;
 }

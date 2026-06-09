@@ -7,6 +7,7 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { homedir, networkInterfaces } from "node:os";
 import { join, dirname, resolve, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,12 @@ import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
 import { handleRepoFileRequest } from "./repoFileRoute";
 import { makeProjectRootResolver } from "./projectRoots";
+import { DiskSnapshotStore } from "./clipper/snapshotStore";
+import { applyCapture } from "./clipper/applyCapture";
+import type { CaptureBundle } from "./clipper/applyCapture";
+import { isClipperRequest, handleCaptureRequest, handlePingRequest } from "./clipper/captureRoute";
+import { handleSnapshotRequest } from "./clipper/snapshotServe";
+import { journalKey } from "@orden/outliner";
 
 const here = dirname(fileURLToPath(import.meta.url)); // apps/host/src
 const repoRoot = resolve(here, "../../..");
@@ -32,6 +39,10 @@ const vaultRoot = process.env.ORDEN_VAULT ?? join(homedir(), ".orden", "vault");
 const filesRoot = process.env.ORDEN_FILES_ROOT ?? repoRoot;
 const webDist = process.env.ORDEN_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
 const host = new NodeHost({ vaultRoot, filesRoot });
+
+// Persists clipper snapshots (and per-highlight screenshots) under vaultRoot for
+// the POST /capture route.
+const snapshotStore = new DiskSnapshotStore(vaultRoot);
 
 // Resolve a projectId to its files root for the /repo-file/ byte route ("repo"
 // aliases filesRoot for back-compat; local projects use their source.path).
@@ -175,6 +186,56 @@ function makeServer() {
     }
     if (req.url && req.url.startsWith("/repo-file/")) {
       void handleRepoFileRequest(resolveRoot, req, res);
+      return;
+    }
+    // Read-only, same-origin serving of stored capture snapshots + screenshots out
+    // of the vault (the /repo-file/ route serves PROJECT roots, not the vault). The
+    // handler enforces the strict traversal guard internally.
+    if (req.url && req.url.startsWith("/snapshot/")) {
+      void handleSnapshotRequest(snapshotStore, req, res);
+      return;
+    }
+    // Browser clipper ingestion. The path is matched exactly (query string
+    // ignored) so it can't be reached as a static-file prefix. OPTIONS is the
+    // CORS preflight a cross-origin page would send before a custom-header POST —
+    // answer it 403 with NO cors headers so the real request never fires. The
+    // header guard (isClipperRequest) is the CSRF gate; see captureRoute.ts.
+    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    // Detection ping: the extension probes this to auto-detect a reachable orden
+    // host. GET-only and gated on the clipper header (can't reuse isClipperRequest,
+    // which requires POST) so arbitrary pages can't fingerprint localhost.
+    if (pathname === "/orden-clipper/ping") {
+      if (req.method === "GET" && req.headers["x-orden-clipper"] === "1") {
+        handlePingRequest(res);
+        return;
+      }
+      res.writeHead(403).end();
+      return;
+    }
+    if (pathname === "/capture") {
+      if (req.method === "OPTIONS") {
+        res.writeHead(403).end();
+        return;
+      }
+      if (isClipperRequest(req)) {
+        const apply = (bundle: CaptureBundle) =>
+          applyCapture(
+            {
+              vault: host.vault,
+              store: snapshotStore,
+              mintId: () => randomUUID(),
+              now: () => new Date().toISOString(),
+              journalKeyFor: () => journalKey(new Date()),
+              // createSession intentionally omitted for now — session-from-capture
+              // routing lands with the extension submit flow (plan Tasks 12/16).
+              // applyCapture treats it as optional.
+            },
+            bundle,
+          );
+        void handleCaptureRequest(req, res, apply);
+        return;
+      }
+      res.writeHead(403).end();
       return;
     }
     void serveStatic(req, res);
