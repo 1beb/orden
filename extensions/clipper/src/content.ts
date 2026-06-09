@@ -454,18 +454,18 @@ const SHADOW_CSS = `
 .annotator-actions .ghost { background: #fff; color: var(--muted); }
 .annotator-actions .primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 
-/* ===== annotations rail: a FLOATING, DRAGGABLE 40vw window ===== */
-.panel { position: fixed; top: 16px; right: 16px; width: 40vw; min-width: 320px; max-height: 80vh;
+/* ===== annotations rail: a FLOATING, DRAGGABLE 30vw window ===== */
+.panel { position: fixed; top: 16px; right: 16px; width: 30vw; min-width: 320px; max-height: 80vh;
   border: 1px solid var(--line); border-radius: 10px; background: var(--panel-bg);
   display: flex; flex-direction: column; min-height: 0; pointer-events: auto;
   box-shadow: 0 8px 28px rgba(0,0,0,.18); z-index: 3; }
 .panel > header { display: flex; align-items: center; gap: 8px;
-  padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600;
+  padding: 14px 15px; border-bottom: 1px solid var(--line); font-weight: 600;
   font-size: calc(14px * var(--font-scale)); cursor: move; user-select: none;
   border-top-left-radius: 10px; border-top-right-radius: 10px; }
 .panel > header .grip { color: var(--muted); font-weight: 700; letter-spacing: -2px; flex: 0 0 auto; }
 .panel > header .title { flex: 1 1 auto; }
-#annotation-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
+#annotation-list { list-style: none; margin: 0; padding: 15px; overflow-y: auto; flex: 1; min-height: 0; }
 #annotation-list li { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
   border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
 #annotation-list li:hover, #annotation-list li.is-active { background: var(--accent-soft); }
