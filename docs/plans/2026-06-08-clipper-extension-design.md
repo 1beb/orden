@@ -202,6 +202,12 @@ the capture bundle + route identical so the host is browser-agnostic.
 
 ## Constraints and deferred work
 
+- Mobile is a non-goal. Chrome on Android/iOS has no extension support, so the clipper
+  cannot run there at all. Even on mobile browsers that do support WebExtensions (Firefox
+  for Android, Kiwi), the loopback-trust model has no local host to reach — mobile would
+  require the deferred remote-tailnet-host + pairing-token auth, plus rework around mobile
+  gaps in `offscreen`/`captureVisibleTab`/`scripting`. Out of scope; not a silent
+  assumption. Desktop Chrome (then Firefox) only.
 - PDFs (v2). Chrome's native PDF viewer is a sandboxed plugin; content scripts cannot
   read its text selection or text layer, so PDF highlights cannot be text-anchored. v1
   shows "PDFs not yet supported." v2 options: store the PDF bytes with page-level notes,
