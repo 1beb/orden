@@ -288,4 +288,61 @@ describe("applyCapture", () => {
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines[0]).toContain("2 highlights");
   });
+
+  it("journal-once: re-capturing the same source appends ONE bullet but upserts annotations", async () => {
+    const { deps, vault } = makeDeps();
+    const b1 = bundle();
+    const hash = contentHash(b1.snapshotHtml);
+    const source: Source = {
+      kind: "web",
+      url: b1.url,
+      snapshotPath: `snapshots/${hash}.html`,
+      contentHash: hash,
+      title: b1.title,
+    };
+
+    const r1 = await applyCapture(deps, b1);
+    expect(r1.firstCapture).toBe(true);
+
+    // Second submit: same page/snapshot ⇒ same sourceHash, but edited annotations.
+    const b2 = bundle({
+      highlights: [
+        { exact: "hello", prefix: "", suffix: " world", blockId: "b1", note: "n1", audience: "agent" },
+        { exact: "world", prefix: "hello ", suffix: "", blockId: "b1", note: "n2", audience: "human" },
+      ],
+    });
+    const r2 = await applyCapture(deps, b2);
+    expect(r2.firstCapture).toBe(false);
+
+    // Journal: exactly one bullet (not two).
+    const page = await vault.get<string>("pages", "2026-06-08");
+    const lines = page!.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines.length).toBe(1);
+
+    // Annotations: reflect the SECOND call (upsert), not the first.
+    const rec = await vault.get<{ annotations: OrdenAnnotation[] }>("annotations", sourceHash(source));
+    expect(rec!.annotations.length).toBe(2);
+    expect(r2.annotationCount).toBe(2);
+  });
+
+  it("journal-once: a session is created only on the first capture, not on re-sync", async () => {
+    let called = 0;
+    const { deps } = makeDeps({
+      createSession: async () => {
+        called++;
+        return `sess-${called}`;
+      },
+    });
+    const b = bundle({ routing: { projectId: "proj-1", instructions: "do it" } });
+
+    const r1 = await applyCapture(deps, b);
+    expect(called).toBe(1);
+    expect(r1.sessionId).toBe("sess-1");
+    expect(r1.firstCapture).toBe(true);
+
+    const r2 = await applyCapture(deps, b);
+    expect(called).toBe(1); // not spawned again
+    expect(r2.sessionId).toBeUndefined();
+    expect(r2.firstCapture).toBe(false);
+  });
 });

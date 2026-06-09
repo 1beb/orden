@@ -27,7 +27,7 @@ import { makeProjectRootResolver } from "./projectRoots";
 import { DiskSnapshotStore } from "./clipper/snapshotStore";
 import { applyCapture } from "./clipper/applyCapture";
 import type { CaptureBundle } from "./clipper/applyCapture";
-import { isClipperRequest, handleCaptureRequest } from "./clipper/captureRoute";
+import { isClipperRequest, handleCaptureRequest, handlePingRequest } from "./clipper/captureRoute";
 import { handleSnapshotRequest } from "./clipper/snapshotServe";
 import { journalKey } from "@orden/outliner";
 
@@ -201,6 +201,17 @@ function makeServer() {
     // answer it 403 with NO cors headers so the real request never fires. The
     // header guard (isClipperRequest) is the CSRF gate; see captureRoute.ts.
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    // Detection ping: the extension probes this to auto-detect a reachable orden
+    // host. GET-only and gated on the clipper header (can't reuse isClipperRequest,
+    // which requires POST) so arbitrary pages can't fingerprint localhost.
+    if (pathname === "/orden-clipper/ping") {
+      if (req.method === "GET" && req.headers["x-orden-clipper"] === "1") {
+        handlePingRequest(res);
+        return;
+      }
+      res.writeHead(403).end();
+      return;
+    }
     if (pathname === "/capture") {
       if (req.method === "OPTIONS") {
         res.writeHead(403).end();

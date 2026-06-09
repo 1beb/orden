@@ -30,6 +30,18 @@ export function isClipperRequest(req: {
   return v === "1";
 }
 
+/**
+ * GET /orden-clipper/ping — a detection probe the extension hits to confirm a
+ * reachable orden host. Replies 200 with a small JSON marker and NO CORS headers.
+ * The caller in serve.ts gates this on the `x-orden-clipper: 1` header (same CSRF
+ * reasoning as capture) so arbitrary web pages can't fingerprint localhost.
+ */
+export function handlePingRequest(res: ServerResponse): void {
+  res
+    .writeHead(200, { "content-type": "application/json" })
+    .end(JSON.stringify({ app: "orden", capture: true }));
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];

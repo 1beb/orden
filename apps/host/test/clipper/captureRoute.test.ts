@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isClipperRequest, handleCaptureRequest } from "../../src/clipper/captureRoute";
+import { isClipperRequest, handleCaptureRequest, handlePingRequest } from "../../src/clipper/captureRoute";
 import type { CaptureBundle, ApplyCaptureResult } from "../../src/clipper/applyCapture";
 
 // Fake IncomingMessage: a readable-ish emitter that pushes the given body then
@@ -19,12 +19,20 @@ function fakeReq(body: string, method = "POST"): IncomingMessage {
 }
 
 // Fake ServerResponse: records the writeHead status and the end() body.
-function fakeRes(): ServerResponse & { status?: number; body?: string } {
+function fakeRes(): ServerResponse & {
+  status?: number;
+  body?: string;
+  headers?: Record<string, string>;
+} {
   const res = {
     status: undefined as number | undefined,
     body: undefined as string | undefined,
-    writeHead(code: number, _headers?: unknown) {
+    headers: undefined as Record<string, string> | undefined,
+    writeHead(code: number, headers?: unknown) {
       this.status = code;
+      if (headers && typeof headers === "object") {
+        this.headers = headers as Record<string, string>;
+      }
       return this;
     },
     end(chunk?: string) {
@@ -32,7 +40,11 @@ function fakeRes(): ServerResponse & { status?: number; body?: string } {
       return this;
     },
   };
-  return res as unknown as ServerResponse & { status?: number; body?: string };
+  return res as unknown as ServerResponse & {
+    status?: number;
+    body?: string;
+    headers?: Record<string, string>;
+  };
 }
 
 const validBundle: CaptureBundle = {
@@ -49,6 +61,7 @@ const result: ApplyCaptureResult = {
   contentHash: "abc",
   annotationCount: 0,
   journalKey: "2026-06-08",
+  firstCapture: true,
 };
 
 describe("isClipperRequest (CSRF header guard)", () => {
@@ -62,6 +75,21 @@ describe("isClipperRequest (CSRF header guard)", () => {
 
   test("GET with the header is false", () => {
     expect(isClipperRequest({ method: "GET", headers: { "x-orden-clipper": "1" } })).toBe(false);
+  });
+});
+
+describe("handlePingRequest", () => {
+  test("writes 200 + the orden JSON marker, content-type json, no CORS header", () => {
+    const res = fakeRes();
+    handlePingRequest(res);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body!)).toEqual({ app: "orden", capture: true });
+    const headers = res.headers ?? {};
+    const lower = Object.fromEntries(
+      Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+    expect(lower["content-type"]).toBe("application/json");
+    expect(lower["access-control-allow-origin"]).toBeUndefined();
   });
 });
 

@@ -1,5 +1,5 @@
 import type { VaultStore } from "@orden/host-api";
-import type { Source } from "@orden/annotation-core";
+import type { Source, OrdenAnnotation } from "@orden/annotation-core";
 import { sourceHash } from "@orden/annotation-core";
 import { contentHash } from "./contentHash";
 import { buildWebAnnotations, type RawHighlight } from "./buildWebAnnotations";
@@ -38,6 +38,8 @@ export interface ApplyCaptureResult {
   annotationCount: number;
   journalKey: string;
   sessionId?: string;
+  /** True on the first capture for this source (journal bullet + session created). */
+  firstCapture: boolean;
 }
 
 /** Turn a capture bundle into a snapshot + annotations + a journal entry + optional session. */
@@ -82,32 +84,55 @@ export async function applyCapture(
   };
   const annotations = buildWebAnnotations(source, raws, mintId, now);
 
-  // 4. Write the annotations bundle, keyed by the source's identity hash.
-  await vault.set("annotations", sourceHash(source), { source, annotations });
+  // 4. Decide idempotency BEFORE overwriting: the extension re-POSTs the SAME
+  // capture (same snapshot ⇒ same sourceHash) as the user edits annotations. We
+  // upsert annotations every time, but the journal bullet and any session are
+  // first-capture-only. Read the existing bundle now, before the overwrite, so we
+  // know whether this is the first submit for this source.
+  const annKey = sourceHash(source);
+  const existing = await vault.get<{ source: Source; annotations: OrdenAnnotation[] }>(
+    "annotations",
+    annKey,
+  );
+  const firstCapture = existing === null;
 
-  // 5. Append exactly one top-level journal bullet to today's page.
+  // 5. Write (upsert) the annotations bundle, keyed by the source's identity hash.
+  await vault.set("annotations", annKey, { source, annotations });
+
+  // 6. On the FIRST capture only, append exactly one top-level journal bullet to
+  // today's page. Repeated syncs skip this so the Journal isn't spammed.
   const journalKey = journalKeyFor();
-  const n = bundle.highlights.length;
-  // Sanitize before interpolation: a single bullet must stay a single line, and
-  // arbitrary web-page titles must not inject wiki backlinks. Collapse whitespace
-  // (incl. newlines) to single spaces, trim, and strip [[/]] from the title.
-  const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
-  const safeTitle = oneLine(bundle.title).replace(/\[\[|\]\]/g, "");
-  const safeUrl = oneLine(bundle.url);
-  const bullet = `- Clipped: ${safeTitle} — ${safeUrl} (${n} highlight${n === 1 ? "" : "s"})`;
-  const prev = (await vault.get<string>("pages", journalKey)) ?? "";
-  const next = prev.length > 0 ? `${prev}\n${bullet}` : bullet;
-  await vault.set("pages", journalKey, next);
+  if (firstCapture) {
+    const n = bundle.highlights.length;
+    // Sanitize before interpolation: a single bullet must stay a single line, and
+    // arbitrary web-page titles must not inject wiki backlinks. Collapse whitespace
+    // (incl. newlines) to single spaces, trim, and strip [[/]] from the title.
+    const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+    const safeTitle = oneLine(bundle.title).replace(/\[\[|\]\]/g, "");
+    const safeUrl = oneLine(bundle.url);
+    const bullet = `- Clipped: ${safeTitle} — ${safeUrl} (${n} highlight${n === 1 ? "" : "s"})`;
+    const prev = (await vault.get<string>("pages", journalKey)) ?? "";
+    const next = prev.length > 0 ? `${prev}\n${bullet}` : bullet;
+    await vault.set("pages", journalKey, next);
+  }
 
-  // 6. Optionally spawn a session, scoped to the routed project.
+  // 7. On the FIRST capture only, optionally spawn a session scoped to the routed
+  // project, so repeated syncs don't spawn duplicate sessions.
   let sessionId: string | undefined;
   const projectId = bundle.routing.projectId;
-  if (projectId && deps.createSession) {
+  if (firstCapture && projectId && deps.createSession) {
     const prompt = buildPrompt(bundle);
     sessionId = await deps.createSession(projectId, prompt);
   }
 
-  return { snapshotPath, contentHash: hash, annotationCount: annotations.length, journalKey, sessionId };
+  return {
+    snapshotPath,
+    contentHash: hash,
+    annotationCount: annotations.length,
+    journalKey,
+    sessionId,
+    firstCapture,
+  };
 }
 
 /** Compose the session prompt from agent-audience notes + routing instructions + url. */
