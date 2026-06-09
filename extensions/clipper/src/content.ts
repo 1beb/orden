@@ -1,8 +1,8 @@
 // Content script: arms/disarms orden "annotation mode" in the page, and — once
 // armed — provides the real annotation overlay: select page text to open a
 // floating composer; saving paints an orden-styled highlight (CSS Custom
-// Highlight API, non-mutating) and adds a card to an annotations rail; clicking
-// a card scrolls to and pulses the highlight.
+// Highlight API, non-mutating) and adds a card to a draggable annotations rail;
+// clicking a card scrolls to and pulses the highlight.
 //
 // Mounts a Shadow-DOM overlay (so the host page CSS cannot bleed in). The shadow
 // host is a fixed, full-viewport, pointer-events:none layer so bare page area
@@ -13,8 +13,13 @@
 //
 // Anchoring is computed inline (exact/prefix/suffix from the live Range) and the
 // cloned Range is kept in memory for painting + scroll. blockId is assigned later
-// by the host against a stored snapshot — not here. No host calls yet; highlights
-// live in memory for this arm session only.
+// by the host against a stored snapshot — not here.
+//
+// Persistence: the serializable parts of each highlight ({id, exact, prefix,
+// suffix, note, audience}) are saved to chrome.storage.local keyed by the page
+// URL on every add/delete, and restored (re-anchored against the live DOM) on the
+// next arm. Disarm only tears down the in-DOM overlay; it never deletes the
+// persisted records.
 
 const MOUNT_FLAG = "__ordenClipperMounted";
 const HOST_ID = "orden-clipper-overlay-host";
@@ -22,29 +27,42 @@ const PAGE_STYLE_ID = "orden-clipper-page-style";
 
 // CSS Custom Highlight registry names. We paint every saved mark into one
 // registry and the transiently active/hovered/pulsed one into a second so it can
-// be styled brighter. Single accent (orden agent purple) for all marks in this
-// task — agent vs human colour is a later refinement; the rail still shows the
-// audience chip.
+// be styled brighter. Single accent (orden agent purple) for all marks.
 const HL_BASE = "orden-clip";
 const HL_ACTIVE = "orden-clip-active";
 
 const CONTEXT_LEN = 32;
 const MIN_SELECTION = 4;
 
+// Persistence key: scoped to the full page URL (hash/query included) for fidelity
+// — distinct query/hash states are genuinely different pages for annotation
+// purposes, and re-anchoring tolerates the occasional false-negative gracefully.
+const CLIP_STORAGE_KEY = "clip:" + location.href;
+
+// Audience is retained in the record so the later host-POST contract still
+// carries it, but the UI no longer offers a choice — everything defaults to
+// "agent"; the agent-vs-human routing decision moves to orden.
 type Audience = "agent" | "human";
 
 interface ClipperWindow extends Window {
   [MOUNT_FLAG]?: boolean;
 }
 
-interface Mark {
+// The serializable shape persisted to chrome.storage.local (no live Range).
+interface MarkRecord {
   id: string;
   exact: string;
   prefix: string;
   suffix: string;
   note: string;
   audience: Audience;
-  range: Range;
+}
+
+interface Mark extends MarkRecord {
+  // null when a persisted record could not be re-anchored against the current
+  // DOM; the card is still shown (note preserved) but marked unanchored and is
+  // not painted / not scrollable.
+  range: Range | null;
 }
 
 const w = window as ClipperWindow;
@@ -65,8 +83,8 @@ let annotatorEl: HTMLDivElement | null = null;
 let pillEl: HTMLButtonElement | null = null;
 let composerEl: HTMLDivElement | null = null;
 let noteEl: HTMLTextAreaElement | null = null;
-let tAgentBtn: HTMLButtonElement | null = null;
-let tHumanBtn: HTMLButtonElement | null = null;
+let panelEl: HTMLElement | null = null;
+let panelHeaderEl: HTMLElement | null = null;
 
 let baseHl: Highlight | null = null;
 let activeHl: Highlight | null = null;
@@ -74,8 +92,14 @@ let activeHl: Highlight | null = null;
 const marks = new Map<string, Mark>();
 let pendingRange: Range | null = null;
 let pendingAnchor: { exact: string; prefix: string; suffix: string } | null = null;
-let target: Audience = "agent";
 let seq = 0;
+
+// drag-state for the floating rail
+let dragging = false;
+let dragDX = 0;
+let dragDY = 0;
+let onDragMove: ((e: MouseEvent) => void) | null = null;
+let onDragUp: ((e: MouseEvent) => void) | null = null;
 
 function hasHighlightApi(): boolean {
   return typeof Highlight !== "undefined" && typeof CSS !== "undefined" && !!CSS.highlights;
@@ -109,17 +133,126 @@ function computeAnchor(range: Range): { exact: string; prefix: string; suffix: s
   return { exact, prefix, suffix };
 }
 
+// ---- persistence (chrome.storage.local, keyed by page URL) -----------------
+function toRecord(m: Mark): MarkRecord {
+  return {
+    id: m.id,
+    exact: m.exact,
+    prefix: m.prefix,
+    suffix: m.suffix,
+    note: m.note,
+    audience: m.audience,
+  };
+}
+
+// Persist the current set of marks. Fire-and-forget; log on failure.
+function persist(): void {
+  if (!chrome?.storage?.local) return;
+  const records = Array.from(marks.values()).map(toRecord);
+  try {
+    const p = chrome.storage.local.set({ [CLIP_STORAGE_KEY]: records });
+    if (p && typeof p.catch === "function") {
+      p.catch((err: unknown) => console.warn("[orden-clipper] persist failed", err));
+    }
+  } catch (err) {
+    console.warn("[orden-clipper] persist failed", err);
+  }
+}
+
+async function loadRecords(): Promise<MarkRecord[]> {
+  if (!chrome?.storage?.local) return [];
+  try {
+    const got = await chrome.storage.local.get(CLIP_STORAGE_KEY);
+    const recs = got?.[CLIP_STORAGE_KEY];
+    return Array.isArray(recs) ? (recs as MarkRecord[]) : [];
+  } catch (err) {
+    console.warn("[orden-clipper] load failed", err);
+    return [];
+  }
+}
+
+// ---- re-anchor: find a record's `exact` text in the live DOM ----------------
+// Walk visible text nodes, find every occurrence of `exact`, and pick the one
+// whose surrounding text best matches the stored prefix/suffix. Returns a fresh
+// Range, or null if `exact` does not occur in the document.
+function reanchor(rec: MarkRecord): Range | null {
+  const needle = rec.exact;
+  if (!needle) return null;
+
+  // Collect candidate occurrences as (textNode, offset) start points. We only
+  // support matches that begin and end within a single text node — multi-node
+  // selections are rarer and best left unanchored than mis-anchored.
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const candidates: { node: Text; offset: number }[] = [];
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    const text = node.data;
+    let from = 0;
+    for (;;) {
+      const idx = text.indexOf(needle, from);
+      if (idx < 0) break;
+      candidates.push({ node, offset: idx });
+      from = idx + 1; // allow overlapping occurrences
+    }
+    node = walker.nextNode() as Text | null;
+  }
+  if (candidates.length === 0) return null;
+
+  // Score each candidate by how well the chars just before/after the match line
+  // up with the stored prefix/suffix (longest common suffix-of-prefix /
+  // prefix-of-suffix). Highest score wins; first occurrence breaks ties.
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const c of candidates) {
+    const before = c.node.data.slice(Math.max(0, c.offset - CONTEXT_LEN), c.offset);
+    const after = c.node.data.slice(
+      c.offset + needle.length,
+      c.offset + needle.length + CONTEXT_LEN,
+    );
+    const score = commonSuffix(before, rec.prefix) + commonPrefix(after, rec.suffix);
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+
+  try {
+    const range = document.createRange();
+    range.setStart(best.node, best.offset);
+    range.setEnd(best.node, best.offset + needle.length);
+    return range;
+  } catch {
+    return null;
+  }
+}
+
+// length of the longest common suffix shared by a and b
+function commonSuffix(a: string, b: string): number {
+  let i = 0;
+  const max = Math.min(a.length, b.length);
+  while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
+  return i;
+}
+
+// length of the longest common prefix shared by a and b
+function commonPrefix(a: string, b: string): number {
+  let i = 0;
+  const max = Math.min(a.length, b.length);
+  while (i < max && a[i] === b[i]) i++;
+  return i;
+}
+
 // ---- highlight painting ----------------------------------------------------
 function repaintBase(): void {
   if (!baseHl || !hasHighlightApi()) return;
   baseHl.clear();
-  for (const m of marks.values()) baseHl.add(m.range);
+  for (const m of marks.values()) if (m.range) baseHl.add(m.range);
 }
 
 function setActive(id: string, on: boolean): void {
   if (!activeHl || !hasHighlightApi()) return;
   const m = marks.get(id);
-  if (!m) return;
+  if (!m || !m.range) return;
   if (on) activeHl.add(m.range);
   else activeHl.delete(m.range);
   const row = listEl?.querySelector<HTMLLIElement>(`li[data-id="${id}"]`);
@@ -149,17 +282,10 @@ function hideAnnotator(): void {
   pendingAnchor = null;
 }
 
-function setTarget(t: Audience): void {
-  target = t;
-  tAgentBtn?.classList.toggle("is-on", t === "agent");
-  tHumanBtn?.classList.toggle("is-on", t === "human");
-}
-
 function openComposer(): void {
   if (!pillEl || !composerEl || !noteEl) return;
   pillEl.style.display = "none";
   composerEl.hidden = false;
-  setTarget(target);
   noteEl.value = "";
   window.setTimeout(() => noteEl?.focus(), 0);
 }
@@ -176,12 +302,13 @@ function saveAnnotation(): void {
     prefix: pendingAnchor.prefix,
     suffix: pendingAnchor.suffix,
     note: noteEl.value.trim(),
-    audience: target,
+    audience: "agent", // routing decision moves to orden; default agent for now
     range: pendingRange.cloneRange(),
   };
   marks.set(id, mark);
   repaintBase();
   addRow(mark);
+  persist();
   window.getSelection()?.removeAllRanges();
   hideAnnotator();
 }
@@ -213,11 +340,12 @@ function deleteMark(id: string): void {
   repaintBase();
   listEl?.querySelector<HTMLLIElement>(`li[data-id="${id}"]`)?.remove();
   refreshEmpty();
+  persist();
 }
 
 function scrollToMark(id: string): void {
   const m = marks.get(id);
-  if (!m) return;
+  if (!m || !m.range) return; // unanchored cards are not scrollable
   const target =
     m.range.startContainer.nodeType === Node.ELEMENT_NODE
       ? (m.range.startContainer as Element)
@@ -228,16 +356,13 @@ function scrollToMark(id: string): void {
 
 function addRow(m: Mark): void {
   if (!listEl) return;
+  const unanchored = !m.range;
   const li = document.createElement("li");
   li.dataset.id = m.id;
-  li.dataset.t = m.audience;
+  if (unanchored) li.classList.add("unanchored");
   li.innerHTML =
     '<div class="row-head">' +
-    '<span class="chip" data-t="' +
-    m.audience +
-    '">' +
-    (m.audience === "human" ? "For me" : "To agent") +
-    "</span>" +
+    (unanchored ? '<span class="chip warn">Unanchored</span>' : "<span></span>") +
     '<button class="row-action" type="button">Delete</button>' +
     "</div>" +
     '<div class="quote">' +
@@ -246,8 +371,10 @@ function addRow(m: Mark): void {
     '<div class="note">' +
     (m.note ? esc(m.note) : '<span style="color:var(--muted)">(no note)</span>') +
     "</div>";
-  li.addEventListener("mouseenter", () => setActive(m.id, true));
-  li.addEventListener("mouseleave", () => setActive(m.id, false));
+  if (!unanchored) {
+    li.addEventListener("mouseenter", () => setActive(m.id, true));
+    li.addEventListener("mouseleave", () => setActive(m.id, false));
+  }
   li.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     if (t.classList.contains("row-action")) {
@@ -318,11 +445,6 @@ const SHADOW_CSS = `
   box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 10px; display: flex; flex-direction: column; gap: 8px;
 }
 .annotator-composer[hidden] { display: none; }
-.annotator-toggle { display: flex; gap: 4px; }
-.annotator-toggle button { flex: 1; font: inherit; font-size: calc(12px * var(--font-scale));
-  padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); cursor: pointer; }
-.annotator-toggle button.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
-.annotator-toggle button.is-on[data-t="human"] { border-color: var(--human); background: var(--human-soft); }
 .annotator-note { font: inherit; font-size: calc(14px * var(--font-scale)); resize: vertical; min-height: 64px;
   border: 1px solid var(--line); border-radius: 6px; padding: 8px; outline: none; }
 .annotator-note:focus { border-color: var(--accent); }
@@ -332,26 +454,30 @@ const SHADOW_CSS = `
 .annotator-actions .ghost { background: #fff; color: var(--muted); }
 .annotator-actions .primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 
-/* ===== annotations rail (mirrors orden #panel / #annotation-list) ===== */
-.panel { position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
-  border-left: 1px solid var(--line); background: var(--panel-bg);
+/* ===== annotations rail: a FLOATING, DRAGGABLE 40vw window ===== */
+.panel { position: fixed; top: 16px; right: 16px; width: 40vw; min-width: 320px; max-height: 80vh;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-bg);
   display: flex; flex-direction: column; min-height: 0; pointer-events: auto;
-  box-shadow: -4px 0 18px rgba(0,0,0,.08); z-index: 3; }
-.panel > header { display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: calc(14px * var(--font-scale)); }
-#annotation-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; }
+  box-shadow: 0 8px 28px rgba(0,0,0,.18); z-index: 3; }
+.panel > header { display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600;
+  font-size: calc(14px * var(--font-scale)); cursor: move; user-select: none;
+  border-top-left-radius: 10px; border-top-right-radius: 10px; }
+.panel > header .grip { color: var(--muted); font-weight: 700; letter-spacing: -2px; flex: 0 0 auto; }
+.panel > header .title { flex: 1 1 auto; }
+#annotation-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
 #annotation-list li { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
   border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
-#annotation-list li[data-t="human"] { border-left-color: var(--human); }
 #annotation-list li:hover, #annotation-list li.is-active { background: var(--accent-soft); }
-#annotation-list li[data-t="human"]:hover, #annotation-list li[data-t="human"].is-active { background: var(--human-soft); }
+#annotation-list li.unanchored { border-left-style: dashed; opacity: .6; cursor: default; }
+#annotation-list li.unanchored:hover { background: transparent; }
 #annotation-list .quote { font-size: calc(12px * var(--font-scale)); color: var(--muted); font-style: italic;
   margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #annotation-list .note { font-size: calc(14px * var(--font-scale)); }
 .row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; min-height: 18px; }
 .chip { font-size: calc(10px * var(--font-scale)); font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   padding: 2px 7px; border-radius: 999px; background: #eef0f2; color: var(--muted); }
-.chip[data-t="human"] { background: var(--human-soft); color: #4338ca; }
+.chip.warn { background: #fef3c7; color: #92400e; }
 .row-action { font: inherit; font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border: 1px solid var(--line);
   border-radius: 5px; background: #fff; color: var(--muted); cursor: pointer; opacity: 0; }
 #annotation-list li:hover .row-action { opacity: 1; }
@@ -381,6 +507,15 @@ function unmount(): void {
     document.removeEventListener("mouseup", onMouseup, true);
     onMouseup = null;
   }
+  if (onDragMove) {
+    document.removeEventListener("mousemove", onDragMove, true);
+    onDragMove = null;
+  }
+  if (onDragUp) {
+    document.removeEventListener("mouseup", onDragUp, true);
+    onDragUp = null;
+  }
+  dragging = false;
   if (onMessage && chrome?.runtime?.onMessage) {
     try {
       chrome.runtime.onMessage.removeListener(onMessage);
@@ -413,11 +548,10 @@ function unmount(): void {
   pillEl = null;
   composerEl = null;
   noteEl = null;
-  tAgentBtn = null;
-  tHumanBtn = null;
+  panelEl = null;
+  panelHeaderEl = null;
   pendingRange = null;
   pendingAnchor = null;
-  target = "agent";
 
   w[MOUNT_FLAG] = false;
 }
@@ -457,13 +591,18 @@ function mount(): void {
   banner.append(dot, label, exit);
   shadow.appendChild(banner);
 
-  // --- annotations rail ---
+  // --- annotations rail (floating, draggable) ---
   const panel = document.createElement("aside");
   panel.className = "panel";
   panel.innerHTML =
-    "<header><span>Annotations</span></header>" + '<ul id="annotation-list"></ul>';
+    '<header><span class="grip" aria-hidden="true">⋮⋮</span>' +
+    '<span class="title">Annotations</span></header>' +
+    '<ul id="annotation-list"></ul>';
   shadow.appendChild(panel);
+  panelEl = panel;
   listEl = panel.querySelector<HTMLUListElement>("#annotation-list");
+  panelHeaderEl = panel.querySelector<HTMLElement>("header");
+  panelHeaderEl?.addEventListener("mousedown", startDrag);
   refreshEmpty();
 
   // --- floating composer ---
@@ -473,10 +612,6 @@ function mount(): void {
   annotator.innerHTML =
     '<button class="annotator-pill" type="button">Annotate</button>' +
     '<div class="annotator-composer" hidden>' +
-    '<div class="annotator-toggle">' +
-    '<button type="button" data-t="agent" class="is-on">To agent</button>' +
-    '<button type="button" data-t="human">For me</button>' +
-    "</div>" +
     '<textarea class="annotator-note" placeholder="Your note…"></textarea>' +
     '<div class="annotator-actions">' +
     '<button type="button" class="ghost">Cancel</button>' +
@@ -488,13 +623,8 @@ function mount(): void {
   pillEl = annotator.querySelector<HTMLButtonElement>(".annotator-pill");
   composerEl = annotator.querySelector<HTMLDivElement>(".annotator-composer");
   noteEl = annotator.querySelector<HTMLTextAreaElement>(".annotator-note");
-  const toggles = annotator.querySelectorAll<HTMLButtonElement>(".annotator-toggle button");
-  tAgentBtn = toggles[0] ?? null;
-  tHumanBtn = toggles[1] ?? null;
 
   pillEl?.addEventListener("click", openComposer);
-  tAgentBtn?.addEventListener("click", () => setTarget("agent"));
-  tHumanBtn?.addEventListener("click", () => setTarget("human"));
   annotator.querySelector<HTMLButtonElement>(".ghost")?.addEventListener("click", hideAnnotator);
   annotator.querySelector<HTMLButtonElement>(".primary")?.addEventListener("click", saveAnnotation);
 
@@ -554,6 +684,72 @@ function mount(): void {
   }
 
   w[MOUNT_FLAG] = true;
+
+  // --- restore persisted annotations for this URL ---
+  // Re-anchor each saved record against the live DOM. Records that can't be
+  // re-anchored still get a (dimmed, dashed, non-scrolling) card so the note
+  // isn't lost. Guarded by the mount flag in case disarm raced the async load.
+  void restorePersisted();
+}
+
+async function restorePersisted(): Promise<void> {
+  const records = await loadRecords();
+  if (!w[MOUNT_FLAG] || !listEl) return; // disarmed while loading
+  for (const rec of records) {
+    const range = reanchor(rec);
+    const mark: Mark = { ...rec, range };
+    marks.set(mark.id, mark);
+    addRow(mark);
+    // keep the seq counter ahead of restored ids so new ids never collide
+    const n = Number.parseInt(mark.id.replace(/^a/, ""), 10);
+    if (Number.isFinite(n) && n > seq) seq = n;
+  }
+  repaintBase();
+}
+
+// ---- rail drag -------------------------------------------------------------
+// The header is the drag handle. We ignore mousedowns on its buttons (none today,
+// but future Submit/Copy live here) so dragging only starts on the bare handle.
+function startDrag(e: MouseEvent): void {
+  if (!panelEl) return;
+  const t = e.target as HTMLElement;
+  if (t.closest("button")) return; // let header buttons work normally
+  e.preventDefault();
+  const rect = panelEl.getBoundingClientRect();
+  // Switch from top/right anchoring to left/top on first drag.
+  panelEl.style.right = "auto";
+  panelEl.style.left = rect.left + "px";
+  panelEl.style.top = rect.top + "px";
+  dragDX = e.clientX - rect.left;
+  dragDY = e.clientY - rect.top;
+  dragging = true;
+
+  onDragMove = (ev: MouseEvent) => {
+    if (!dragging || !panelEl) return;
+    const w0 = panelEl.offsetWidth;
+    // Constrain so the header stays on-screen: keep at least a sliver of the
+    // window visible on every edge (~40px of header reachable).
+    const margin = 40;
+    let left = ev.clientX - dragDX;
+    let top = ev.clientY - dragDY;
+    left = Math.min(window.innerWidth - margin, Math.max(margin - w0, left));
+    top = Math.min(window.innerHeight - margin, Math.max(0, top));
+    panelEl.style.left = left + "px";
+    panelEl.style.top = top + "px";
+  };
+  onDragUp = () => {
+    dragging = false;
+    if (onDragMove) {
+      document.removeEventListener("mousemove", onDragMove, true);
+      onDragMove = null;
+    }
+    if (onDragUp) {
+      document.removeEventListener("mouseup", onDragUp, true);
+      onDragUp = null;
+    }
+  };
+  document.addEventListener("mousemove", onDragMove, true);
+  document.addEventListener("mouseup", onDragUp, true);
 }
 
 // Entry: if already mounted (module re-injected), toggle OFF; else mount.
