@@ -31,7 +31,10 @@
         cursor: pointer;
       }
       button:hover { background: #1d4ed8; }
+      button.secondary { margin-left: 8px; background: #4b5563; }
+      button.secondary:hover { background: #374151; }
       .status { margin-left: 10px; color: #059669; font-weight: 600; }
+      .status.err { color: #dc2626; }
     </style>
   </head>
   <body>
@@ -42,7 +45,9 @@
     </div>
     <div class="row">
       <button id="save">Save</button>
+      <button id="test" class="secondary">Test connection</button>
       <span id="status" class="status" hidden>Saved</span>
+      <span id="test-status" class="status" hidden></span>
     </div>
     <script type="module" src="options.js"></script>
   </body>

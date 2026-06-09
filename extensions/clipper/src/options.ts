@@ -5,7 +5,9 @@ const STORAGE_KEY = "hostUrl";
 
 const input = document.getElementById("host-url") as HTMLInputElement;
 const saveBtn = document.getElementById("save") as HTMLButtonElement;
+const testBtn = document.getElementById("test") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLSpanElement;
+const testStatusEl = document.getElementById("test-status") as HTMLSpanElement;
 
 async function load(): Promise<void> {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
@@ -22,5 +24,25 @@ async function save(): Promise<void> {
   }, 1500);
 }
 
+// Test connection: persist the current URL first (the SW's detect reads the
+// stored host URL), then ask the SW to probe it via the message bus.
+async function test(): Promise<void> {
+  await save();
+  testStatusEl.hidden = true;
+  testStatusEl.classList.remove("err");
+  testStatusEl.textContent = "Testing…";
+  testStatusEl.hidden = false;
+  chrome.runtime.sendMessage(
+    { type: "orden-detect" },
+    (resp: { ok?: boolean } | undefined) => {
+      const ok = !chrome.runtime?.lastError && resp?.ok;
+      testStatusEl.textContent = ok ? "Connected ✓" : "Not reachable";
+      testStatusEl.classList.toggle("err", !ok);
+      testStatusEl.hidden = false;
+    },
+  );
+}
+
 saveBtn.addEventListener("click", () => void save());
+testBtn.addEventListener("click", () => void test());
 void load();

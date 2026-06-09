@@ -8,9 +8,81 @@
 
 const TOGGLE_MESSAGE = { type: "orden-clipper-toggle" } as const;
 
+// Host URL is configured on the options page and stored in chrome.storage.sync.
+// The SERVICE WORKER owns all host fetches (it has host_permissions); the content
+// script is cross-origin from the page and would be CORS-blocked, so it routes
+// detect/capture through this message bus instead.
+const SW_DEFAULT_HOST_URL = "http://127.0.0.1:4319";
+const SW_HOST_URL_KEY = "hostUrl";
+
+async function getHostUrl(): Promise<string> {
+  try {
+    const stored = await chrome.storage.sync.get(SW_HOST_URL_KEY);
+    const v = stored?.[SW_HOST_URL_KEY];
+    return (typeof v === "string" && v.trim()) || SW_DEFAULT_HOST_URL;
+  } catch {
+    return SW_DEFAULT_HOST_URL;
+  }
+}
+
+// Probe the configured host. Resolves ok iff GET /orden-clipper/ping answers with
+// the orden marker. A refused connection throws inside fetch — caught here.
+async function detect(): Promise<{ ok: boolean; host: string }> {
+  const host = await getHostUrl();
+  try {
+    const res = await fetch(host + "/orden-clipper/ping", {
+      headers: { "x-orden-clipper": "1" },
+    });
+    if (!res.ok) return { ok: false, host };
+    const json = await res.json();
+    return { ok: json?.app === "orden", host };
+  } catch {
+    return { ok: false, host };
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[orden-clipper] installed");
 });
+
+// --- message bus: detect + capture for the content script, on its behalf ---
+chrome.runtime.onMessage.addListener(
+  (msg: { type?: string; bundle?: unknown }, _sender: unknown, sendResponse: (r: unknown) => void) => {
+    if (msg?.type === "orden-detect") {
+      void detect().then(sendResponse);
+      return true; // keep the channel open for the async response
+    }
+    if (msg?.type === "orden-capture") {
+      void (async () => {
+        const host = await getHostUrl();
+        try {
+          const res = await fetch(host + "/capture", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-orden-clipper": "1" },
+            body: JSON.stringify(msg.bundle),
+          });
+          if (res.ok) {
+            sendResponse({ ok: true, result: await res.json() });
+          } else {
+            sendResponse({ ok: false, status: res.status });
+          }
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e) });
+        }
+      })();
+      return true;
+    }
+    if (msg?.type === "orden-open-options") {
+      try {
+        chrome.runtime.openOptionsPage();
+      } catch {
+        // ignore — best effort
+      }
+      // no async response needed
+    }
+    return undefined;
+  },
+);
 
 async function toggleAnnotationMode(tabId: number): Promise<void> {
   try {

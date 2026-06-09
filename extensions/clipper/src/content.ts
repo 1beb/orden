@@ -21,6 +21,9 @@
 // next arm. Disarm only tears down the in-DOM overlay; it never deletes the
 // persisted records.
 
+import { Readability } from "@mozilla/readability";
+import { assignBlockIds, BLOCK_ID_ATTR } from "@orden/annotation-core";
+
 const MOUNT_FLAG = "__ordenClipperMounted";
 const HOST_ID = "orden-clipper-overlay-host";
 const PAGE_STYLE_ID = "orden-clipper-page-style";
@@ -85,6 +88,15 @@ let composerEl: HTMLDivElement | null = null;
 let noteEl: HTMLTextAreaElement | null = null;
 let panelEl: HTMLElement | null = null;
 let panelHeaderEl: HTMLElement | null = null;
+let statusEl: HTMLDivElement | null = null;
+
+// --- host sync state (auto-detect + debounced auto-submit) ------------------
+// A frozen snapshot of the article HTML (Readability, block-ids stamped) built
+// ONCE per arm session and reused for every debounced sync, so the host's
+// content-hash stays stable and journal/session creation are first-capture-only.
+let snapshotHtml: string | null = null;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+const SYNC_DEBOUNCE_MS = 1000;
 
 let baseHl: Highlight | null = null;
 let activeHl: Highlight | null = null;
@@ -242,6 +254,220 @@ function commonPrefix(a: string, b: string): number {
   return i;
 }
 
+// ---- snapshot: a frozen, block-id-stamped article HTML (once per arm) -------
+// We build this on a CLONE so the live page DOM is never mutated. Order of
+// preference: Readability (a cleaned article) → sanitized <body> → documentElement.
+// In all cases we stamp data-orden-block-id attrs via annotation-core so each
+// highlight can later be resolved to an enclosing block on the host's snapshot.
+function buildSnapshotHtml(): string {
+  // 1. Readability on a clone of the document.
+  try {
+    const docClone = document.cloneNode(true) as Document;
+    const parsed = new Readability(docClone).parse();
+    const content = parsed?.content?.trim();
+    if (content) {
+      const stamped = stampBlockIds(content);
+      if (stamped) return stamped;
+    }
+  } catch (err) {
+    console.warn("[orden-clipper] Readability failed", err);
+  }
+
+  // 2. Fallback: a clone of <body>, scripts/styles stripped, stamped.
+  try {
+    if (document.body) {
+      const bodyClone = document.body.cloneNode(true) as HTMLElement;
+      bodyClone.querySelectorAll("script,style,noscript,link,iframe").forEach((n) => n.remove());
+      assignBlockIds(bodyClone);
+      const html = bodyClone.outerHTML;
+      if (html && html.trim()) return html;
+    }
+  } catch (err) {
+    console.warn("[orden-clipper] body snapshot failed", err);
+  }
+
+  // 3. Last resort: the whole document element, stamped if possible.
+  try {
+    return stampBlockIds(document.documentElement.outerHTML) ?? document.documentElement.outerHTML;
+  } catch {
+    return document.documentElement.outerHTML;
+  }
+}
+
+// Parse an HTML string into a detached document, stamp block-ids on its body, and
+// serialize back. Returns null if parsing yields nothing usable.
+function stampBlockIds(html: string): string | null {
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const root = doc.body;
+    if (!root || !root.firstChild) return null;
+    assignBlockIds(root);
+    return root.innerHTML;
+  } catch {
+    return null;
+  }
+}
+
+// ---- resolve each highlight to a snapshot blockId --------------------------
+// The snapshot is a DIFFERENT (cleaned) DOM than the live page, so we re-find the
+// highlight's `exact` text inside the snapshot and read its enclosing block's
+// data-orden-block-id. prefix/suffix disambiguate repeated occurrences, mirroring
+// the live-page re-anchor scoring. Returns "unanchored" when not found.
+function resolveBlockIds(rec: MarkRecord[]): string[] {
+  let snapDoc: Document | null = null;
+  try {
+    snapDoc = new DOMParser().parseFromString(snapshotHtml ?? "", "text/html");
+  } catch {
+    snapDoc = null;
+  }
+  return rec.map((r) => (snapDoc ? resolveBlockId(snapDoc, r) : "unanchored"));
+}
+
+function resolveBlockId(doc: Document, rec: MarkRecord): string {
+  const needle = rec.exact;
+  if (!needle || !doc.body) return "unanchored";
+
+  // Recursive text walk (avoids the happy-dom-style TreeWalker inline-skip; also
+  // keeps a reference to the containing element to read its block id).
+  const candidates: { node: Text; offset: number }[] = [];
+  const walk = (n: Node): void => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      const text = (n as Text).data;
+      let from = 0;
+      for (;;) {
+        const idx = text.indexOf(needle, from);
+        if (idx < 0) break;
+        candidates.push({ node: n as Text, offset: idx });
+        from = idx + 1;
+      }
+      return;
+    }
+    for (let c = n.firstChild; c; c = c.nextSibling) walk(c);
+  };
+  walk(doc.body);
+  if (candidates.length === 0) return "unanchored";
+
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const c of candidates) {
+    const before = c.node.data.slice(Math.max(0, c.offset - CONTEXT_LEN), c.offset);
+    const after = c.node.data.slice(c.offset + needle.length, c.offset + needle.length + CONTEXT_LEN);
+    const score = commonSuffix(before, rec.prefix) + commonPrefix(after, rec.suffix);
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+
+  // Climb to the nearest ancestor carrying a stamped block id.
+  let el: Element | null =
+    best.node.parentElement ?? (best.node.parentNode as Element | null);
+  while (el) {
+    const id = el.getAttribute?.(BLOCK_ID_ATTR);
+    if (id) return id;
+    el = el.parentElement;
+  }
+  return "unanchored";
+}
+
+// ---- host detect + status line ---------------------------------------------
+type SyncStatus = "idle" | "ok" | "syncing" | "synced" | "failed" | "nohost";
+
+function setStatus(kind: SyncStatus, text: string): void {
+  if (!statusEl) return;
+  statusEl.dataset.kind = kind;
+  statusEl.innerHTML =
+    '<span class="status-dot"></span><span class="status-text">' + esc(text) + "</span>";
+  if (kind === "nohost") {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "status-link";
+    link.textContent = "Open options";
+    link.addEventListener("click", () => {
+      try {
+        chrome?.runtime?.sendMessage?.({ type: "orden-open-options" });
+      } catch {
+        // ignore
+      }
+    });
+    statusEl.querySelector(".status-text")?.appendChild(document.createTextNode(" "));
+    statusEl.appendChild(link);
+  }
+}
+
+function detectHost(): void {
+  if (!chrome?.runtime?.sendMessage) {
+    setStatus("nohost", "Extension messaging unavailable");
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage({ type: "orden-detect" }, (resp: { ok?: boolean } | undefined) => {
+      // chrome.runtime.lastError set if the SW didn't answer; treat as no host.
+      if (chrome.runtime?.lastError || !resp?.ok) {
+        setStatus("nohost", "No orden host —");
+      } else {
+        setStatus("ok", "Connected to orden");
+      }
+    });
+  } catch {
+    setStatus("nohost", "No orden host —");
+  }
+}
+
+// ---- debounced auto-submit -------------------------------------------------
+function scheduleSync(): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void runSync();
+  }, SYNC_DEBOUNCE_MS);
+}
+
+function runSync(): void {
+  if (!w[MOUNT_FLAG]) return; // disarmed
+  if (!chrome?.runtime?.sendMessage) return;
+
+  const records = Array.from(marks.values()).map(toRecord);
+  if (records.length === 0) return; // never send empty captures
+
+  if (!snapshotHtml) snapshotHtml = buildSnapshotHtml();
+  const blockIds = resolveBlockIds(records);
+
+  const bundle = {
+    url: location.href,
+    title: document.title,
+    snapshotHtml,
+    ext: "html" as const,
+    highlights: records.map((r, i) => ({
+      exact: r.exact,
+      prefix: r.prefix,
+      suffix: r.suffix,
+      blockId: blockIds[i],
+      note: r.note,
+      audience: r.audience,
+    })),
+    routing: {},
+  };
+
+  setStatus("syncing", "Syncing…");
+  try {
+    chrome.runtime.sendMessage(
+      { type: "orden-capture", bundle },
+      (resp: { ok?: boolean; result?: { annotationCount?: number } } | undefined) => {
+        if (chrome.runtime?.lastError || !resp?.ok) {
+          setStatus("failed", "Sync failed — is orden running?");
+          return;
+        }
+        const n = resp.result?.annotationCount ?? records.length;
+        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        setStatus("synced", `Synced to orden ✓ (${n} · ${time})`);
+      },
+    );
+  } catch {
+    setStatus("failed", "Sync failed — is orden running?");
+  }
+}
+
 // ---- highlight painting ----------------------------------------------------
 function repaintBase(): void {
   if (!baseHl || !hasHighlightApi()) return;
@@ -309,6 +535,7 @@ function saveAnnotation(): void {
   repaintBase();
   addRow(mark);
   persist();
+  scheduleSync();
   window.getSelection()?.removeAllRanges();
   hideAnnotator();
 }
@@ -341,6 +568,7 @@ function deleteMark(id: string): void {
   listEl?.querySelector<HTMLLIElement>(`li[data-id="${id}"]`)?.remove();
   refreshEmpty();
   persist();
+  scheduleSync();
 }
 
 function scrollToMark(id: string): void {
@@ -482,6 +710,19 @@ const SHADOW_CSS = `
   border-radius: 5px; background: #fff; color: var(--muted); cursor: pointer; opacity: 0; }
 #annotation-list li:hover .row-action { opacity: 1; }
 .empty { color: var(--muted); font-size: calc(13px * var(--font-scale)); padding: 18px 14px; text-align: center; }
+
+/* ===== sync status line (under the header; auto-detect + auto-submit) ===== */
+.sync-status { display: flex; align-items: center; gap: 7px; padding: 8px 15px;
+  border-bottom: 1px solid var(--line); font-size: calc(12px * var(--font-scale)); color: var(--muted); }
+.sync-status .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex: 0 0 auto; }
+.sync-status .status-text { flex: 1 1 auto; }
+.sync-status[data-kind="ok"] .status-dot,
+.sync-status[data-kind="synced"] .status-dot { background: #10b981; }
+.sync-status[data-kind="syncing"] .status-dot { background: var(--accent); }
+.sync-status[data-kind="failed"] .status-dot,
+.sync-status[data-kind="nohost"] .status-dot { background: #ef4444; }
+.sync-status .status-link { font: inherit; font-size: inherit; color: var(--accent);
+  background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
 `;
 
 // The page-document stylesheet that actually paints the ::highlight() marks.
@@ -516,6 +757,11 @@ function unmount(): void {
     onDragUp = null;
   }
   dragging = false;
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  snapshotHtml = null;
   if (onMessage && chrome?.runtime?.onMessage) {
     try {
       chrome.runtime.onMessage.removeListener(onMessage);
@@ -550,6 +796,7 @@ function unmount(): void {
   noteEl = null;
   panelEl = null;
   panelHeaderEl = null;
+  statusEl = null;
   pendingRange = null;
   pendingAnchor = null;
 
@@ -597,10 +844,13 @@ function mount(): void {
   panel.innerHTML =
     '<header><span class="grip" aria-hidden="true">⋮⋮</span>' +
     '<span class="title">Annotations</span></header>' +
+    '<div class="sync-status" data-kind="idle">' +
+    '<span class="status-dot"></span><span class="status-text">Checking orden…</span></div>' +
     '<ul id="annotation-list"></ul>';
   shadow.appendChild(panel);
   panelEl = panel;
   listEl = panel.querySelector<HTMLUListElement>("#annotation-list");
+  statusEl = panel.querySelector<HTMLDivElement>(".sync-status");
   panelHeaderEl = panel.querySelector<HTMLElement>("header");
   panelHeaderEl?.addEventListener("mousedown", startDrag);
   refreshEmpty();
@@ -684,6 +934,12 @@ function mount(): void {
   }
 
   w[MOUNT_FLAG] = true;
+
+  // --- build the frozen snapshot ONCE for this arm session (off a clone) ---
+  snapshotHtml = buildSnapshotHtml();
+
+  // --- auto-detect the orden host and reflect it in the status line ---
+  detectHost();
 
   // --- restore persisted annotations for this URL ---
   // Re-anchor each saved record against the live DOM. Records that can't be

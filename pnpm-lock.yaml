@@ -128,6 +128,13 @@ importers:
         version: 1.6.1(@types/node@20.19.39)(happy-dom@14.12.3)
 
   extensions/clipper:
+    dependencies:
+      '@mozilla/readability':
+        specifier: 0.5.0
+        version: 0.5.0
+      '@orden/annotation-core':
+        specifier: workspace:*
+        version: link:../../packages/annotation-core
     devDependencies:
       esbuild:
         specifier: 0.27.7
@@ -607,6 +614,10 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@mozilla/readability@0.5.0':
+    resolution: {integrity: sha512-Z+CZ3QaosfFaTqvhQsIktyGrjFjSC0Fa4EMph4mqKnWhmyoGICsV/8QK+8HpXut6zV7zwfWwqDmEjtk1Qf6EgQ==}
+    engines: {node: '>=14.0.0'}
 
   '@opencode-ai/sdk@1.14.33':
     resolution: {integrity: sha512-LtP9oLMSxVw47AE562IagIOwxLfHLVjk/CTExkYCYtdjPXTQeU5mjyZDbahilAGeFUen9fFE/R9e933zvjF9sQ==}
@@ -1756,6 +1767,8 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.2)
     transitivePeerDependencies:
       - supports-color
+
+  '@mozilla/readability@0.5.0': {}
 
   '@opencode-ai/sdk@1.14.33':
     dependencies:
