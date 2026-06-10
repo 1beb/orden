@@ -110,6 +110,7 @@ describe("settingsArg", () => {
       [
         "Notification",
         "PostToolUse",
+        "PreToolUse",
         "Stop",
         "SubagentStart",
         "SubagentStop",
@@ -147,6 +148,24 @@ describe("settingsArg", () => {
     );
     // The notification hook has no prior query string, so it joins with `?`.
     expect(cmdOf("Notification")).toContain("/hooks/notification?orden_session_id=sess_abc");
+  });
+
+  // The destructive-git guardrail: Bash-matched, and — unlike the
+  // fire-and-forget state hooks — its curl must KEEP stdout, because the
+  // response body is the PreToolUse allow/deny verdict claude reads.
+  test("wires the PreToolUse guard to Bash and keeps curl stdout", () => {
+    delete process.env.ORDEN_PORT;
+    const s = parseSettings(settingsArg("sess_abc")) as unknown as {
+      hooks: { PreToolUse: { matcher?: string; hooks: { command: string }[] }[] };
+    };
+    const entry = s.hooks.PreToolUse[0];
+    expect(entry.matcher).toBe("Bash");
+    const cmd = entry.hooks[0].command;
+    expect(cmd).toContain("/hooks/pretooluse?orden_session_id=sess_abc");
+    // stdout is the verdict — only stderr may be discarded (the state hooks
+    // use `>/dev/null 2>&1`, which would swallow the decision).
+    expect(cmd).not.toContain(">/dev/null 2>&1");
+    expect(cmd).toContain("2>/dev/null");
   });
 });
 

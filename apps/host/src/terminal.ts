@@ -155,10 +155,18 @@ export function settingsArg(sessionId: string): string {
     );
   };
   const hook = (command: string) => [{ hooks: [{ type: "command", command }] }];
+  // The destructive-git guardrail differs from the state hooks: it must RETURN
+  // the host's JSON verdict to claude (PreToolUse decision protocol), so its
+  // curl keeps stdout. Matched to Bash only — other tools can't run git.
+  const guardUrl = `http://127.0.0.1:${port}/hooks/pretooluse?orden_session_id=${sessionId}`;
+  const guard =
+    `curl -sS -m 3 -X POST '${guardUrl}' ` +
+    `-H 'Content-Type: application/json' -d @- 2>/dev/null || true`;
   const settings = {
     hooks: {
       UserPromptSubmit: hook(post("session-state?state=in-progress")),
       PostToolUse: hook(post("session-state?state=in-progress")),
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: guard }] }],
       Stop: hook(post("session-state?state=blocked")),
       // Count in-flight subagents so a background "subagent workflow" turn-end
       // (Stop) doesn't park the card at blocked while subagents keep working.

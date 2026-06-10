@@ -108,6 +108,52 @@ export async function settleSubagents(host: Host, claudeSessionId: string): Prom
   await applyState(host, claudeSessionId, "blocked");
 }
 
+// --- Destructive-git guardrail (worktree isolation design) ------------------
+// Worktrees protect sessions from each other; this protects the SHARED checkout
+// (isolation off, non-git dir) from the commands that wipe uncommitted state.
+// String matching is a layered guardrail, not a sandbox — trivially bypassable
+// via sh -c, aliases, or scripts; the structural protection is the worktree.
+// `git stash` is included because in a shared checkout it sweeps up OTHER
+// sessions' (and the user's) dirty state, not just the caller's own.
+const DESTRUCTIVE_GIT = [
+  /\bgit\s+(?:\S+\s+)*reset\s+(?:\S+\s+)*--hard\b/,
+  /\bgit\s+checkout\s+(?:--\s+)?\.(?:\s|$|;|&|\|)/,
+  /\bgit\s+clean\s+-\w*[fdx]/,
+  /\bgit\s+stash\b(?!\s+(?:list|show|pop|apply|branch|drop))/,
+];
+
+export function isDestructiveGit(command: string): boolean {
+  return DESTRUCTIVE_GIT.some((re) => re.test(command));
+}
+
+/**
+ * Decide a PreToolUse hook call: deny destructive git when the session runs in
+ * a SHARED checkout (no isolated worktree). Sessions with their own worktree —
+ * and sessions orden doesn't know — are allowed through ({} = no opinion).
+ * Returned object is the hook's JSON response body (claude's PreToolUse
+ * decision protocol).
+ */
+export async function preToolUseVerdict(
+  host: Host,
+  ordenSessionId: string,
+  payload: { tool_name?: string; tool_input?: { command?: string } },
+): Promise<Record<string, unknown>> {
+  if (payload.tool_name !== "Bash") return {};
+  const command = payload.tool_input?.command ?? "";
+  if (!isDestructiveGit(command)) return {};
+  const ses = await host.vault.get<{ workdir?: string }>("sessions", ordenSessionId);
+  if (!ses) return {}; // not an orden-tracked session — no opinion
+  if (typeof ses.workdir === "string" && ses.workdir) return {}; // own sandbox
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        "orden: destructive git is blocked in a SHARED checkout (it can wipe other sessions' and the user's uncommitted work). Commit instead, or ask the user.",
+    },
+  };
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -162,6 +208,21 @@ export async function handleHookRequest(
     // down, so this query-param branch is claude-only and leaves it untouched.)
     const reconcileId = url.searchParams.get("orden_session_id");
     if (reconcileId && sessionId) await reconcileConversationId(host, reconcileId, sessionId);
+
+    // PreToolUse guardrail: unlike every other hook (fire-and-forget), the
+    // response body IS the decision — the hook command echoes it back to
+    // claude. Deny only destructive git in a shared checkout.
+    if (url.pathname.endsWith("/pretooluse")) {
+      const verdict = reconcileId
+        ? await preToolUseVerdict(
+            host,
+            reconcileId,
+            payload as { tool_name?: string; tool_input?: { command?: string } },
+          )
+        : {};
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(verdict));
+      return;
+    }
 
     // SubagentStart/SubagentStop only adjust the in-flight counter; they are not
     // a card state on their own (a launch implies in-progress, which the start

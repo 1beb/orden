@@ -3,8 +3,10 @@ import type { Host, VaultStore } from "@orden/host-api";
 import {
   applyState,
   applyStop,
+  isDestructiveGit,
   noteSubagentStart,
   noteSubagentStop,
+  preToolUseVerdict,
   reconcileConversationId,
   resetSubagents,
   settleSubagents,
@@ -277,5 +279,76 @@ describe("deferred block (background subagent turn-end)", () => {
     noteSubagentStop("c-cancel");
     await settleSubagents(h, "c-cancel"); // nothing owed — old Stop is moot
     expect((await cardState(vault))?.state).toBe("in-progress");
+  });
+});
+
+describe("isDestructiveGit (shared-checkout guardrail patterns)", () => {
+  test("flags the history/worktree-destroying commands", () => {
+    for (const cmd of [
+      "git reset --hard",
+      "git reset --hard HEAD~1",
+      "git reset origin/main --hard",
+      "git checkout -- .",
+      "git checkout .",
+      "git clean -f",
+      "git clean -fd",
+      "git clean -xdf",
+      "git stash",
+      "git stash push -m wip",
+      "cd /repo && git reset --hard",
+    ]) {
+      expect(isDestructiveGit(cmd), cmd).toBe(true);
+    }
+  });
+  test("leaves ordinary git alone", () => {
+    for (const cmd of [
+      "git status",
+      "git reset --soft HEAD~1",
+      "git checkout -b feature",
+      "git checkout main",
+      "git stash list",
+      "git stash pop",
+      "git stash apply",
+      "git clean -n",
+      "git add -A && git commit -m x",
+    ]) {
+      expect(isDestructiveGit(cmd), cmd).toBe(false);
+    }
+  });
+});
+
+describe("preToolUseVerdict (deny destructive git outside worktrees)", () => {
+  const payload = (command: string, tool = "Bash") => ({
+    tool_name: tool,
+    tool_input: { command },
+  });
+
+  test("denies destructive git for a session in a SHARED checkout", async () => {
+    const vault = fakeVault({ sessions: { s1: { id: "s1" } } }); // no workdir
+    const v = await preToolUseVerdict(hostWith(vault), "s1", payload("git reset --hard"));
+    expect(v).toMatchObject({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
+    });
+  });
+
+  test("allows the same command for a session in its own worktree", async () => {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1", workdir: "/home/u/.orden/worktrees/p/s1" } },
+    });
+    const v = await preToolUseVerdict(hostWith(vault), "s1", payload("git reset --hard"));
+    expect(v).toEqual({});
+  });
+
+  test("allows non-Bash tools and non-destructive commands", async () => {
+    const vault = fakeVault({ sessions: { s1: { id: "s1" } } });
+    expect(await preToolUseVerdict(hostWith(vault), "s1", payload("git status"))).toEqual({});
+    expect(
+      await preToolUseVerdict(hostWith(vault), "s1", payload("git reset --hard", "Edit")),
+    ).toEqual({});
+  });
+
+  test("allows when the session is unknown (not orden-tracked)", async () => {
+    const vault = fakeVault({ sessions: {} });
+    expect(await preToolUseVerdict(hostWith(vault), "ghost", payload("git reset --hard"))).toEqual({});
   });
 });
