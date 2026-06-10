@@ -26,7 +26,7 @@ When a session launches for a project whose source is local and whose path is in
 git repository, the host creates a dedicated worktree and uses it as the session cwd:
 
 ```
-git worktree add ~/.orden/worktrees/<projectId>/<sessionId> -b orden/<session-slug>
+git worktree add ~/.orden/worktrees/<projectId>/<sessionId> -b orden/<slug> <base-ref>
 ```
 
 Mechanics:
@@ -38,20 +38,35 @@ Mechanics:
 - The worktree path is stored on the session record (e.g. `workdir`) and treated as
   HOST_OWNED — merge-preserved against web `persist()` clobbers, same lesson as
   `conversationId`.
-- Branch naming: `orden/<session-slug>` from the session title slug, suffixed for
-  uniqueness. Branches are cheap; one per session.
+- Branch naming: sessions are usually untitled at first launch (the title poller runs
+  after), so the slug comes from the card title / `initialPrompt` when the session was
+  started from a card, falling back to `orden/<sessionId>` for untitled "+ new"
+  sessions. Suffixed for uniqueness; never renamed after creation (rename-after-push
+  is messy). Branches are cheap; one per session.
+- Branch base: `git worktree add -b` defaults to the main checkout's current HEAD,
+  which inherits whatever feature branch the user happens to be on. Instead the base
+  ref is a setting, default = the repo's default branch (`origin/HEAD` →
+  main/master), per-project overridable for the spawn-off-a-feature-branch case.
+  Long-lived sessions drift from base; rebasing is the agent's/user's call, not
+  automated.
 - Created lazily at first launch, reused on resume. A relaunched/resumed session gets
   the same worktree and branch.
+- The worktree root lives beside the vault and follows the same env override
+  (`ORDEN_VAULT`-relative, not a hardcoded `~/.orden`).
 - Non-git local projects and remote projects are unaffected (remote already isolates
   per host; worktree creation there is a later concern for the remote exec path).
 
-The setting:
+The settings:
 
-- One toggle in the settings popover, vault-backed like the rest of settings:
-  "Isolate sessions in git worktrees". Default on.
-- Read at launch time. Flipping it does not move running sessions; it applies to the
-  next launch. Sessions record the cwd they actually got, so mixed populations are
-  fine.
+- A global toggle in the settings popover, vault-backed like the rest of settings:
+  "Isolate sessions in git worktrees". Default on. Each project can override
+  (on / off / inherit) — the orden repo itself is the motivating override case, see
+  below.
+- Read by the HOST at launch time. Settings coercion currently lives only in
+  `apps/web/src/settings.ts`; the host needs its own read of `("settings", "app")`
+  with the same defaulting (small shared helper or a host-side duplicate).
+- Flipping it does not move running sessions; it applies to the next launch. Sessions
+  record the cwd they actually got, so mixed populations are fine.
 - When off (or the project is not a git repo), behavior is today's: the project path
   is the cwd. The destructive-git guardrail below matters most in exactly this mode.
 
@@ -62,9 +77,14 @@ Costs accepted:
   agent runs what it needs, like any fresh clone.
 - Clobbering becomes merge conflicts at integration time — visible and resolvable,
   which is the point.
-- `panel_open` / `doc_render` / file-roots need to resolve paths inside a session's
-  worktree: the worktree dir becomes a session-scoped file root (extension of the
-  per-project file roots ADR, 2026-06-03).
+- `panel_open` / `doc_render` / `/repo-file/` need to resolve paths inside a
+  session's worktree: the worktree dir becomes a session-scoped file root (extension
+  of the per-project file roots ADR, 2026-06-03). This is on the critical path, not
+  polish — rendered plan/review docs, the core review loop, will live in worktrees.
+  Size it as its own implementation task.
+- Worktrees branch from committed state, so a session no longer sees the user's
+  uncommitted WIP in the main checkout. Correct isolation, but a behavior change from
+  today.
 - Disk: worktrees share the object store with the main repo; the cost is the checkout
   itself. Cleanup rules below keep the population bounded.
 
@@ -74,16 +94,29 @@ Costs accepted:
 committed-and-pushed is the only durable exit state for session work; merging is the
 user's process, not orden's.
 
+Layering: `cardComplete` in `packages/mcp` is vault-only by design (no Host, no
+exec), and the dirty-check must run BEFORE the state flips — a reactor fires after
+the write and cannot block. So publish is a capability-gated host service (the
+`docRender` pattern): the MCP handler calls it when the host provides it; standalone
+/ non-NodeHost completes as today with no publish.
+
 On complete:
 
-1. Dirty worktree: block (or loudly warn, see open question) until the agent commits.
-   The completing agent is told to commit its work on its session branch — this is an
-   instruction the hook/MCP layer can verify mechanically (`git status --porcelain`).
-2. Push: `git push -u origin orden/<session-slug>` when the repo has a remote.
-3. PR where possible: if `gh` is available and the repo has a GitHub remote, open a PR
-   (title from the card, body from the session summary/plan doc link) and store the PR
-   URL on the card. Without `gh`, push and surface the compare URL. Without any
-   remote, the local branch stays and the card surfaces "branch not pushed".
+1. Dirty worktree: block until the agent commits, with an explicit "complete anyway"
+   override in the user's completion dialog. Not a setting — the block is the safety
+   property this design exists for. The completing agent is told to commit its work
+   on its session branch; the publish service verifies mechanically
+   (`git status --porcelain`).
+2. Push: `git push -u origin <branch>` when the repo has a remote. A failed push
+   (auth, network) must not hang or fail the completion — the card surfaces "push
+   failed", the branch stays local.
+3. PR via a forge setting, default "auto": infer the forge from the remote URL
+   (github.com → `gh`, gitlab → `glab`, when the CLI is installed) and open a PR
+   (title from the card, body from the session summary/plan doc link), storing the PR
+   URL on the card. The setting is per-project overridable; explicit values pick a
+   forge CLI or "push only". Unknown forge, missing CLI, or "push only": push and
+   surface the compare URL. Without any remote, the local branch stays and the card
+   surfaces "branch not pushed".
 4. Never merge to main. No fast-forward, no auto-merge. CI, review, and merge order
    belong to the user's existing process.
 
@@ -106,6 +139,13 @@ session cwd is not an orden-created worktree. opencode gets the equivalent throu
 permission config. In a worktree these commands are allowed — the blast radius is the
 session's own sandbox.
 
+Note this is a new hook SHAPE: today's injected hooks are fire-and-forget state
+notifications, but a deny must synchronously parse the tool input, decide, and return
+a blocking response. The hook script doesn't know whether its cwd is an orden
+worktree — the host does — so the hook curls the host for a verdict. And
+string-matching git commands is bypassable (`sh -c`, aliases, scripts): this is a
+guardrail layered over the structural fix, not a sandbox.
+
 ## Out of scope
 
 - Remote projects (worktree creation on the remote host).
@@ -113,13 +153,18 @@ session's own sandbox.
 - Sharing one worktree across multiple sessions of the same card.
 - Host-run dependency installs in fresh worktrees.
 
-## Open questions
+## Resolved questions (2026-06-10 review)
 
-- Hard block vs warn on dirty-at-complete: start with block + an explicit override in
-  the completion dialog, soften if it annoys in practice.
-- Branch base: current main at worktree creation. Long-lived sessions drift; rebasing
-  is the agent's/user's call, not automated.
-- The orden repo itself is a special case (the host serves the app from the main
-  checkout): with isolation on, an agent's web changes no longer land in the served
-  dist until merged + rebuilt — that is correct, but changes the current "ask the
-  agent, reload the page" loop.
+- Dirty-at-complete: hard block with an explicit override in the completion dialog.
+  Not softened by a setting.
+- Branch base: a setting, default = the repo's default branch (folded into Decision 1
+  mechanics above).
+- The orden repo itself (the host serves the app from the main checkout, so with
+  isolation on an agent's web changes no longer land in the served dist until
+  merged + rebuilt): handled by the per-project override — set orden to off and
+  accept shared-checkout risk, or leave it on and accept the merge + rebuild loop.
+  The changed loop is correct behavior, not a bug.
+- Publish layering: capability-gated host service called from the MCP completion
+  path, not a reactor (folded into Decision 2 above).
+- PR creation: forge setting, default auto-infer from the remote URL, per-project
+  overridable (folded into Decision 2 above).
