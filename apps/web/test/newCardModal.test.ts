@@ -107,16 +107,19 @@ describe("new-card modal", () => {
     expect(listItems()[0].id).toBe(started[0].item.id);
   });
 
-  it("grows in-situ from a measurable anchor: positioned over it, not centered", () => {
+  it("grows in-situ from a measurable anchor: description box over it, not centered", () => {
     open({ anchor: measurableAnchor() });
     const o = overlay()!;
     const modal = o.querySelector<HTMLElement>(".card-modal")!;
     expect(o.classList.contains("card-modal-overlay--insitu")).toBe(true);
     expect(modal.classList.contains("card-modal--insitu")).toBe(true);
-    // Offset so the modal's title input overlays the anchor input's text.
-    expect(modal.style.left).toBe("86px"); // anchor.left - 14
-    expect(modal.style.top).toBe("193px"); // anchor.top - 7
-    expect(modal.style.width).toBe("628px"); // anchor.width + 28
+    // The DESCRIPTION box lands exactly on the anchor: modal position is the
+    // anchor's minus the description's offsets inside the modal, and modal
+    // width is the anchor's plus the chrome around the description. happy-dom
+    // measures offsets/widths as 0, so the modal rect equals the anchor rect.
+    expect(modal.style.left).toBe("100px");
+    expect(modal.style.top).toBe("200px");
+    expect(modal.style.width).toBe("600px");
   });
 
   it("stays a centered modal without an anchor", () => {

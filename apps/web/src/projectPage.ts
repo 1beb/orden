@@ -312,7 +312,7 @@ function addBar(
           input.value = text;
           input.focus();
         },
-        anchor: row,
+        anchor: input,
       },
     );
   };

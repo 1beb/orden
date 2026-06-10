@@ -30,19 +30,20 @@ anchored to the input, like a modal but not centered.
 - `openNewCardModal` gains an optional `anchor` element (the add-bar row,
   passed by `projectPage.addBar`). No anchor (or an unmeasurable one, e.g. in
   happy-dom tests) falls back to the current centered modal.
-- With an anchor, the overlay keeps the fixed backdrop (Esc / backdrop click
-  still dismiss-and-restore) but drops the flex centering and lightens the
-  dim, and the panel is positioned absolutely over the anchor's rect:
-  - left/top offset so the header's title input overlays the typed text in
-    the add input (the title "adopts" the text in place);
-  - width = anchor width plus the same offset on the right, so the panel
-    reads as the bar grown outward.
-- Animation: the panel starts clipped to the input's height (title row only),
-  then transitions `height` to its measured natural height (~180ms ease);
-  the body and actions fade in slightly delayed. On `transitionend` height
-  goes back to `auto` so the textarea can grow. Capped to the viewport below
-  the anchor; the body scrolls past the cap. `prefers-reduced-motion`
-  disables the transitions.
+- With an anchor (the add input), the overlay keeps the fixed backdrop
+  (Esc / backdrop click still dismiss-and-restore) but drops the flex
+  centering and lightens the dim, and the panel is positioned absolutely so
+  the DESCRIPTION textarea lands exactly on the input — same box, same text
+  metrics (the in-situ desc matches the input's 14px font and 7px/10px
+  padding), so the typed text stays put and the form grows around it:
+  - modal left/top = anchor minus the description's offsets inside the modal;
+  - modal width = anchor width plus the chrome around the description.
+- Animation: the panel renders at full size but `clip-path`-clipped to the
+  input's box, then the clip expands outward (~200ms ease) while the title
+  rises out of the input into the header (translateY + fade) and the
+  remaining controls (section head, hint, meta, actions) fade in slightly
+  delayed. On `transitionend` the clip is removed. Capped to the viewport;
+  the body scrolls past the cap. `prefers-reduced-motion` disables all of it.
 
 No reverse animation on close; dismissal already restores the text to the
 input instantly.
