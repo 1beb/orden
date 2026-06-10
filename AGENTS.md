@@ -162,6 +162,22 @@ the Chat tab and Terminal tab are two views of one live session (`TerminalChat` 
 host-api; `apps/host/src/chat/`). Sessions are titled automatically
 (`sessionTitles.ts`, `transcriptTitle.ts`).
 
+**Worktree isolation** (design: `docs/plans/2026-06-10-session-worktree-isolation-design.md`):
+a session of a local git project launches in its OWN git worktree
+(`~/.orden/worktrees/<projectId>/<sessionId>`, beside the vault) on an
+`orden/<slug>` branch, so no session can clobber a sibling's or the user's
+uncommitted state. Gated by the "Isolate sessions in git worktrees" setting
+(default on, per-project overridable); the worktree decision lives in
+`resolveSessionCwd` (`terminal.ts`), the creation logic in `worktrees.ts`, and the
+chosen `workdir`/`branch` persist on the session record as HOST_OWNED fields.
+Completion publishes the branch (clean-check → push → PR per the prForge setting;
+`publishSession.ts`, surfaced on the card) and never merges; pushed worktrees are
+reaped (`cardReaper.ts`). In SHARED checkouts (isolation off / non-git),
+destructive git (`reset --hard`, `checkout .`, `clean -f`, `stash`) is denied via
+an injected PreToolUse hook (`hooks.ts`) / opencode plugin guard. Note for THIS
+repo: with isolation on, an agent's web changes only reach the served dist after
+merge + rebuild.
+
 ### Chat backend is modular (`packages/chat-core`)
 
 The native Chat view is built on a **pluggable harness registry**. A `HarnessAdapter`

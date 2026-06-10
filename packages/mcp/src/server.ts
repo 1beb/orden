@@ -19,6 +19,7 @@ const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done. When you do, pass a one- or two-sentence summary — it is written to today's journal.
 - Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.
 - A Comment on a proposed learning is a request to REVISE that learning: re-run learning_propose with that learning's id (passed as the id arg) and the updated full file content — it replaces the proposal in place and returns it to pending for re-review. Do not create a new learning for a revision.
+- Your session may run in an ISOLATED git worktree on its own orden/<slug> branch. Commit your work there as you go — card_complete verifies a clean tree, pushes the branch, and opens a PR. It REFUSES on uncommitted changes; pass force:true only when the user explicitly says to complete without publishing. NEVER merge to the default branch yourself — integration is the user's process.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
 - Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
