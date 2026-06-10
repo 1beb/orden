@@ -19,6 +19,8 @@ export interface CardRec {
   sessionId?: string;
   /** Legacy freeform narrative; superseded by the `card:<id>` log page. */
   notes?: string;
+  /** Free text sent to the agent with the title when a session starts. */
+  description?: string;
   /** Associated planning doc, a docs/plans/*.md repo path. */
   planDoc?: string;
   /** Epoch ms the card last entered "complete"; drives the kanban fade. */

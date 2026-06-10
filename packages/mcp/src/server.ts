@@ -219,10 +219,20 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
           .optional()
           .describe("project id or name; defaults to the current session's project"),
         notes: z.string().optional(),
+        description: z
+          .string()
+          .optional()
+          .describe("free text sent to the agent with the title when a session starts"),
       },
     },
-    async ({ title, project, notes }) => {
-      return tools.cardCreate(host.vault, title, project ?? (await currentProjectId()), notes);
+    async ({ title, project, notes, description }) => {
+      return tools.cardCreate(
+        host.vault,
+        title,
+        project ?? (await currentProjectId()),
+        notes,
+        description,
+      );
     },
   );
 

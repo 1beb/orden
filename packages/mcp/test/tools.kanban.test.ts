@@ -83,6 +83,13 @@ describe("cardGet", () => {
     const parsed = JSON.parse(out(await cardGet(v, "c1")));
     expect(parsed.planDoc).toBe("docs/plans/x.md");
   });
+  it("includes description when set", async () => {
+    const v = seed();
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    await v.set("cards", "c1", { ...card, description: "It fails twice a day." });
+    const parsed = JSON.parse(out(await cardGet(v, "c1")));
+    expect(parsed.description).toBe("It fails twice a day.");
+  });
   it("reports a miss with closest candidates", async () => {
     expect(out(await cardGet(seed(), "log"))).toBe('no card matches "log"; closest: Fix login');
   });
@@ -419,6 +426,13 @@ describe("cardCreate", () => {
     expect(card).not.toHaveProperty("notes");
     // Opening notes seed the card log page, not a card.notes field.
     expect(await v.get<string>("pages", `card:${id}`)).toBe("some notes\n");
+  });
+  it("stores a description when given", async () => {
+    const v = seed();
+    const r = await cardCreate(v, "New task", "Alpha", undefined, "It fails twice a day.");
+    const id = out(r).match(/\((item_[^)]+)\)/)![1];
+    const card = await v.get<Record<string, unknown>>("cards", id);
+    expect(card?.description).toBe("It fails twice a day.");
   });
   it("returns the error text on unknown project", async () => {
     expect(out(await cardCreate(seed(), "x", "Nope"))).toBe(

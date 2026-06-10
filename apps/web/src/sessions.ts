@@ -272,6 +272,6 @@ export function createSession(opts: {
   // separate-but-linked: a card on the kanban points back to this session.
   // Started from an existing card → link that one; otherwise drop a new card.
   if (opts.linkToCardId) addItemSession(opts.linkToCardId, session.id);
-  else addItem(session.projectId, session.title, session.id);
+  else addItem(session.projectId, session.title, { sessionId: session.id });
   return session;
 }
