@@ -42,10 +42,55 @@ export function tmuxNameFor(sessionId: string): string {
   return `orden-${sessionId}`;
 }
 
-// Permanently stop a session's agent by killing its tmux session. Idempotent:
-// a missing session just makes tmux exit non-zero, which we swallow.
-export async function killSessionTmux(sessionId: string): Promise<void> {
-  await exec("tmux", ["kill-session", "-t", tmuxNameFor(sessionId)]).catch(() => {});
+// Injectable process plumbing for killSessionTmux, so tests can observe the
+// escalation without a real tmux server or live processes.
+export interface KillOps {
+  exec?: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** ms before surviving processes are SIGKILLed (default 3000). */
+  graceMs?: number;
+}
+
+// Permanently stop a session's agent. `tmux kill-session` alone only SIGHUPs
+// the pane process — claude catches that and can linger for MINUTES finishing
+// its turn, still holding its conversation id in claude's session registry. A
+// resume inside that window dies instantly with "Session ID … is already in
+// use", which the pane renders as just `[exited]`. So: snapshot the pane pids
+// BEFORE the session goes away, kill the tmux session, then TERM each pane's
+// process group and KILL whatever survives the grace period (the registry's
+// liveness check frees the id as soon as the process is gone). Idempotent: a
+// missing session makes tmux exit non-zero, which we swallow — and then there
+// are no pids to signal.
+export async function killSessionTmux(sessionId: string, ops?: KillOps): Promise<void> {
+  const run = ops?.exec ?? exec;
+  const kill = ops?.kill ?? process.kill;
+  const graceMs = ops?.graceMs ?? 3000;
+  const name = tmuxNameFor(sessionId);
+  const panes = await run("tmux", ["list-panes", "-s", "-t", name, "-F", "#{pane_pid}"]).catch(
+    () => null,
+  );
+  await run("tmux", ["kill-session", "-t", name]).catch(() => {});
+  if (!panes) return;
+  const pids = panes.stdout
+    .split("\n")
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 1);
+  // Each pane process is a session leader (tmux forkptys it), so signalling
+  // -pid reaches its whole process group — the agent and its children.
+  const signal = (pid: number, sig: NodeJS.Signals): void => {
+    try {
+      kill(-pid, sig);
+    } catch {
+      /* already gone */
+    }
+  };
+  for (const pid of pids) signal(pid, "SIGTERM");
+  if (pids.length === 0) return;
+  // Unref'd so a pending escalation never holds the host process open.
+  const timer = setTimeout(() => {
+    for (const pid of pids) signal(pid, "SIGKILL");
+  }, graceMs);
+  timer.unref?.();
 }
 
 // Build the env vars (tmux -e arguments + spawn env entries) for opencode
@@ -345,7 +390,11 @@ export async function resolveSessionCwd(
     opts?.exec,
   );
   if (!wt) return path; // non-git dir or creation failed: shared checkout
-  if (rec.workdir !== wt.workdir) {
+  // A reaped worktree recreated at the SAME path comes back on a NEW branch
+  // (the old one usually still exists, so pickBranch suffixed it) — the
+  // unchanged path must not skip the persist, or the record keeps naming the
+  // old (often already-merged) branch and publish pushes the wrong one.
+  if (rec.workdir !== wt.workdir || (wt.branch && rec.branch !== wt.branch)) {
     rec.workdir = wt.workdir;
     if (wt.branch) rec.branch = wt.branch;
     await host.vault.set("sessions", sessionId, rec);
