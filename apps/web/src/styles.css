@@ -2457,15 +2457,17 @@ li.sess-done-head {
 .dialog__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid var(--line);
 }
+/* Sized to match .project-add-btn, so Add reads the same here as in the bar. */
 .dialog__btn {
   font: inherit;
   font-size: calc(13px * var(--font-scale));
-  padding: 7px 14px;
+  padding: 7px 16px;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--line);
@@ -3804,6 +3806,75 @@ li.sess-done-head {
 /* card detail modal (reuses .preview-overlay / .preview-modal base) */
 .card-modal {
   width: 480px;
+}
+/* In-situ variant (new-card form growing out of the add bar): the overlay
+   keeps its dismiss surface but stops centering and dims less; the panel is
+   positioned so the description textarea sits exactly on the add input
+   (newCardModal.anchorInSitu), rendered at full size but clipped to the
+   input's box. The clip then grows outward around the description while the
+   title rises out of the input into the header and the remaining controls
+   fade in — the form grows in place around where you were typing. */
+@keyframes insitu-dim {
+  from {
+    background: rgba(15, 18, 20, 0);
+  }
+}
+.card-modal-overlay--insitu {
+  background: rgba(15, 18, 20, 0.18);
+  display: block;
+  animation: insitu-dim 0.2s ease;
+}
+.card-modal--insitu {
+  position: absolute;
+  transition: clip-path 0.2s ease;
+}
+/* The description IS the input, continued: match the add input's text metrics
+   so the typed text doesn't shift when the form grows around it, and keep the
+   add input's focus treatment (the browser's default ring — .project-add-input
+   defines no :focus) instead of the desc's accent border, so the highlight
+   doesn't flip from black to purple mid-growth. */
+.card-modal--insitu .card-modal__desc {
+  font-size: calc(14px * var(--font-scale));
+  padding: 7px 10px;
+  border-radius: 7px;
+}
+.card-modal--insitu .card-modal__desc:focus {
+  outline: revert;
+  border-color: var(--line);
+}
+.card-modal--insitu .card-modal__header {
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+.card-modal--insitu:not(.is-grown) .card-modal__header {
+  opacity: 0;
+}
+.card-modal--insitu .card-modal__section-head,
+.card-modal--insitu .card-modal__hint,
+.card-modal--insitu .card-modal__meta,
+.card-modal--insitu .dialog__actions {
+  opacity: 0;
+  transition: opacity 0.15s ease 0.08s;
+}
+.card-modal--insitu.is-grown .card-modal__section-head,
+.card-modal--insitu.is-grown .card-modal__hint,
+.card-modal--insitu.is-grown .card-modal__meta,
+.card-modal--insitu.is-grown .dialog__actions {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-modal-overlay--insitu {
+    animation: none;
+  }
+  .card-modal--insitu,
+  .card-modal--insitu .card-modal__header,
+  .card-modal--insitu .card-modal__section-head,
+  .card-modal--insitu .card-modal__hint,
+  .card-modal--insitu .card-modal__meta,
+  .card-modal--insitu .dialog__actions {
+    transition: none;
+  }
 }
 .card-modal__header {
   display: flex;
