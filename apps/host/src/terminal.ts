@@ -261,7 +261,6 @@ export interface SessionCwdRec {
   branch?: string;
   title?: string;
   initialPrompt?: string;
-  [k: string]: unknown;
 }
 
 export async function resolveSessionCwd(
