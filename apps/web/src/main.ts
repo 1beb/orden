@@ -101,6 +101,14 @@ import {
   TIME_ZONE_OPTIONS,
   type StartupView,
 } from "./settings";
+import {
+  hydrateKeybindings,
+  installKeybindings,
+  onAction,
+  chordsFor,
+  formatChord,
+} from "./keybindings";
+import { renderHelp } from "./helpView";
 import { getHost, onVaultChange, onReconnect } from "./host";
 import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
 import { openCardModal } from "./cardModal";
@@ -124,6 +132,7 @@ async function hydrateAll(): Promise<void> {
     hydrateLearnings(host),
     hydrateSessions(host),
     hydrateRecentFiles(host),
+    hydrateKeybindings(host),
     annotationStore.hydrate(),
   ]);
 }
@@ -245,27 +254,33 @@ annotationsBlock.querySelector("header")?.addEventListener("click", (e) => {
 });
 
 function toggleLeft(): void {
+  dropFocusSnapshot();
   const opening = app.classList.contains("left-closed");
   app.classList.toggle("left-closed");
   if (opening && mobile.matches) app.classList.add("right-closed"); // one drawer at a time
 }
 function toggleRight(): void {
+  dropFocusSnapshot();
   const opening = app.classList.contains("right-closed");
   app.classList.toggle("right-closed");
   if (opening && mobile.matches) app.classList.add("left-closed");
 }
 
-document.querySelector("#toggle-left")?.addEventListener("click", toggleLeft);
-document.querySelector("#toggle-right")?.addEventListener("click", toggleRight);
+const toggleLeftBtn = document.querySelector<HTMLButtonElement>("#toggle-left");
+const toggleRightBtn = document.querySelector<HTMLButtonElement>("#toggle-right");
+toggleLeftBtn?.addEventListener("click", toggleLeft);
+toggleRightBtn?.addEventListener("click", toggleRight);
 document.querySelector("#scrim")?.addEventListener("click", () => {
   app.classList.add("left-closed", "right-closed");
 });
-document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
-    e.preventDefault();
-    toggleLeft();
-  }
-});
+// All shortcuts route through the keybindings dispatcher (vault-backed,
+// rebindable in the help view). Actions register where their deps live.
+installKeybindings();
+onAction("nav.toggle", toggleLeft);
+onAction("sessions.toggle", toggleRight);
+// Topbar tooltips reflect the (possibly rebound) chord at boot.
+if (toggleLeftBtn) toggleLeftBtn.title = `Toggle navigation (${formatChord(chordsFor("nav.toggle")[0])})`;
+if (toggleRightBtn) toggleRightBtn.title = `Toggle session (${formatChord(chordsFor("sessions.toggle")[0])})`;
 
 // Responsive layout: on mobile both side panes start closed (they become
 // fixed drawers). Sheet mode for #panel is owned by syncPanelSheet above.
@@ -340,6 +355,7 @@ function wireHideShow(
 ): { setHidden: (hidden: boolean) => void; isHidden: () => boolean } {
   const showBtn = document.querySelector<HTMLButtonElement>(showBtnId)!;
   const setHidden = (hidden: boolean) => {
+    dropFocusSnapshot(); // a manual pane change exits focus mode
     section.classList.toggle("section-hidden", hidden);
     showBtn.hidden = !hidden;
     syncPanelColumn();
@@ -368,6 +384,57 @@ const annHideShow = wireHideShow(
     annHiddenWhilePopulated = hidden ? prevAnnTotal > 0 : false;
   },
 );
+
+// One key for the whole context panel: hidden means BOTH sections hidden;
+// toggling from any mixed state hides both, toggling from fully-hidden shows both.
+function toggleContextPanel(): void {
+  const hidden = outlineHideShow.isHidden() && annHideShow.isHidden();
+  outlineHideShow.setHidden(!hidden);
+  annHideShow.setHidden(!hidden);
+}
+onAction("context.toggle", toggleContextPanel);
+
+// Focus mode: snapshot which panes are visible, hide them all; the same chord
+// restores the snapshot. Any individual pane change in between drops the
+// snapshot (via dropFocusSnapshot in the toggles), so focus mode exits
+// implicitly rather than fighting the user.
+interface FocusSnapshot {
+  leftClosed: boolean;
+  rightClosed: boolean;
+  outlineHidden: boolean;
+  annHidden: boolean;
+}
+let focusSnapshot: FocusSnapshot | null = null;
+let applyingFocus = false;
+function dropFocusSnapshot(): void {
+  if (!applyingFocus) focusSnapshot = null;
+}
+function toggleFocusMode(): void {
+  applyingFocus = true;
+  try {
+    if (focusSnapshot) {
+      const s = focusSnapshot;
+      focusSnapshot = null;
+      app.classList.toggle("left-closed", s.leftClosed);
+      app.classList.toggle("right-closed", s.rightClosed);
+      outlineHideShow.setHidden(s.outlineHidden);
+      annHideShow.setHidden(s.annHidden);
+    } else {
+      focusSnapshot = {
+        leftClosed: app.classList.contains("left-closed"),
+        rightClosed: app.classList.contains("right-closed"),
+        outlineHidden: outlineHideShow.isHidden(),
+        annHidden: annHideShow.isHidden(),
+      };
+      app.classList.add("left-closed", "right-closed");
+      outlineHideShow.setHidden(true);
+      annHideShow.setHidden(true);
+    }
+  } finally {
+    applyingFocus = false;
+  }
+}
+onAction("focus.toggle", toggleFocusMode);
 
 // Document map: an outline built from the headings, kept in sync with the doc.
 function renderDocMap(): void {
@@ -1109,6 +1176,9 @@ function updateBreadcrumb(): void {
     case "learnings":
       crumbs = [{ label: "Learnings" }];
       break;
+    case "help":
+      crumbs = [{ label: "Keyboard shortcuts" }];
+      break;
   }
   renderBreadcrumb(crumbs);
 }
@@ -1124,6 +1194,7 @@ const viewEls: Record<View, HTMLElement> = {
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
   settings: document.querySelector<HTMLElement>("#view-settings")!,
   learnings: document.querySelector<HTMLElement>("#view-learnings")!,
+  help: document.querySelector<HTMLElement>("#view-help")!,
 };
 const navBadge = document.querySelector<HTMLElement>(".nav-badge")!;
 let journalTitle = "Journal";
@@ -1320,6 +1391,7 @@ viewStore.subscribe((v) => {
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   if (v === "kanban") refreshBoard();
   if (v === "learnings") renderLearningsView();
+  if (v === "help") renderHelp(viewEls.help);
   // Text-annotation lifecycle: the code, html, and review views share the single
   // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
   // annotator + highlights — clearing the SAME realm it painted into (parent for
@@ -1535,20 +1607,46 @@ tzSelect.addEventListener("change", () => {
 // Settings now lives as a main-panel view. The cog toggles it: opening it
 // remembers the view you came from so the ✕ (and Escape) return you there.
 let preSettingsView: View = viewStore.get();
-settingsCog.addEventListener("click", (e) => {
-  e.stopPropagation();
+function toggleSettings(): void {
   if (viewStore.get() === "settings") {
     viewStore.set(preSettingsView);
   } else {
     preSettingsView = viewStore.get();
     viewStore.set("settings");
   }
+}
+settingsCog.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleSettings();
 });
+onAction("settings.toggle", toggleSettings);
 document.querySelector<HTMLElement>("#settings-close")?.addEventListener("click", () => {
   viewStore.set(preSettingsView);
 });
+
+// Help (?): the keyboard-shortcuts view. Same open/close shape as settings —
+// the footer button and chord toggle it, ✕ and Escape return to the prior view.
+const helpBtn = document.querySelector<HTMLElement>("#help-btn")!;
+let preHelpView: View = viewStore.get();
+function toggleHelp(): void {
+  if (viewStore.get() === "help") {
+    viewStore.set(preHelpView);
+  } else {
+    preHelpView = viewStore.get();
+    viewStore.set("help");
+  }
+}
+helpBtn.addEventListener("click", toggleHelp);
+onAction("help.toggle", toggleHelp);
+// The ✕ is re-created on every renderHelp, so delegate from the view section.
+viewEls.help.addEventListener("click", (e) => {
+  if ((e.target as HTMLElement).id === "help-close") viewStore.set(preHelpView);
+});
+
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && viewStore.get() === "settings") viewStore.set(preSettingsView);
+  if (e.key !== "Escape") return;
+  if (viewStore.get() === "settings") viewStore.set(preSettingsView);
+  else if (viewStore.get() === "help") viewStore.set(preHelpView);
 });
 
 // --- Open real repo docs in the review editor (dogfooding) ---
@@ -2014,6 +2112,8 @@ const paletteCommands: Command[] = [
   { id: "toggle-annotations", title: "Toggle annotations", run: () => annHideShow.setHidden(!annHideShow.isHidden()) },
   { id: "toggle-nav", title: "Toggle navigation pane", run: () => toggleLeft() },
   { id: "toggle-session", title: "Toggle session pane", run: () => toggleRight() },
+  { id: "focus-mode", title: "Focus mode", run: () => toggleFocusMode() },
+  { id: "open-help", title: "Keyboard shortcuts", run: () => toggleHelp() },
   { id: "view-journal", title: "Go to Journal", run: () => { journal.showJournal(); viewStore.set("journal"); } },
   { id: "view-pages", title: "Go to Pages", run: () => viewStore.set("pages") },
   { id: "view-kanban", title: "Go to Kanban", run: () => viewStore.set("kanban") },
@@ -2029,19 +2129,15 @@ if (searchForm && searchInput && paletteMount) {
     commands: paletteCommands,
   });
 
-  document.addEventListener("keydown", (e) => {
-    if (!(e.metaKey || e.ctrlKey)) return;
-    const k = e.key.toLowerCase();
-    // ⌘K opens search; ⌘⇧P opens the same palette pre-filtered to commands (">").
-    if (k === "k") {
-      e.preventDefault();
-      palette.open("", true);
-      searchInput.select();
-    } else if (k === "p" && e.shiftKey) {
-      e.preventDefault();
-      palette.open(">", true);
-      searchInput.select();
-    }
+  // ⌘K opens search; ⌘⇧P opens the same palette pre-filtered to commands (">").
+  // Both go through the keybindings dispatcher so they're rebindable.
+  onAction("search.open", () => {
+    palette.open("", true);
+    searchInput.select();
+  });
+  onAction("palette.open", () => {
+    palette.open(">", true);
+    searchInput.select();
   });
 
   // Close when focus/click leaves the search pill + dropdown.
@@ -2117,6 +2213,8 @@ onVaultChange((ns, key, projectId) => {
       }
       case "settings": {
         await hydrateSettings(host);
+        await hydrateKeybindings(host);
+        if (v === "help") renderHelp(viewEls.help);
         const s = loadSettings();
         applyAccent(s.accent);
         applyFont(s.fontFamily, s.fontSize);

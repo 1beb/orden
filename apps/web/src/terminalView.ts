@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { loadSettings } from "./settings";
+import { terminalShouldYield } from "./keybindings";
 
 // Base xterm font at the default 16px app size; scales with the Text size
 // setting. The TUI must stay monospace, so only the size follows the setting.
@@ -42,6 +43,13 @@ export function mountTerminal(
       selectionBackground: "#ede9fe",
     },
   });
+  // Let the app's bound layout/help chords (mod + shift-or-punctuation, e.g.
+  // ⌘\ / ⌘. / ⌘,) bubble to the global dispatcher instead of feeding the pty —
+  // mod+letter (Ctrl+K) and bare keys stay with the TUI. Returning false makes
+  // xterm skip the event without cancelling it, so it propagates normally.
+  term.attachCustomKeyEventHandler(
+    (ev) => !(ev.type === "keydown" && terminalShouldYield(ev)),
+  );
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(container);

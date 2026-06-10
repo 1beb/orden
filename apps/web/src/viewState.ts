@@ -8,7 +8,8 @@ export type View =
   | "pages"
   | "project"
   | "settings"
-  | "learnings";
+  | "learnings"
+  | "help";
 
 export interface ViewStore {
   get(): View;
