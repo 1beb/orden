@@ -15,6 +15,7 @@ import {
   isAbandoned,
   markSessionTouched,
   isSessionComplete,
+  completeSessionViaAgent,
   type Session,
 } from "../src/sessions";
 
@@ -135,6 +136,83 @@ describe("sessions store (host-backed)", () => {
     await settle();
     await hydrateSessions(new BrowserHost());
     expect(getSession(s.id)?.touched).toBe(true);
+  });
+
+  // The checkmark must route completion through the session's agent (so it can
+  // distill learnings before card_complete) whenever an agent can be reached —
+  // and fall back to the direct archive+complete write when it can't.
+  describe("completeSessionViaAgent", () => {
+    async function hostWith(delivered: "queued" | "relaunched" | "failed" | "not-linked") {
+      const h = new BrowserHost();
+      const calls: string[] = [];
+      h.requestSessionComplete = async (id: string) => {
+        calls.push(id);
+        return { delivered };
+      };
+      await hydrateProjects(h);
+      await hydrateCards(h);
+      await hydrateSessions(h);
+      return { h, calls };
+    }
+
+    it("hands completion to the agent and leaves the card/record untouched", async () => {
+      const { calls } = await hostWith("queued");
+      const s = createSession({ title: "Real work", agent: "claude" });
+      markSessionTouched(s.id); // a session someone actually worked in
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(true);
+      expect(calls).toEqual([s.id]);
+      // The agent now owns completion: nothing flipped, nothing hidden.
+      const card = listItems().find((i) => cardSessionIds(i).includes(s.id))!;
+      expect(card.state).toBe("planning");
+      expect(getSession(s.id)?.archived).toBeUndefined();
+    });
+
+    it("counts a relaunch as handed off (dead session resumes with the request queued)", async () => {
+      await hostWith("relaunched");
+      const s = createSession({ title: "Resumable", agent: "claude" });
+      markSessionTouched(s.id);
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(true);
+    });
+
+    it("reports failure so the caller falls back to the direct complete", async () => {
+      await hostWith("failed");
+      const s = createSession({ title: "Unreachable", agent: "claude" });
+      markSessionTouched(s.id);
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(false);
+    });
+
+    it("falls back when the host has no agent delivery (browser host)", async () => {
+      const s = createSession({ title: "Browser only", agent: "claude" });
+      markSessionTouched(s.id);
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(false);
+    });
+
+    it("falls back when the linked card is already complete (checkmark = plain archive)", async () => {
+      const { calls } = await hostWith("queued");
+      const s = createSession({ title: "Already done", agent: "claude" });
+      markSessionTouched(s.id);
+      const card = listItems().find((i) => cardSessionIds(i).includes(s.id))!;
+      setItemState(card.id, "complete");
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    it("falls back for a dead stub (never touched, never prompted, no conversation)", async () => {
+      const { calls } = await hostWith("queued");
+      const s = createSession({ title: "Stub", agent: "claude" });
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    it("never throws — a delivery error degrades to the fallback", async () => {
+      const { h } = await hostWith("queued");
+      h.requestSessionComplete = async () => {
+        throw new Error("rpc down");
+      };
+      const s = createSession({ title: "Flaky", agent: "claude" });
+      markSessionTouched(s.id);
+      await expect(completeSessionViaAgent(s.id)).resolves.toBe(false);
+    });
   });
 
   it("a web persist never clobbers the host-minted conversationId (cache-lag race)", async () => {

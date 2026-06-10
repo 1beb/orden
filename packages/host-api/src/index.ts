@@ -310,5 +310,14 @@ export interface Host {
    * the learning. Absent on hosts without agents (browser).
    */
   deliverLearningComment?(learningId: string, text: string): Promise<DeliverCommentResult>;
+  /**
+   * Hand a UI-initiated completion (the sessions-panel checkmark) to the
+   * session's own agent: type a "distill learnings, then card_complete"
+   * instruction into its live pane (or relaunch a dead session with it queued),
+   * so UI completion generates learnings exactly like agent-driven completion.
+   * "not-linked" when no session record exists. Absent on hosts without agents
+   * (browser) — callers fall back to completing the card directly.
+   */
+  requestSessionComplete?(sessionId: string): Promise<DeliverCommentResult>;
   capabilities(): HostCapabilities;
 }

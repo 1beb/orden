@@ -107,6 +107,15 @@ export async function connectHostClient(transport: Transport): Promise<Host> {
     if (!res.ok) throw new Error(res.error);
     return res.result;
   };
+  client.requestSessionComplete = async (sessionId: string) => {
+    const res = await transport({
+      id: nextId(),
+      path: ["requestSessionComplete"],
+      args: [sessionId],
+    });
+    if (!res.ok) throw new Error(res.error);
+    return res.result;
+  };
 
   return client as unknown as Host;
 }

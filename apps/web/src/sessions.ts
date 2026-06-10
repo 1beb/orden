@@ -163,6 +163,37 @@ export function setSessionSummary(id: string, summary: string): void {
   persist(session);
 }
 
+/**
+ * Hand a checkmark completion to the session's own agent, so it can distill
+ * learnings (learning_propose) before card_complete — completing the card
+ * directly from the web skips that flow AND reaps the agent before it could
+ * ever propose any. Returns true when the request reached an agent (typed into
+ * its live pane, or a dead session relaunched with it queued): the agent now
+ * owns completion and the caller must NOT flip the card itself. Returns false
+ * when there is no agent to reach — no host delivery (browser), no linked
+ * card, the card is already complete (the checkmark is then a plain archive),
+ * a dead stub no one ever worked in, or delivery failed — and the caller
+ * falls back to the direct archive+complete write.
+ */
+export async function completeSessionViaAgent(id: string): Promise<boolean> {
+  const session = cache.find((s) => s.id === id);
+  if (!session || !host?.requestSessionComplete) return false;
+  // A session no one ever touched/prompted (and that never minted a resumable
+  // conversation) has no work to distill — relaunching an agent just to call
+  // card_complete would burn a launch for nothing.
+  if (!session.touched && !session.prompted && !session.conversationId) return false;
+  const cardId = linkedCardId(id);
+  if (!cardId) return false; // nothing to complete — archive is all there is
+  const card = listItems().find((i) => i.id === cardId);
+  if (!card || card.state === "complete") return false;
+  try {
+    const r = await host.requestSessionComplete(id);
+    return r.delivered === "queued" || r.delivered === "relaunched";
+  } catch {
+    return false; // RPC hiccup — degrade to the direct path, never block the click
+  }
+}
+
 /** Archive a session (hide it from the list) — like moving its card to Done. */
 export function archiveSession(id: string): void {
   const session = cache.find((s) => s.id === id);

@@ -49,6 +49,7 @@ import {
   getSession,
   createSession,
   archiveSession,
+  completeSessionViaAgent,
   deleteSession,
   setSessionProject,
   isAbandoned,
@@ -1797,9 +1798,15 @@ const sessionsPanel = mountSessionsPanel({
     ? chatMount
     : undefined,
   archive: (id) => {
-    archiveSession(id);
-    refreshBoard(); // its card moved to Done
-    refreshProject(); // reflect the move on the project page too (was board-only)
+    // Route the completion through the session's agent when one can be reached,
+    // so it distills learnings before card_complete (the direct write below
+    // skips learnings and the reaper kills the agent on complete). The card
+    // then moves when the agent completes it, via the change feed.
+    void completeSessionViaAgent(id).then((handedToAgent) => {
+      if (!handedToAgent) archiveSession(id); // no agent to reach — complete directly
+      refreshBoard(); // its card moved to Done (or will, when the agent finishes)
+      refreshProject(); // reflect the move on the project page too (was board-only)
+    });
   },
   remove: (id) => {
     deleteSession(id);

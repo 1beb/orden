@@ -36,6 +36,7 @@ import { makeProjectRootResolver, type ProjectRootResolver } from "./projectRoot
 import { renderDoc } from "./docRender";
 import { applyLearning } from "./applyLearning";
 import { deliverLearningComment } from "./deliverLearningComment";
+import { requestSessionComplete } from "./requestSessionComplete";
 import { queueToSession, defaultPaneOps } from "./annotationDelivery";
 import type { RenderResult } from "@orden/host-api";
 import { hasDirectoryPicker } from "./pickDirectory";
@@ -279,6 +280,27 @@ export class NodeHost implements Host {
       },
       learningId,
       text,
+    );
+  }
+
+  /**
+   * Hand a UI checkmark completion to the session's agent: type the "distill
+   * learnings, then card_complete" instruction into its live pane, or relaunch
+   * a dead session with it queued. Same delivery wiring as
+   * deliverLearningComment.
+   */
+  async requestSessionComplete(sessionId: string): Promise<DeliverCommentResult> {
+    const defaultCwd = this.filesRoot ?? process.cwd();
+    const ops = defaultPaneOps(this, defaultCwd);
+    return requestSessionComplete(
+      {
+        getSession: (id) => this.vault.get("sessions", id),
+        deliver: async (id, msg) => {
+          const r = await queueToSession(this, id, msg, ops);
+          return r.delivered;
+        },
+      },
+      sessionId,
     );
   }
 
