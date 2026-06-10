@@ -63,7 +63,13 @@ export class FsFiles implements FileSource {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
+        if (SKIP_DIRS.has(e.name)) continue;
+        if (e.name.startsWith(".")) {
+          if (e.name === ".claude" || e.name === ".opencode") {
+            await this.walk(join(dir, e.name, "skills"), out).catch(() => {});
+          }
+          continue;
+        }
         await this.walk(join(dir, e.name), out);
       } else if (e.isFile() && !e.name.startsWith(".")) {
         out.push(join(dir, e.name));

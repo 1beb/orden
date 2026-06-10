@@ -61,7 +61,7 @@ import { mountTerminal, updateTerminalFonts } from "./terminalView";
 import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
-import { renderProjectPage, projectNotesHasFocus, projectPageHasFocus } from "./projectPage";
+import { renderProjectPage, projectPageHasFocus } from "./projectPage";
 import { renderCodeView, assignCodeBlockIds } from "./codeView";
 import { AnnotationStore } from "./annotationStore";
 import { fileSource } from "./viewerSource";
@@ -1388,14 +1388,12 @@ function removeProjectWithItems(id: string, mode: "reassign" | "cascade"): void 
   viewStore.set("kanban");
 }
 
-// Re-render the project page on a remote change, but never while the user is
-// typing in the embedded notes outline (it would destroy the editor mid-stroke).
+// Re-render the project page on a remote change.
 function refreshProject(): void {
   if (viewStore.get() !== "project" || !currentProjectId) return;
-  if (projectNotesHasFocus()) return;
   // Don't rebuild the page out from under an editable control (e.g. the
   // add-item box) — a live card transition would otherwise wipe in-progress
-  // typing. Mirrors the notes-focus guard above.
+  // typing.
   if (projectPageHasFocus()) return;
   renderProject(currentProjectId);
 }

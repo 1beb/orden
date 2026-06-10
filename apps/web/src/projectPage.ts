@@ -2,7 +2,6 @@ import {
   isExpiredComplete,
   type CardState,
 } from "@orden/outliner";
-import type { EditorView } from "prosemirror-view";
 import type { FileEntry } from "@orden/host-api";
 import {
   itemsByProject,
@@ -11,7 +10,6 @@ import {
 } from "./cards";
 import {
   getProject,
-  listProjects,
   updateProject,
   DEFAULT_PROJECT_ID,
   type Project,
@@ -24,7 +22,6 @@ import {
 } from "./sessions";
 import { openDialog } from "./modal";
 import { openProjectModal } from "./projectModal";
-import { makeOutlineEditor } from "./outlineEditor";
 import { renderIssueGroups } from "./issueList";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
@@ -33,10 +30,6 @@ import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 // board's lifecycle order.
 const STATES: CardState[] = ["blocked", "in-progress", "planning", "complete"];
 
-// The currently-mounted notes editor (one project page is shown at a time).
-// Torn down whenever the page re-renders so detached EditorViews don't leak.
-let notesView: EditorView | null = null;
-
 // The container the page is mounted in, captured each render so focus guards
 // can scope themselves to "is the user typing somewhere on this page".
 let pageContainer: HTMLElement | null = null;
@@ -44,13 +37,6 @@ let pageContainer: HTMLElement | null = null;
 // One-shot timer that re-renders the items list the moment the soonest completed
 // item crosses its TTL and falls off. Module-scoped so it survives re-renders.
 let dropTimer: ReturnType<typeof setTimeout> | undefined;
-
-// True while the user is typing in the embedded notes outline. Callers should
-// skip re-rendering the project page on remote changes when this is set, or
-// they'd destroy the editor mid-keystroke (mirrors journal.refresh's guard).
-export function projectNotesHasFocus(): boolean {
-  return notesView?.hasFocus() ?? false;
-}
 
 // True while focus is in an editable control on the page (the add-item box, a
 // state/project picker). A live card transition rebuilds the whole page, so
@@ -62,18 +48,8 @@ export function projectPageHasFocus(): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
-// The notes Page for a project is keyed deterministically by project id, not by
-// name: a distinct key (`notes:<id>`) so it (a) survives a project rename and
-// (b) does NOT collide with `[[Project: X]]`, which already routes to the
-// project page itself. The notes page still appears in the Pages index and
-// supports [[wiki links]] + backlinks like any other page.
-function notesPageName(project: Project): string {
-  return `notes:${project.id}`;
-}
-
-// Project mission-control page: a single stacked column of four widgets —
-// Active sessions, Items by state (the issue tracker), Project notes (an
-// embedded outliner page) and a Recent-activity feed.
+// Project mission-control page: a single stacked column of widgets —
+// Items by state (the issue tracker) and for local projects, a Files explorer.
 export function renderProjectPage(
   container: HTMLElement,
   projectId: string,
@@ -105,13 +81,6 @@ export function renderProjectPage(
   onRemoveProject?: (id: string, mode: "reassign" | "cascade") => void,
 ): void {
   const project = getProject(projectId);
-  // Tear down the previous render's notes editor before replacing the DOM.
-  try {
-    notesView?.destroy();
-  } catch {
-    /* ignore */
-  }
-  notesView = null;
   pageContainer = container;
   container.replaceChildren();
   if (!project) {
@@ -140,11 +109,16 @@ export function renderProjectPage(
     header,
     top,
     items.section,
-    notesWidget(project),
-    // File explorer last (below notes) — only for file-backed (local) projects.
+    // File explorer last — only for file-backed (local) projects.
     // Ephemeral/ssh/s3 projects have no browsable local files, so it's omitted.
-    ...(project.source.kind === "local" ? [filesWidget(projectId, listFiles, onOpenFile)] : []),
-    activityWidget(),
+    ...(project.source.kind === "local"
+      ? [
+          filesWidget(projectId, listFiles, onOpenFile),
+          ...FILE_CATEGORIES.map(({ title, match }) =>
+            filesCategoryWidget(title, match, projectId, listFiles, onOpenFile),
+          ),
+        ]
+      : []),
   );
 }
 
@@ -471,6 +445,86 @@ function filesWidget(
   return section;
 }
 
+// File category predicates — each tests whether a file belongs to a named
+// category shown as its own section below the file tree on local projects.
+type FilePredicate = (path: string) => boolean;
+
+const FILE_CATEGORIES: { title: string; match: FilePredicate }[] = [
+  {
+    title: "Agent Config",
+    match: (p: string) => {
+      const name = p.split("/").pop() ?? "";
+      return /^(AGENTS|CLAUDE|CODEBUDDY)\.md$/.test(name) || /^(AGENTS|CLAUDE|CODEBUDDY)\.local\.md$/.test(name);
+    },
+  },
+  {
+    title: "Skills",
+    match: (p: string) => p.includes("/skills/"),
+  },
+  {
+    title: "ADRs",
+    match: (p: string) => p.startsWith("docs/adr/"),
+  },
+  {
+    title: "Plans",
+    match: (p: string) => p.startsWith("docs/plans/"),
+  },
+];
+
+// A compact files section for a single category — a collapsible widget that
+// fetches the project's files independently, filters to the matching subset,
+// and renders a flat list of clickable rows. Handles loading and error states.
+function filesCategoryWidget(
+  title: string,
+  match: FilePredicate,
+  projectId: string,
+  listFiles: (projectId: string) => Promise<FileEntry[]>,
+  onOpenFile: ((path: string) => void) | undefined,
+): HTMLElement {
+  const { section, body } = widget(title, { collapsible: true });
+
+  const loading = document.createElement("p");
+  loading.className = "project-widget-empty";
+  loading.textContent = "Loading…";
+  body.append(loading);
+
+  void listFiles(projectId)
+    .then((repoFiles) => {
+      if (!section.isConnected) return;
+      body.replaceChildren();
+      const matches = repoFiles.filter((f) => match(f.path));
+      if (matches.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "project-widget-empty";
+        empty.textContent = "None";
+        body.append(empty);
+        return;
+      }
+      for (const f of matches) {
+        const row = document.createElement("button");
+        row.className = "project-file-row";
+        row.type = "button";
+        row.title = f.path;
+        const name = document.createElement("span");
+        name.className = "project-file-name";
+        name.textContent = f.title;
+        row.append(name);
+        if (onOpenFile) row.addEventListener("click", () => onOpenFile(f.path));
+        body.append(row);
+      }
+    })
+    .catch(() => {
+      if (!section.isConnected) return;
+      body.replaceChildren();
+      const err = document.createElement("p");
+      err.className = "project-widget-empty";
+      err.textContent = "Couldn't load.";
+      body.append(err);
+    });
+
+  return section;
+}
+
 // Pure renderer: populate a Files widget body from a known files array. Split
 // out from filesWidget so the shell can mount before the per-project fetch
 // resolves; all the filter/tree/chip logic lives here, driven by the array.
@@ -767,38 +821,3 @@ function itemsWidget(
   return { section, render };
 }
 
-// --- 3. Project notes (embedded outliner page) ----------------------------
-
-// Keep a reference to any mounted notes editor so callers re-rendering the page
-// don't leak detached EditorViews. Stored per render; the previous one is torn
-// down when renderProjectPage replaces the container's children.
-function notesWidget(project: Project): HTMLElement {
-  const { section, body } = widget("Project notes");
-  const host = document.createElement("div");
-  host.className = "journal-editor project-notes";
-  body.append(host);
-  // Wiki-link clicks inside notes route through the app's page opener (the
-  // journal controller in main.ts), broadcast as a CustomEvent so projectPage
-  // stays decoupled from main's wiring. Torn down on the next page render.
-  notesView = makeOutlineEditor(host, notesPageName(project), (target) => {
-    document.dispatchEvent(new CustomEvent("orden:open-page", { detail: { name: target } }));
-  });
-  return section;
-}
-
-// --- 4. Recent activity ---------------------------------------------------
-
-// STUBBED ON PURPOSE: a reverse-chron activity feed needs an event log (or at
-// least timestamps on cards/sessions), and orden has neither today — cards and
-// sessions carry no created/updated time, and there's no append-only event
-// store. Rather than fabricate fake timestamps or invent an ordering that
-// implies recency it can't support, render a clearly-labeled placeholder. When
-// an event log lands, replace this with the real reverse-chron feed.
-function activityWidget(): HTMLElement {
-  const { section, body } = widget("Recent activity");
-  const note = document.createElement("p");
-  note.className = "project-widget-empty";
-  note.textContent = "Activity feed — needs an event log; coming soon.";
-  body.append(note);
-  return section;
-}

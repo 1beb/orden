@@ -20,6 +20,16 @@ const globbed = {
     import: "default",
     eager: true,
   }),
+  ...import.meta.glob("../../../.claude/skills/**/*.md", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
+  ...import.meta.glob("../../../.opencode/skills/**/*.md", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }),
 } as Record<string, string>;
 
 function repoPath(globKey: string): string {

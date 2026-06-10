@@ -3292,6 +3292,9 @@ li.sess-done-head {
   cursor: pointer;
   list-style: none;
   display: flex;
+  /* Override the head's space-between: with only the marker + text in the
+     summary, space-between would push the text to the right edge. */
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   user-select: none;
@@ -3603,16 +3606,6 @@ li.sess-done-head {
 }
 .html-toggle:hover {
   border-color: var(--accent);
-}
-
-/* notes widget: the embedded outliner. Reuse .journal-editor styling but drop
-   its auto-centering / huge min-height so it sits naturally in the column. */
-.project-notes {
-  max-width: none;
-  margin: 0;
-}
-.project-notes .ProseMirror {
-  min-height: 80px;
 }
 
 /* Start-a-session launcher (Claude / opencode brand marks) shown on a card /
