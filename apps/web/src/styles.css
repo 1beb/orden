@@ -2457,15 +2457,17 @@ li.sess-done-head {
 .dialog__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid var(--line);
 }
+/* Sized to match .project-add-btn, so Add reads the same here as in the bar. */
 .dialog__btn {
   font: inherit;
   font-size: calc(13px * var(--font-scale));
-  padding: 7px 14px;
+  padding: 7px 16px;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--line);
@@ -3804,6 +3806,37 @@ li.sess-done-head {
 /* card detail modal (reuses .preview-overlay / .preview-modal base) */
 .card-modal {
   width: 480px;
+}
+/* In-situ variant (new-card form growing out of the add bar): the overlay
+   keeps its dismiss surface but stops centering and dims less; the panel is
+   positioned over the add input (newCardModal.anchorInSitu) and its height
+   animates from the title row to the full form, body fading in behind it. */
+.card-modal-overlay--insitu {
+  background: rgba(15, 18, 20, 0.18);
+  display: block;
+}
+.card-modal--insitu {
+  position: absolute;
+  overflow: hidden;
+  transition:
+    height 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.card-modal--insitu .card-modal__body,
+.card-modal--insitu .dialog__actions {
+  opacity: 0;
+  transition: opacity 0.15s ease 0.05s;
+}
+.card-modal--insitu.is-grown .card-modal__body,
+.card-modal--insitu.is-grown .dialog__actions {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-modal--insitu,
+  .card-modal--insitu .card-modal__body,
+  .card-modal--insitu .dialog__actions {
+    transition: none;
+  }
 }
 .card-modal__header {
   display: flex;

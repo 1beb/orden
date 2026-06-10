@@ -19,8 +19,17 @@ function open(deps: Partial<NewCardModalDeps> = {}): void {
       onStartSession: deps.onStartSession ?? (() => {}),
       onChange: deps.onChange ?? (() => {}),
       onDismiss: deps.onDismiss,
+      anchor: deps.anchor,
     },
   );
+}
+
+// An element that measures like a real add bar (happy-dom rects are all zero).
+function measurableAnchor(): HTMLElement {
+  const el = document.createElement("div");
+  el.getBoundingClientRect = () =>
+    ({ left: 100, top: 200, width: 600, height: 33 }) as DOMRect;
+  return el;
 }
 
 describe("new-card modal", () => {
@@ -96,6 +105,28 @@ describe("new-card modal", () => {
     expect(started).toHaveLength(1);
     expect(started[0].item.description).toBe("It fails twice a day.");
     expect(listItems()[0].id).toBe(started[0].item.id);
+  });
+
+  it("grows in-situ from a measurable anchor: positioned over it, not centered", () => {
+    open({ anchor: measurableAnchor() });
+    const o = overlay()!;
+    const modal = o.querySelector<HTMLElement>(".card-modal")!;
+    expect(o.classList.contains("card-modal-overlay--insitu")).toBe(true);
+    expect(modal.classList.contains("card-modal--insitu")).toBe(true);
+    // Offset so the modal's title input overlays the anchor input's text.
+    expect(modal.style.left).toBe("86px"); // anchor.left - 14
+    expect(modal.style.top).toBe("193px"); // anchor.top - 7
+    expect(modal.style.width).toBe("628px"); // anchor.width + 28
+  });
+
+  it("stays a centered modal without an anchor", () => {
+    open();
+    expect(overlay()!.classList.contains("card-modal-overlay--insitu")).toBe(false);
+  });
+
+  it("falls back to centered when the anchor measures empty (headless)", () => {
+    open({ anchor: document.createElement("div") });
+    expect(overlay()!.classList.contains("card-modal-overlay--insitu")).toBe(false);
   });
 
   it("a cleared description saves none", () => {

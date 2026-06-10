@@ -33,6 +33,9 @@ export interface NewCardModalDeps {
   onChange: () => void;
   // Dismissed without creating (Escape/backdrop/✕): restore this text to the bar.
   onDismiss?: (restoredText: string) => void;
+  // The add-bar row the thought was typed into. When present (and measurable),
+  // the form grows in-situ out of it instead of opening as a centered modal.
+  anchor?: HTMLElement;
 }
 
 export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): void {
@@ -168,11 +171,52 @@ export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): voi
   modal.append(actions);
 
   document.body.append(overlay);
+  if (deps.anchor) anchorInSitu(overlay, modal, deps.anchor);
 
   // Continue typing where the thought left off: cursor at the end of the
   // description.
   desc.focus();
   desc.setSelectionRange(desc.value.length, desc.value.length);
+}
+
+// How far the panel extends past the anchor so the header's title input (18px
+// header padding + 1px transparent border + 6px input padding = 25px to the
+// text) overlays the add input's text (1px border + 10px padding = 11px):
+// 25 - 11 = 14 horizontally; vertically the title text sits 15px into the
+// panel vs 8px into the input, so the panel starts 7px above the anchor.
+const INSITU_PAD_X = 14;
+const INSITU_PAD_Y = 7;
+
+// In-situ growth: position the panel over the anchor so its title input adopts
+// the typed text in place, then animate the panel's height from the anchor's
+// (title row only) to its natural height — an in-place expansion that overlays
+// the content below, like a modal but not centered. Falls back to the centered
+// modal when the anchor can't be measured (e.g. headless tests).
+function anchorInSitu(overlay: HTMLElement, modal: HTMLElement, anchor: HTMLElement): void {
+  const r = anchor.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  overlay.classList.add("card-modal-overlay--insitu");
+  modal.classList.add("card-modal--insitu");
+  modal.style.left = `${r.left - INSITU_PAD_X}px`;
+  modal.style.top = `${r.top - INSITU_PAD_Y}px`;
+  modal.style.width = `${r.width + 2 * INSITU_PAD_X}px`;
+  // Natural height, capped to the viewport below the anchor (body scrolls).
+  const maxH = window.innerHeight - (r.top - INSITU_PAD_Y) - 24;
+  modal.style.maxHeight = `${maxH}px`;
+  const grown = Math.min(modal.scrollHeight, maxH);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    modal.classList.add("is-grown");
+    return;
+  }
+  modal.style.height = `${r.height + INSITU_PAD_Y}px`;
+  requestAnimationFrame(() => {
+    modal.classList.add("is-grown");
+    modal.style.height = `${grown}px`;
+  });
+  modal.addEventListener("transitionend", (e) => {
+    // Back to auto so the form can reflow (e.g. the textarea growing).
+    if (e.propertyName === "height") modal.style.height = "auto";
+  });
 }
 
 // A labelled form field: a small caption above the control (as in cardModal).
