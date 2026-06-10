@@ -223,6 +223,25 @@ export interface RenderResult {
 }
 
 /**
+ * Result of publishing a session worktree's branch on card completion (push +
+ * PR; NEVER a merge — integration belongs to the user's own process).
+ * - "no-worktree": the session has no isolated worktree; nothing to publish.
+ * - "dirty": uncommitted changes in the worktree; completion should be refused
+ *   until the agent commits (or the user explicitly forces).
+ * - "no-remote": committed but the repo has no origin; the local branch stays.
+ * - "pushed": branch pushed; compareUrl set when the forge is recognized.
+ * - "pr-opened": branch pushed and a PR created (prUrl).
+ * - "push-failed": the push errored (auth/network); branch stays local.
+ */
+export interface PublishResult {
+  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed";
+  branch?: string;
+  prUrl?: string;
+  compareUrl?: string;
+  error?: string;
+}
+
+/**
  * A proposed artifact change captured during a session — a README/ADR/AGENTS
  * tweak or a new skill — surfaced for the user to review, edit, and accept or
  * reject. One record per proposed change, persisted in the vault ns
@@ -305,6 +324,14 @@ export interface Host {
    * files (browser).
    */
   applyLearning?(learningId: string): Promise<ApplyLearningResult>;
+  /**
+   * Publish a session's worktree branch on completion: verify the tree is
+   * clean, push the branch, and open a PR when a forge CLI is available (per
+   * the prForge setting). Returns "dirty" instead of pushing when uncommitted
+   * work remains, so completion flows can refuse and tell the agent to commit.
+   * Absent on hosts without git/agents (browser).
+   */
+  publish?(sessionId: string, meta: { title: string; summary?: string }): Promise<PublishResult>;
   /**
    * Deliver a learning's comment to the agent that proposed it: resolve the
    * learning's session and type the rendered feedback into its live pane (or

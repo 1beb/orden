@@ -37,7 +37,9 @@ import { renderDoc } from "./docRender";
 import { applyLearning } from "./applyLearning";
 import { deliverLearningComment } from "./deliverLearningComment";
 import { queueToSession, defaultPaneOps } from "./annotationDelivery";
-import type { RenderResult } from "@orden/host-api";
+import type { RenderResult, PublishResult } from "@orden/host-api";
+import { publishWorktree } from "./publishSession";
+import { readWorktreeSettings } from "./worktrees";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
@@ -280,6 +282,26 @@ export class NodeHost implements Host {
       learningId,
       text,
     );
+  }
+
+  /**
+   * Publish a session's worktree branch on completion: clean-check, push, PR
+   * (per the prForge setting). "no-worktree" for sessions that never got an
+   * isolated worktree — there is nothing to publish for them.
+   */
+  async publish(sessionId: string, meta: { title: string; summary?: string }): Promise<PublishResult> {
+    const rec = await this.vault.get<{ workdir?: string; branch?: string }>("sessions", sessionId);
+    if (!rec || typeof rec.workdir !== "string" || !rec.workdir || typeof rec.branch !== "string" || !rec.branch) {
+      return { state: "no-worktree" };
+    }
+    const settings = await readWorktreeSettings(this.vault);
+    return publishWorktree({
+      workdir: rec.workdir,
+      branch: rec.branch,
+      title: meta.title,
+      summary: meta.summary,
+      prForge: settings.prForge,
+    });
   }
 
   capabilities(): HostCapabilities {
