@@ -165,6 +165,32 @@ export function openProjectModal(opts: ProjectModalOptions): void {
       "Override the cwd agents launch in. Stored now; host honoring is deferred.",
     ),
   );
+
+  // Per-project override of the global "isolate sessions in git worktrees"
+  // setting. Inherit (the default) follows the toggle in Settings.
+  const isoSel = document.createElement("select");
+  isoSel.className = "project-modal__input";
+  for (const [value, label] of [
+    ["", "Inherit global setting"],
+    ["on", "On — per-session worktrees"],
+    ["off", "Off — sessions share the checkout"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    opt.selected =
+      (editing?.worktreeIsolation === undefined && value === "") ||
+      (editing?.worktreeIsolation === true && value === "on") ||
+      (editing?.worktreeIsolation === false && value === "off");
+    isoSel.append(opt);
+  }
+  advanced.append(
+    field(
+      "Session isolation",
+      isoSel,
+      "Whether sessions of this project run in their own git worktree.",
+    ),
+  );
   form.append(advanced);
 
   // --- Validation message ---
@@ -209,6 +235,7 @@ export function openProjectModal(opts: ProjectModalOptions): void {
     }
     const defaultAgent = (agentSel.value || null) as Agent | null;
     const workingDir = wdInput.value.trim() || null;
+    const worktreeIsolation = isoSel.value === "" ? null : isoSel.value === "on";
 
     let saved: Project;
     if (opts.mode === "create") {
@@ -217,6 +244,7 @@ export function openProjectModal(opts: ProjectModalOptions): void {
         { kind: "local", path },
         { defaultAgent: defaultAgent ?? undefined, workingDir: workingDir ?? undefined },
       );
+      if (worktreeIsolation !== null) updateProject(saved.id, { worktreeIsolation });
     } else {
       const id = editing!.id;
       updateProject(id, {
@@ -224,6 +252,7 @@ export function openProjectModal(opts: ProjectModalOptions): void {
         path: isLocal ? path : undefined,
         defaultAgent,
         workingDir,
+        worktreeIsolation,
       });
       saved = editing!;
     }

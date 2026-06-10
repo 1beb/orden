@@ -69,6 +69,8 @@ export interface Project {
   defaultAgent?: "claude" | "opencode";
   /** Per-project cwd agents launch in. Absent = use the source path / global default. */
   workingDir?: string;
+  /** Per-project worktree isolation override. Absent = inherit the global setting. */
+  worktreeIsolation?: boolean;
 }
 
 export interface ProjectRegistry {

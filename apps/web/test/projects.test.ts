@@ -71,6 +71,17 @@ describe("projects registry (host-backed)", () => {
     expect(getProject(p.id)?.showCompleted).toBeUndefined();
   });
 
+  it("sets the worktree-isolation override and clears it back to inherit", () => {
+    const p = addProject("Isolated");
+    expect(getProject(p.id)?.worktreeIsolation).toBeUndefined(); // inherit
+    updateProject(p.id, { worktreeIsolation: false });
+    expect(getProject(p.id)?.worktreeIsolation).toBe(false);
+    updateProject(p.id, { worktreeIsolation: true });
+    expect(getProject(p.id)?.worktreeIsolation).toBe(true);
+    updateProject(p.id, { worktreeIsolation: null });
+    expect(getProject(p.id)?.worktreeIsolation).toBeUndefined();
+  });
+
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {
     const p = addProject("Durable");
     await settle();

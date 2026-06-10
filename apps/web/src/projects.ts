@@ -32,6 +32,9 @@ export interface Project {
   // state" list instead of letting them fade out after completeFadeHours. Absent
   // / false = the default fade-out behaviour.
   showCompleted?: boolean;
+  // worktreeIsolation: per-project override of the global "isolate sessions in
+  // git worktrees" setting. Absent = inherit; true/false force it on/off here.
+  worktreeIsolation?: boolean;
 }
 
 let host: Host | null = null;
@@ -114,6 +117,8 @@ export function updateProject(
     defaultAgent?: Agent | null;
     workingDir?: string | null;
     showCompleted?: boolean;
+    // true/false force the override; null clears it back to inherit.
+    worktreeIsolation?: boolean | null;
   },
 ): void {
   const project = cache.find((p) => p.id === id);
@@ -130,6 +135,10 @@ export function updateProject(
     const wd = patch.workingDir?.trim();
     if (wd) project.workingDir = wd;
     else delete project.workingDir;
+  }
+  if (patch.worktreeIsolation !== undefined) {
+    if (patch.worktreeIsolation === null) delete project.worktreeIsolation;
+    else project.worktreeIsolation = patch.worktreeIsolation;
   }
   if (patch.showCompleted !== undefined) {
     // Default is false, so store only the truthy case and drop the field
