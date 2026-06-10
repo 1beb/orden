@@ -51,6 +51,20 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
     return session?.id ?? undefined;
   }
 
+  // The file root this session's doc tools should resolve against: its own git
+  // worktree when it has one (session:<id>, understood by the host's
+  // project-root resolver), else its project. Without this, a worktree session's
+  // doc_render/panel_open would resolve paths in the SHARED checkout — a
+  // different tree than the one the agent edited.
+  async function currentRootId(): Promise<string | undefined> {
+    if (!ctx?.conversationId) return undefined;
+    const session = await sessionForConversation(host.vault, ctx.conversationId);
+    if (!session) return undefined;
+    const workdir = (session as { workdir?: unknown }).workdir;
+    if (typeof workdir === "string" && workdir) return `session:${session.id}`;
+    return session.projectId ?? undefined;
+  }
+
   server.registerTool(
     "page_list",
     { description: "List the names of all orden pages.", inputSchema: {} },
@@ -257,7 +271,15 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
           .describe("doc path, page name, or card id/title; omit for kanban"),
       },
     },
-    ({ kind, target }) => tools.panelOpen(host.vault, kind, target ?? ""),
+    async ({ kind, target }) =>
+      tools.panelOpen(
+        host.vault,
+        kind,
+        target ?? "",
+        // Docs resolve against the session's worktree when it has one, so an
+        // agent can surface files it just wrote there.
+        kind === "doc" ? await currentRootId() : undefined,
+      ),
   );
 
   server.registerTool(
@@ -278,8 +300,9 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
     async ({ path, project }) => {
       // Unlike card_create/session_create, render needs a CONCRETE root to render
       // against, so fall back to "repo" (the resolver's alias for filesRoot) when
-      // there's no explicit project and no session binding.
-      const pid = project ?? (await currentProjectId()) ?? "repo";
+      // there's no explicit project and no session binding. A worktree session
+      // renders inside its own worktree (currentRootId).
+      const pid = project ?? (await currentRootId()) ?? "repo";
       return tools.docRender(host, pid, path);
     },
   );

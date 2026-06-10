@@ -16,7 +16,16 @@ describe("dispatchPanelIntent", () => {
   it("routes doc to openRepoFile", () => {
     const deps = makeDeps();
     expect(dispatchPanelIntent({ kind: "doc", target: "notes/x.md" }, deps)).toBe(true);
-    expect(deps.openRepoFile).toHaveBeenCalledWith("notes/x.md");
+    expect(deps.openRepoFile).toHaveBeenCalledWith("notes/x.md", undefined);
+  });
+
+  it("passes the intent's projectId (session worktree root) through to openRepoFile", () => {
+    const deps = makeDeps();
+    dispatchPanelIntent(
+      { kind: "doc", target: "docs/r.html", projectId: "session:s1" },
+      deps,
+    );
+    expect(deps.openRepoFile).toHaveBeenCalledWith("docs/r.html", "session:s1");
   });
 
   it("routes page to openPage", () => {

@@ -521,4 +521,20 @@ describe("panelOpen", () => {
     const second = (await v.get<Record<string, unknown>>("ui", "panel-intent"))?.nonce;
     expect(second).not.toBe(first);
   });
+  it("carries a projectId (session worktree root) when given", async () => {
+    const v = seed();
+    await panelOpen(v, "doc", "docs/report.html", "session:s1");
+    const intent = await v.get<Record<string, unknown>>("ui", "panel-intent");
+    expect(intent).toMatchObject({
+      kind: "doc",
+      target: "docs/report.html",
+      projectId: "session:s1",
+    });
+  });
+  it("omits projectId when not given", async () => {
+    const v = seed();
+    await panelOpen(v, "doc", "docs/report.html");
+    const intent = await v.get<Record<string, unknown>>("ui", "panel-intent");
+    expect(intent && "projectId" in intent).toBe(false);
+  });
 });

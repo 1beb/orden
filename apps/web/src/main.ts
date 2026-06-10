@@ -2139,7 +2139,7 @@ onVaultChange((ns, key, projectId) => {
         dispatchPanelIntent(intent, {
           // The MCP panel_open intent carries a bare path; resolve it against the
           // host filesRoot alias ("repo"). Per-project panel intents are future work.
-          openRepoFile: (path) => void openRepoFile("repo", path),
+          openRepoFile: (path, pid) => void openRepoFile(pid ?? "repo", path),
           openPage,
           openKanban: () => {
             viewStore.set("kanban");

@@ -8,11 +8,14 @@ export type PanelIntentKind = "doc" | "page" | "kanban" | "card";
 export interface PanelIntent {
   kind: string;
   target: string;
+  // The file root a doc target resolves under (e.g. "session:<id>" for a
+  // session's git worktree). Absent = the caller's default root.
+  projectId?: string;
 }
 
 export interface PanelIntentDeps {
-  // Open a repo markdown path in the review view.
-  openRepoFile: (path: string) => void;
+  // Open a repo file path in the review view, under the given root when set.
+  openRepoFile: (path: string, projectId?: string) => void;
   // Show a wiki page in the journal view.
   openPage: (name: string) => void;
   // Switch to the kanban view and re-render the board.
@@ -29,7 +32,7 @@ export interface PanelIntentDeps {
 export function dispatchPanelIntent(intent: PanelIntent, deps: PanelIntentDeps): boolean {
   switch (intent.kind) {
     case "doc":
-      deps.openRepoFile(intent.target);
+      deps.openRepoFile(intent.target, intent.projectId);
       return true;
     case "page":
       deps.openPage(intent.target);

@@ -117,3 +117,59 @@ describe("createMcpServer registration + binding", () => {
     await client.close();
   });
 });
+
+// A bound session that runs in its own worktree: doc_render / panel_open must
+// resolve against session:<id> (the worktree root) instead of the project.
+describe("worktree-scoped doc tools", () => {
+  function worktreeHost(workdir?: string) {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1", conversationId: "uuid-1", projectId: "p1", ...(workdir ? { workdir } : {}) } },
+      cards: {
+        c1: { id: "c1", title: "Fix login", state: "planning", projectId: "p1", sessionIds: ["s1"] },
+      },
+      projects: { p1: { id: "p1", name: "Proj" } },
+    });
+    const rendered: string[][] = [];
+    const host = {
+      vault,
+      render: async (projectId: string, path: string) => {
+        rendered.push([projectId, path]);
+        return { ok: true, outputPath: path.replace(/\.qmd$/, ".html") };
+      },
+    } as unknown as Host;
+    return { host, rendered };
+  }
+
+  async function clientFor(host: Host) {
+    const server = createMcpServer(host, { conversationId: "uuid-1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    return client;
+  }
+
+  it("doc_render uses session:<id> as the root when the session has a workdir", async () => {
+    const { host, rendered } = worktreeHost("/home/u/.orden/worktrees/p1/s1");
+    const client = await clientFor(host);
+    await client.callTool({ name: "doc_render", arguments: { path: "docs/r.qmd" } });
+    expect(rendered).toEqual([["session:s1", "docs/r.qmd"]]);
+    await client.close();
+  });
+
+  it("doc_render falls back to the session's project without a workdir", async () => {
+    const { host, rendered } = worktreeHost(undefined);
+    const client = await clientFor(host);
+    await client.callTool({ name: "doc_render", arguments: { path: "docs/r.qmd" } });
+    expect(rendered).toEqual([["p1", "docs/r.qmd"]]);
+    await client.close();
+  });
+
+  it("panel_open(doc) stamps the session worktree root on the intent", async () => {
+    const { host } = worktreeHost("/home/u/.orden/worktrees/p1/s1");
+    const client = await clientFor(host);
+    await client.callTool({ name: "panel_open", arguments: { kind: "doc", target: "docs/r.html" } });
+    const intent = await host.vault.get<Record<string, unknown>>("ui", "panel-intent");
+    expect(intent).toMatchObject({ kind: "doc", target: "docs/r.html", projectId: "session:s1" });
+    await client.close();
+  });
+});
