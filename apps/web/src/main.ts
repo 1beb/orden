@@ -1505,12 +1505,16 @@ sizeInput.addEventListener("input", () => {
 // Completed-card fade dwell time: how long a card sits in Complete before it
 // drops off the board/lists. Persist on change, then re-render the board so the
 // new threshold takes effect immediately.
-const fadeSelect = document.querySelector<HTMLSelectElement>("#complete-fade")!;
-fadeSelect.value = String(settings.completeFadeHours);
-fadeSelect.addEventListener("change", () => {
-  void saveSettings({ completeFadeHours: Number(fadeSelect.value) });
-  refreshBoard();
-});
+for (const radio of settingsView.querySelectorAll<HTMLInputElement>(
+  'input[name="complete-fade"]',
+)) {
+  radio.checked = Number(radio.value) === settings.completeFadeHours;
+  radio.addEventListener("change", () => {
+    if (!radio.checked) return;
+    void saveSettings({ completeFadeHours: Number(radio.value) });
+    refreshBoard();
+  });
+}
 
 // Journal time zone: which calendar day a journal entry files under. "" inherits
 // the host's zone (shown in the default option's label); an explicit choice
@@ -1892,9 +1896,9 @@ if (scratchTermCb) {
   });
 }
 
-// Default session mode: a 2x2 grid (Claude Code / opencode × TUI / GUI) picking
-// which surface a newly spawned session opens in, per tool. Selecting a cell
-// merges that tool's choice into the stored map.
+// Default session mode: one TUI/GUI segmented row per tool (Claude Code,
+// opencode) picking which surface a newly spawned session opens in. Selecting
+// a segment merges that tool's choice into the stored map.
 const modeGridMount = document.querySelector<HTMLElement>("#mode-grid");
 if (modeGridMount) {
   modeGridMount.append(

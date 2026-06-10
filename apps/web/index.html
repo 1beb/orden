@@ -82,65 +82,95 @@
 
                 <section class="settings-group">
                   <h2 class="settings-group-title">Appearance</h2>
-                  <div class="settings-label">Font</div>
-                  <select id="font-family" class="settings-select"></select>
-                  <div class="settings-label">Text size <span id="font-size-value" class="settings-value"></span></div>
-                  <input type="range" id="font-size" class="settings-range" min="12" max="24" step="1" />
-                  <div class="settings-label">Accent color</div>
-                  <input type="color" id="accent-color" class="settings-color" />
-                </section>
-
-                <section class="settings-group">
-                  <h2 class="settings-group-title">Startup &amp; Layout</h2>
-                  <div class="settings-label">On startup, show</div>
-                  <label class="settings-opt"><input type="radio" name="startup" value="journal" /> Journal</label>
-                  <label class="settings-opt"><input type="radio" name="startup" value="kanban" /> Kanban</label>
-                  <label class="settings-opt"><input type="radio" name="startup" value="last" /> Last document</label>
-                  <div class="settings-label">Session panel width <span id="panel-width-value" class="settings-value"></span></div>
-                  <input type="range" id="panel-width" class="settings-range" min="15" max="50" step="1" />
-                </section>
-
-                <section class="settings-group">
-                  <h2 class="settings-group-title">Sessions &amp; Board</h2>
-                  <label class="settings-opt"><input type="checkbox" id="session-autolaunch" /> Launch new sessions immediately</label>
-                  <label class="settings-opt"><input type="checkbox" id="worktree-isolation" /> Isolate sessions in git worktrees</label>
-                  <div class="settings-label">PRs on completion</div>
-                  <select id="pr-forge" class="settings-select">
-                    <option value="auto">Auto-detect from remote</option>
-                    <option value="gh">GitHub (gh)</option>
-                    <option value="glab">GitLab (glab)</option>
-                    <option value="none">Push only</option>
-                  </select>
-                  <label class="settings-opt"><input type="checkbox" id="show-scratch-terminal" /> Show Terminal Only button</label>
-                  <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
-                  <div class="settings-mode-block">
-                    <div class="settings-label">Default session mode</div>
-                    <div id="mode-grid"></div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Font</span>
+                    <select id="font-family" class="settings-select"></select>
                   </div>
-                  <div class="settings-label">Completed tasks fade after</div>
-                  <select id="complete-fade" class="settings-select">
-                    <option value="1">1 hour</option>
-                    <option value="4">4 hours</option>
-                    <option value="8">8 hours</option>
-                    <option value="24">24 hours</option>
-                  </select>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Text size</span>
+                    <span class="settings-row-control">
+                      <input type="range" id="font-size" class="settings-range" min="12" max="24" step="1" />
+                      <span id="font-size-value" class="settings-value"></span>
+                    </span>
+                  </div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Accent color</span>
+                    <input type="color" id="accent-color" class="settings-color" />
+                  </div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Completed tasks fade after</span>
+                    <span class="settings-seg" role="radiogroup" aria-label="Completed tasks fade after">
+                      <label><input type="radio" name="complete-fade" value="1" /><span>1h</span></label>
+                      <label><input type="radio" name="complete-fade" value="4" /><span>4h</span></label>
+                      <label><input type="radio" name="complete-fade" value="8" /><span>8h</span></label>
+                      <label><input type="radio" name="complete-fade" value="24" /><span>24h</span></label>
+                    </span>
+                  </div>
                 </section>
 
                 <section class="settings-group">
-                  <h2 class="settings-group-title">Documents</h2>
-                  <label class="settings-opt"><input type="checkbox" id="html-render" /> Render HTML files (off = show source)</label>
+                  <h2 class="settings-group-title">Layout</h2>
+                  <div class="settings-row">
+                    <span class="settings-row-label">On startup, show</span>
+                    <span class="settings-seg" role="radiogroup" aria-label="On startup, show">
+                      <label><input type="radio" name="startup" value="journal" /><span>Journal</span></label>
+                      <label><input type="radio" name="startup" value="kanban" /><span>Kanban</span></label>
+                      <label><input type="radio" name="startup" value="last" /><span>Last document</span></label>
+                    </span>
+                  </div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Session pane width</span>
+                    <span class="settings-row-control">
+                      <input type="range" id="panel-width" class="settings-range" min="15" max="50" step="1" />
+                      <span id="panel-width-value" class="settings-value"></span>
+                    </span>
+                  </div>
                 </section>
 
                 <section class="settings-group">
-                  <h2 class="settings-group-title">Journal</h2>
-                  <div class="settings-label">Journal time zone</div>
-                  <select id="journal-timezone" class="settings-select"></select>
+                  <h2 class="settings-group-title">Sessions</h2>
+                  <label class="settings-row">
+                    <span class="settings-row-label">Launch new sessions immediately</span>
+                    <span class="settings-switch"><input type="checkbox" id="session-autolaunch" /><span class="settings-switch-track"></span></span>
+                  </label>
+                  <label class="settings-row">
+                    <span class="settings-row-label">Isolate sessions in git worktrees</span>
+                    <span class="settings-switch"><input type="checkbox" id="worktree-isolation" /><span class="settings-switch-track"></span></span>
+                  </label>
+                  <div id="mode-grid"></div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">PRs on completion</span>
+                    <select id="pr-forge" class="settings-select">
+                      <option value="auto">Auto-detect from remote</option>
+                      <option value="gh">GitHub (gh)</option>
+                      <option value="glab">GitLab (glab)</option>
+                      <option value="none">Push only</option>
+                    </select>
+                  </div>
+                  <label class="settings-row">
+                    <span class="settings-row-label">Show Terminal Only button</span>
+                    <span class="settings-switch"><input type="checkbox" id="show-scratch-terminal" /><span class="settings-switch-track"></span></span>
+                  </label>
+                  <label class="settings-row">
+                    <span class="settings-row-label">Show archived sessions</span>
+                    <span class="settings-switch"><input type="checkbox" id="show-archived" /><span class="settings-switch-track"></span></span>
+                  </label>
                 </section>
 
                 <section class="settings-group">
-                  <h2 class="settings-group-title">Vault</h2>
-                  <div class="settings-label">Vault location</div>
-                  <div id="vault-location" class="settings-path"></div>
+                  <h2 class="settings-group-title">General</h2>
+                  <label class="settings-row">
+                    <span class="settings-row-label">Render HTML files (off = show source)</span>
+                    <span class="settings-switch"><input type="checkbox" id="html-render" /><span class="settings-switch-track"></span></span>
+                  </label>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Journal time zone</span>
+                    <select id="journal-timezone" class="settings-select"></select>
+                  </div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Vault location</span>
+                    <div id="vault-location" class="settings-path"></div>
+                  </div>
                 </section>
               </div>
             </section>
