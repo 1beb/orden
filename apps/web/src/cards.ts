@@ -17,6 +17,14 @@ export interface Item {
   dueDate?: string; // ISO yyyy-mm-dd, optional
   completedAt?: number; // epoch ms the card last entered "complete"; drives the 1h fall-off
 
+  // Integration state stamped at completion by the host's publish step (worktree
+  // isolation): how the session branch left the system. Read-only in the web.
+  publishState?: string; // PublishResult["state"]
+  branch?: string;
+  prUrl?: string;
+  compareUrl?: string;
+  publishError?: string;
+
   /** @deprecated legacy single-session field; migrated into sessionIds at boot. */
   sessionId?: string;
 }

@@ -1247,6 +1247,25 @@ li.sess-done-head {
   background: none;
   padding: 0;
 }
+.chat-md-table {
+  width: 100%;
+  margin: 6px 0;
+  border-collapse: collapse;
+  font-size: calc(12px * var(--font-scale));
+  overflow-x: auto;
+  display: block;
+}
+.chat-md-table th,
+.chat-md-table td {
+  padding: 4px 8px;
+  border: 1px solid var(--border, #e5e3df);
+  text-align: left;
+  vertical-align: top;
+}
+.chat-md-table th {
+  background: #f7f6f5;
+  font-weight: 550;
+}
 .chat-permissions:not(:empty) {
   padding: 6px 8px;
   border-top: 1px solid var(--border, #e5e3df);
@@ -3868,6 +3887,20 @@ li.sess-done-head {
   font-size: calc(12px * var(--font-scale));
   color: var(--muted);
   margin: 0 0 8px;
+}
+.card-modal__integration {
+  font-size: calc(12px * var(--font-scale));
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.card-modal__integration code {
+  font-size: calc(11px * var(--font-scale));
+  background: var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.card-modal__integration a {
+  color: var(--accent);
 }
 .card-modal__sess {
   border: 1px solid var(--line);

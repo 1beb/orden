@@ -47,3 +47,56 @@ describe("card modal — resume affordance", () => {
     expect(opened).toEqual([s.id]);
   });
 });
+
+describe("card modal — integration (branch/PR) row", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll(".card-modal-overlay").forEach((n) => n.remove());
+  });
+
+  function openWith(extra: Partial<Item>): void {
+    const s = createSession({ title: "Publishable", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    Object.assign(card, extra);
+    openCardModal(card.id, { onStartSession: () => {}, onOpenSession: () => {}, onChange: () => {} });
+  }
+
+  it("shows the PR link when a PR was opened", () => {
+    openWith({
+      publishState: "pr-opened",
+      branch: "orden/publishable",
+      prUrl: "https://github.com/x/y/pull/3",
+    } as Partial<Item>);
+    const link = document.querySelector<HTMLAnchorElement>(".card-modal__integration a");
+    expect(link?.href).toBe("https://github.com/x/y/pull/3");
+    expect(document.body.textContent).toContain("orden/publishable");
+  });
+
+  it("shows pushed + compare link without a PR", () => {
+    openWith({
+      publishState: "pushed",
+      branch: "orden/publishable",
+      compareUrl: "https://github.com/x/y/compare/orden%2Fpublishable?expand=1",
+    } as Partial<Item>);
+    const link = document.querySelector<HTMLAnchorElement>(".card-modal__integration a");
+    expect(link?.href).toContain("/compare/");
+  });
+
+  it("warns on a dirty (unpublished) completion", () => {
+    openWith({ publishState: "dirty", branch: "orden/publishable" } as Partial<Item>);
+    expect(document.querySelector(".card-modal__integration")?.textContent).toContain(
+      "not published",
+    );
+  });
+
+  it("renders no integration row without publish state", () => {
+    openWith({});
+    expect(document.querySelector(".card-modal__integration")).toBeNull();
+  });
+});

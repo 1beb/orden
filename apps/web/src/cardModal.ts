@@ -150,6 +150,11 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
     meta.append(stateSel.wrap, projSel.wrap, dueSel.wrap);
     bodyEl.append(meta);
 
+    // Integration: how the session branch left the system at completion
+    // (stamped by the host's publish step). Read-only; absent until published.
+    const integration = integrationRow(item);
+    if (integration) bodyEl.append(integration);
+
     // Sessions.
     const sessHead = document.createElement("div");
     sessHead.className = "card-modal__section-head";
@@ -259,6 +264,50 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
 
   render();
   document.body.append(overlay);
+}
+
+// The integration row: the card's branch and where it went (PR / pushed /
+// not published). Null when the card carries no publish stamp.
+function integrationRow(item: Item): HTMLElement | null {
+  if (!item.publishState) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "card-modal__integration";
+  const cap = document.createElement("span");
+  cap.className = "card-modal__field-label";
+  cap.textContent = "Integration";
+  wrap.append(cap, " ");
+  const branch = document.createElement("code");
+  branch.textContent = item.branch ?? "";
+  if (item.branch) wrap.append(branch, " — ");
+  const link = (href: string, label: string): HTMLAnchorElement => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = label;
+    return a;
+  };
+  switch (item.publishState) {
+    case "pr-opened":
+      wrap.append(item.prUrl ? link(item.prUrl, "Pull request") : "PR opened");
+      break;
+    case "pushed":
+      wrap.append("pushed");
+      if (item.compareUrl) wrap.append(" · ", link(item.compareUrl, "compare"));
+      break;
+    case "dirty":
+      wrap.append("not published — uncommitted work in the session worktree");
+      break;
+    case "no-remote":
+      wrap.append("local branch only (no remote to push to)");
+      break;
+    case "push-failed":
+      wrap.append(`push failed${item.publishError ? `: ${item.publishError}` : ""}`);
+      break;
+    default:
+      wrap.append(item.publishState);
+  }
+  return wrap;
 }
 
 // A labelled form field: a small caption above the control.
