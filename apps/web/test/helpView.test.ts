@@ -77,6 +77,19 @@ describe("renderHelp", () => {
     expect(chordsFor("nav.toggle")).toEqual(["mod+\\"]);
   });
 
+  it("reset still works after a cancelled recording (no dead cloned buttons)", async () => {
+    rowFor("sessions.toggle").click();
+    document.dispatchEvent(key("Semicolon", { ctrl: true }));
+    await settle();
+    // Start recording again, cancel — the row must come back fully wired.
+    rowFor("sessions.toggle").click();
+    document.dispatchEvent(key("Escape"));
+    await settle();
+    rowFor("sessions.toggle").querySelector<HTMLButtonElement>(".help-reset")!.click();
+    await settle();
+    expect(chordsFor("sessions.toggle")).toEqual(["mod+."]);
+  });
+
   it("reset restores the default", async () => {
     rowFor("sessions.toggle").click();
     document.dispatchEvent(key("Semicolon", { ctrl: true }));

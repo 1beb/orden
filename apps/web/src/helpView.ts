@@ -158,28 +158,29 @@ function startRecording(row: HTMLDivElement, actionId: string, container: HTMLEl
 
   row.classList.add("is-recording");
   const right = row.querySelector<HTMLElement>(".help-right")!;
-  const saved = right.cloneNode(true) as HTMLElement;
   const prompt = document.createElement("span");
   prompt.className = "help-prompt";
   prompt.textContent = "Press a shortcut… (Esc cancels)";
   right.replaceChildren(prompt);
 
-  const finish = (rerender: boolean): void => {
+  // Always rebuild the view on finish (save OR cancel): restoring cloned row
+  // children would silently drop their event listeners (cloneNode doesn't copy
+  // them), leaving dead Reset buttons behind. `detach` alone is what renderHelp's
+  // own stopRecording uses, so a re-render never recurses back into itself.
+  const detach = (): void => {
     document.removeEventListener("keydown", onKey, true);
+  };
+  const finish = (): void => {
+    detach();
     recording = null;
-    if (rerender) {
-      renderHelp(container);
-    } else {
-      row.classList.remove("is-recording");
-      right.replaceChildren(...Array.from(saved.childNodes));
-    }
+    renderHelp(container);
   };
 
   const onKey = (e: KeyboardEvent): void => {
     e.preventDefault();
     e.stopPropagation();
     if (e.code === "Escape") {
-      finish(false);
+      finish();
       return;
     }
     if (isModifierOnly(e)) return; // wait for the full chord
@@ -191,9 +192,9 @@ function startRecording(row: HTMLDivElement, actionId: string, container: HTMLEl
       prompt.classList.add("is-conflict");
       return;
     }
-    void setBinding(actionId, chord).then(() => finish(true));
+    void setBinding(actionId, chord).then(finish);
   };
 
   document.addEventListener("keydown", onKey, true);
-  recording = { actionId, stop: () => finish(false) };
+  recording = { actionId, stop: detach };
 }
