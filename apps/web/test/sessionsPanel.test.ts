@@ -189,6 +189,57 @@ describe("sessionsPanel scratch terminal", () => {
     expect(d.container.querySelector(".sess-scratch-btn")).toBeNull();
   });
 
+  it("refresh() applies a setting change in the list view", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const { deps: d } = deps();
+    document.body.append(d.container);
+    const panel = mountSessionsPanel(d);
+    expect(d.container.querySelector(".sess-scratch-btn")).not.toBeNull();
+
+    await saveSettings({ showScratchTerminal: false });
+    panel.refresh();
+
+    expect(d.container.querySelector(".sess-scratch-btn")).toBeNull();
+  });
+
+  // While a session detail is open, refresh() keeps the live terminal mount
+  // (it early-returns rather than re-rendering) — the scratch button must still
+  // track the setting, synced in place on the existing header.
+  it("refresh() applies a setting change in the detail view without remounting the terminal", async () => {
+    await saveSettings({ showScratchTerminal: true });
+    const s = makeSession({ id: "s1" });
+    const termMounts: string[] = [];
+    let disposes = 0;
+    const { deps: d } = deps({
+      list: () => [s],
+      get: (id: string) => (id === s.id ? s : undefined),
+      initialOpenId: s.id,
+      mountTerminal: (_c: HTMLElement, id: string) => {
+        termMounts.push(id);
+        return () => {
+          disposes += 1;
+        };
+      },
+    });
+    document.body.append(d.container);
+    const panel = mountSessionsPanel(d);
+    expect(d.container.querySelector(".sess-scratch-btn")).not.toBeNull();
+
+    await saveSettings({ showScratchTerminal: false });
+    panel.refresh();
+    expect(d.container.querySelector(".sess-scratch-btn")).toBeNull();
+
+    await saveSettings({ showScratchTerminal: true });
+    panel.refresh();
+    expect(d.container.querySelector(".sess-scratch-btn")).not.toBeNull();
+    // The header button appears rightmost, after the new-session buttons.
+    const head = d.container.querySelector(".sess-head")!;
+    expect(head.lastElementChild?.classList.contains("sess-scratch-btn")).toBe(true);
+
+    expect(termMounts).toEqual(["s1"]); // live terminal mounted once, never remounted
+    expect(disposes).toBe(0);
+  });
+
   it("clicking it mounts a scratch terminal and creates no session/card", async () => {
     await saveSettings({ showScratchTerminal: true });
     const termMounts: string[] = [];
