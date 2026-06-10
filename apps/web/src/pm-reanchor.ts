@@ -1,9 +1,11 @@
 import type { Node as PMNode } from "prosemirror-model";
-import type { TextQuoteSelector } from "@orden/annotation-core";
+import type { TextPositionSelector, TextQuoteSelector } from "@orden/annotation-core";
 
 // Cold-start re-anchoring on the ProseMirror document: find a stored quote and
 // return its range, using the same context-disambiguation rule as the core's
 // resolveAnchor — unambiguous match wins, otherwise null (orphan), never a guess.
+// When context scores tie, the stored document position (if available) breaks
+// the tie by picking the occurrence closest to the original annotation position.
 // Offset→position mapping assumes prose textblocks (no inline atom nodes), which
 // holds for the markdown content here.
 
@@ -22,6 +24,7 @@ function commonPrefixLength(a: string, b: string): number {
 export function reanchorQuote(
   doc: PMNode,
   quote: TextQuoteSelector,
+  position?: TextPositionSelector,
 ): { from: number; to: number } | null {
   if (!quote.exact) return null;
 
@@ -45,6 +48,15 @@ export function reanchorQuote(
   if (occ.length === 1) return { from: occ[0].from, to: occ[0].to };
   const max = Math.max(...occ.map((o) => o.score));
   const top = occ.filter((o) => o.score === max);
-  if (top.length !== 1) return null;
-  return { from: top[0].from, to: top[0].to };
+  if (top.length === 1) return { from: top[0].from, to: top[0].to };
+
+  // Tie-break by proximity to the stored document position (when available).
+  if (position) {
+    const best = top.reduce((a, b) =>
+      Math.abs(a.from - position.start) < Math.abs(b.from - position.start) ? a : b,
+    );
+    return { from: best.from, to: best.to };
+  }
+
+  return null;
 }

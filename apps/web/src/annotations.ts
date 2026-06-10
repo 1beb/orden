@@ -38,7 +38,7 @@ export function addAnnotation(
   );
 
   const record = createAnnotation({
-    anchor: { blockId: "", quote: { exact, prefix, suffix } },
+    anchor: { blockId: "", position: { start: from, end: to }, quote: { exact, prefix, suffix } },
     body,
     target,
   });

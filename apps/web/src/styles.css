@@ -2480,11 +2480,9 @@ li.sess-done-head {
     transition: none;
   }
 
-  /* #panel becomes a fixed bottom sheet (below), so the active view takes the
-     full width — no side column to reserve. */
-  #main.view.active {
-    display: block;
-  }
+  /* #main keeps its desktop flex layout: #doc-pane's constrained height (and
+     therefore #editor's scrollability) hangs off it. #panel is a fixed bottom
+     sheet here, out of flow, so nothing competes for the width anyway. */
 
   /* left drawer holds nav + the outline */
   #leftnav {
@@ -2525,33 +2523,6 @@ li.sess-done-head {
     display: inline-flex;
   }
 
-  /* annotations bottom sheet pinned to the bottom; its header (with Send + Copy)
-     is always visible, and tapping it expands/collapses the sheet */
-  #panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-height: 52vh;
-    overflow-y: auto; /* scroll outline + annotations together within the sheet */
-    z-index: 35;
-    border-left: none;
-    border-top: 1px solid var(--line);
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
-  }
-  #panel.sheet-collapsed {
-    max-height: none;
-  }
-  #panel.sheet-collapsed #annotation-list {
-    display: none;
-  }
-  .annotations-block header {
-    cursor: pointer;
-  }
-  #editor {
-    padding-bottom: 72px;
-  }
-
   /* scrim shown whenever a drawer/slide-over is open */
   #app:not(.left-closed) #scrim,
   #app:not(.right-closed) #scrim {
@@ -2561,6 +2532,42 @@ li.sess-done-head {
     background: rgba(0, 0, 0, 0.35);
     z-index: 42;
   }
+}
+
+/* The outline/annotations panel drops to a bottom sheet whenever the CENTER
+   column is too narrow to fit the 320px side panel beside a readable document.
+   That's any portrait phone, but also a desktop window squeezed by the open
+   session pane — so this is driven by a ResizeObserver on #view-area (which
+   sets .panel-sheet, see main.ts), not a window media query: available width
+   depends on which panes are open, which a media query can't see. */
+#view-area.panel-sheet #panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 52vh;
+  overflow-y: auto; /* scroll outline + annotations together within the sheet */
+  z-index: 35;
+  border-left: none;
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
+}
+/* Collapsed sheet = ONLY the annotations header bar (tap it to expand). The
+   outline section must fold away with the list — leaving it visible let a
+   long doc's outline eat most of the screen. */
+#view-area.panel-sheet #panel.sheet-collapsed {
+  max-height: none;
+}
+#view-area.panel-sheet #panel.sheet-collapsed #annotation-list,
+#view-area.panel-sheet #panel.sheet-collapsed #docmap {
+  display: none;
+}
+#view-area.panel-sheet .annotations-block header {
+  cursor: pointer;
+}
+/* Keep the end of the document reachable above the pinned sheet header. */
+#view-area.panel-sheet #editor {
+  padding-bottom: 72px;
 }
 
 /* ============================================================
@@ -2706,6 +2713,7 @@ li.sess-done-head {
 
 .orden-column {
   flex: 0 0 220px;
+  min-width: 0;
   background: #f4f4f2;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3655,6 +3663,7 @@ li.sess-done-head {
 }
 .orden-card__title {
   font-size: calc(13px * var(--font-scale));
+  overflow-wrap: anywhere;
 }
 /* Project label/selector under the card title — styled as plain small-caps text
    (native select chrome stripped) but reassignable inline. */
@@ -4304,4 +4313,150 @@ li.sess-done-head {
   margin-top: 8px;
   font-size: calc(13.5px * var(--font-scale));
   color: var(--muted);
+}
+
+/* ============================================================
+   Mobile ergonomics (≤860px): tighter project-page padding, a
+   stacked add-bar, and finger-sized tap targets across the chrome.
+   ============================================================ */
+@media (max-width: 860px) {
+  /* Project page: the desktop reading-column padding eats a quarter of a
+     phone's width. */
+  #view-project.active {
+    padding: 16px 12px 96px;
+  }
+  .project-header {
+    margin-bottom: 12px;
+  }
+  .project-widget {
+    margin-bottom: 20px;
+  }
+
+  /* Add bar: the input takes its own full-width line; the Add button and the
+     session-launch marks drop beneath it. The 16px input font also stops
+     iOS's auto-zoom on focus. */
+  .project-add-top {
+    flex-wrap: wrap;
+  }
+  .project-add-input {
+    flex-basis: 100%;
+    font-size: calc(16px * var(--font-scale));
+    padding: 11px 12px;
+  }
+  .project-add-btn {
+    font-size: calc(15px * var(--font-scale));
+    padding: 11px 26px;
+  }
+
+  /* Icon buttons: lift the small square/round targets toward the ~44px
+     comfortable-finger size and scale their glyphs with them. */
+  .pane-toggle {
+    width: 40px;
+    height: 40px;
+  }
+  .pane-toggle svg {
+    width: 22px;
+    height: 22px;
+  }
+  .sess-icon {
+    width: 40px;
+    height: 40px;
+    font-size: calc(20px * var(--font-scale));
+  }
+  .sess-agent-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .agent-launch {
+    gap: 8px;
+  }
+  .agent-launch__btn,
+  .issue-sess-open {
+    width: 38px;
+    height: 38px;
+  }
+  .agent-launch__btn svg,
+  .issue-sess-open svg {
+    width: 17px;
+    height: 17px;
+  }
+  /* No hover on touch — the per-card session actions must stay visible. */
+  .sess-rowbtn {
+    width: 38px;
+    height: 38px;
+    font-size: calc(15px * var(--font-scale));
+    opacity: 1;
+  }
+  .project-cog {
+    font-size: calc(19px * var(--font-scale));
+    padding: 8px 10px;
+  }
+  .project-menu__item {
+    font-size: calc(15px * var(--font-scale));
+    padding: 11px 14px;
+  }
+
+  /* Pickers, chips, and list rows on the project page. */
+  .issue-row {
+    padding: 10px 8px;
+  }
+  .issue-state,
+  .issue-project {
+    font-size: calc(14px * var(--font-scale));
+    padding: 8px 10px;
+  }
+  .issue-project {
+    max-width: 160px;
+  }
+  .project-file-search {
+    font-size: calc(16px * var(--font-scale));
+    padding: 10px 12px;
+  }
+  .project-file-chip {
+    font-size: calc(13px * var(--font-scale));
+    padding: 8px 14px;
+  }
+  .project-file-ext {
+    font-size: calc(14px * var(--font-scale));
+    padding: 8px 10px;
+  }
+  .project-file-row {
+    padding: 11px 12px;
+  }
+  .project-tree-dir-head {
+    padding: 9px 8px;
+  }
+
+  /* Left drawer rows. */
+  .nav-item {
+    font-size: calc(15px * var(--font-scale));
+    padding: 10px 10px;
+  }
+  .nav-proj-item {
+    padding: 9px 8px;
+  }
+  .nav-sess {
+    padding: 9px 8px 9px 22px;
+  }
+  .nav-add,
+  .nav-show,
+  .nav-cog {
+    padding: 10px 10px;
+  }
+
+  /* Annotation-sheet actions. */
+  .panel-send,
+  .panel-copy {
+    font-size: calc(14px * var(--font-scale));
+    padding: 9px 16px;
+  }
+  .block-toggle {
+    width: 32px;
+    height: 32px;
+    font-size: calc(13px * var(--font-scale));
+  }
+  .block-hide {
+    font-size: calc(13px * var(--font-scale));
+    padding: 8px 10px;
+  }
 }

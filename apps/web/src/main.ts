@@ -81,7 +81,6 @@ import {
   listRecentFiles,
   SHOW_CAP,
 } from "./recentFiles";
-import { sampleMarkdown } from "./sample";
 import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
 import { mountAnnotator } from "./annotator-ui";
@@ -163,11 +162,11 @@ function notifyBlockedTransitions(): void {
   }
 }
 
-const DOC_TITLE = "Churn model — review";
+const DOC_TITLE = "Review";
 const log = new AnnotationLog();
 const sink = new VaultSink();
 let feedbackTarget: "agent" | "human" = "agent";
-let currentDocKey = "review:sample";
+let currentDocKey = "review:default";
 let currentDocProjectId = "repo";
 let currentDocTitle = DOC_TITLE;
 // The repo file currently registered with host.files.watch (or null). Tracked
@@ -181,7 +180,7 @@ function persistReview(): void {
 }
 
 const state = EditorState.create({
-  doc: markdownParser.parse(sampleMarkdown),
+  doc: markdownParser.parse(""),
   schema,
   plugins: [
     buildInputRules(schema),
@@ -219,10 +218,27 @@ const panel = document.querySelector<HTMLElement>("#panel")!;
 const annotationsBlock = document.querySelector<HTMLElement>(".annotations-block")!;
 const mobile = window.matchMedia("(max-width: 860px)");
 
-// On mobile the annotations panel is a bottom sheet; tapping its header (but not
-// the Send/Copy buttons) collapses/expands it.
+// The panel becomes a bottom sheet when the CENTER column can't fit the 320px
+// side panel beside a readable document — true on phones, but also in a desktop
+// window squeezed by the open session pane. A media query can't see pane state,
+// so a ResizeObserver on #view-area decides, and the .panel-sheet class carries
+// the sheet styles (see styles.css). Entering sheet mode starts collapsed.
+const viewArea = document.querySelector<HTMLElement>("#view-area")!;
+// Sheet whenever the document column would end up narrower than the 320px
+// panel itself — the annotation rail must never out-width the document.
+const PANEL_SHEET_BELOW = 650;
+function syncPanelSheet(): void {
+  const sheet = viewArea.clientWidth > 0 && viewArea.clientWidth < PANEL_SHEET_BELOW;
+  if (sheet === viewArea.classList.contains("panel-sheet")) return;
+  viewArea.classList.toggle("panel-sheet", sheet);
+  panel.classList.toggle("sheet-collapsed", sheet);
+}
+new ResizeObserver(syncPanelSheet).observe(viewArea);
+
+// In sheet mode, tapping the annotations header (but not the Send/Copy buttons)
+// collapses/expands the sheet.
 annotationsBlock.querySelector("header")?.addEventListener("click", (e) => {
-  if (!mobile.matches) return;
+  if (!viewArea.classList.contains("panel-sheet")) return;
   if ((e.target as HTMLElement).closest(".panel-actions")) return;
   panel.classList.toggle("sheet-collapsed");
 });
@@ -250,20 +266,39 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Responsive layout: on mobile the outline moves into the nav drawer, the
-// annotations become a collapsed bottom sheet, and both side panes start closed.
+// Responsive layout: on mobile both side panes start closed (they become
+// fixed drawers). Sheet mode for #panel is owned by syncPanelSheet above.
 function applyLayout(isMobile: boolean): void {
-  // The outline stays in #panel with the annotations (a sibling unfurlable
-  // section) in every layout; on mobile #panel is the scrollable bottom sheet.
   if (isMobile) {
     app.classList.add("left-closed", "right-closed");
-    panel.classList.add("sheet-collapsed");
   } else {
     app.classList.remove("left-closed", "right-closed");
-    panel.classList.remove("sheet-collapsed");
   }
 }
 mobile.addEventListener("change", (e) => applyLayout(e.matches));
+
+// On mobile the session pane is position:fixed, and the on-screen keyboard
+// shrinks only the VISUAL viewport: the browser then scrolls the layout
+// viewport to reveal the focused input, carrying the pane's header off-screen.
+// Pin the pane to the visual viewport while the keyboard is up so the header
+// stays reachable. (interactive-widget=resizes-content in index.html covers
+// Chrome/Android; this covers iOS Safari, which ignores that meta.)
+const sessionsPane = document.querySelector<HTMLElement>("#sessions");
+const vv = window.visualViewport;
+if (sessionsPane && vv) {
+  const pinSessionsToViewport = (): void => {
+    const keyboardOpen = mobile.matches && vv.height < window.innerHeight - 1;
+    if (keyboardOpen) {
+      sessionsPane.style.top = `${vv.offsetTop}px`;
+      sessionsPane.style.height = `${vv.height}px`;
+    } else {
+      sessionsPane.style.removeProperty("top");
+      sessionsPane.style.removeProperty("height");
+    }
+  };
+  vv.addEventListener("resize", pinSessionsToViewport);
+  vv.addEventListener("scroll", pinSessionsToViewport);
+}
 
 const docmap = document.querySelector<HTMLElement>("#docmap")!;
 const docmapList = document.querySelector<HTMLUListElement>("#docmap-list")!;
@@ -284,8 +319,8 @@ wireFurl(annotationsBlock, "#annotations-toggle", ".block-label");
 // both are hidden, the right column collapses so the document reclaims it.
 // #panel is a persistent sibling of the views inside #view-area; the collapse
 // (both sections hidden) is driven by a class on #view-area so it hides the
-// panel across every viewer, not just the review view.
-const viewArea = document.querySelector<HTMLElement>("#view-area")!;
+// panel across every viewer, not just the review view. (viewArea is declared
+// with the sheet-mode logic above.)
 function syncPanelColumn(): void {
   // The outline counts as "gone" when the user hid it OR when it isn't rendered
   // at all (code/image, or an HTML doc with no extractable outline — in those
@@ -999,37 +1034,6 @@ async function showImageFile(projectId: string, path: string, title: string): Pr
   rerender();
 }
 
-// Dev seed: apply a few sample annotations on load so the page shows highlights
-// and a populated panel immediately. Remove once persistence (Phase 2) lands.
-function findPhrase(phrase: string): { from: number; to: number } | null {
-  let result: { from: number; to: number } | null = null;
-  view.state.doc.descendants((node, pos) => {
-    if (result) return false;
-    if (node.isText && node.text && node.text.indexOf(phrase) !== -1) {
-      const from = pos + node.text.indexOf(phrase);
-      result = { from, to: from + phrase.length };
-      return false;
-    }
-    return true;
-  });
-  return result;
-}
-
-function seedSampleAnnotations(): void {
-  const samples: Array<{ phrase: string; body: string; target: "agent" | "human" }> = [
-    { phrase: "quick brown fox", body: "Cut this metaphor — say 'dropped inactive rows'.", target: "agent" },
-    { phrase: "signup cohort, not at random", body: "Why 80/20? Note the rationale here.", target: "agent" },
-    { phrase: "Recall on the smallest plan tier is poor", body: "Share this caveat with the PM before launch.", target: "human" },
-  ];
-  for (const s of samples) {
-    const r = findPhrase(s.phrase);
-    if (!r) continue;
-    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, r.from, r.to)));
-    addAnnotation(view, log, s.body, s.target);
-  }
-  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 1)));
-}
-
 // --- Center views: review (the locked annotation core) / journal / kanban ---
 const breadcrumbEl = document.querySelector<HTMLElement>("#breadcrumb")!;
 
@@ -1286,6 +1290,8 @@ document.addEventListener("orden:open-page", (e) => {
 // annotatable surfaces, so the panel hides there instead of sitting empty.
 const ANNOTATABLE_VIEWS = new Set<View>(["review", "code", "image", "html"]);
 
+const lastView = (await host.vault.get<string>("ui", "last-view")) as View | null;
+
 const viewStore = createViewStore("review");
 viewStore.subscribe((v) => {
   for (const name of Object.keys(viewEls) as View[]) {
@@ -1325,6 +1331,9 @@ viewStore.subscribe((v) => {
   // view with open annotations is active); never touches the review buttons.
   refreshSourceSend();
   if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
+});
+viewStore.subscribe((v) => {
+  void host.vault.set("ui", "last-view", v);
 });
 
 function openPage(name: string): void {
@@ -1549,7 +1558,6 @@ function loadReviewDoc(opts: {
   key: string;
   title: string;
   markdown: string;
-  seedIfEmpty?: boolean;
   // Use opts.markdown verbatim, ignoring any saved markdown — for a live reload
   // when the underlying file changed on disk. Saved annotations are still kept
   // and re-anchored onto the new text.
@@ -1571,7 +1579,7 @@ function loadReviewDoc(opts: {
   for (const r of records) {
     const quote = r.anchor?.quote;
     if (!quote) continue;
-    const range = reanchorQuote(parsed, quote);
+    const range = reanchorQuote(parsed, quote, r.anchor?.position);
     if (range) {
       tr = tr.addMark(
         range.from,
@@ -1581,7 +1589,6 @@ function loadReviewDoc(opts: {
     }
   }
   view.dispatch(tr);
-  if (!saved && opts.seedIfEmpty) seedSampleAnnotations();
   if (viewStore.get() === "review") updateBreadcrumb();
 }
 
@@ -1698,18 +1705,18 @@ renderRecentFiles();
 // annotations on first run). Repo files open per project from the FILES nav /
 // project page; boot no longer reopens a single global file.
 loadReviewDoc({
-  key: "review:sample",
+  key: "review:default",
   title: DOC_TITLE,
-  markdown: sampleMarkdown,
-  seedIfEmpty: true,
+  markdown: "",
 });
 
 onUpdate();
 applyLayout(mobile.matches);
 
-// Route the initial view from the startup preference ("last" -> review).
+// Route the initial view from the startup preference.
 if (settings.startup === "journal") viewStore.set("journal");
 else if (settings.startup === "kanban") viewStore.set("kanban");
+else viewStore.set(lastView ?? "journal");
 
 // --- Projects registry (local/remote file access arrives with the host backend) ---
 const projectList = document.querySelector<HTMLElement>("#project-list")!;

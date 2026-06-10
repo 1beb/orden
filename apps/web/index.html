@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- interactive-widget=resizes-content shrinks the layout viewport when the
+         on-screen keyboard opens, so fixed panes (and their headers) stay visible
+         instead of being overlaid/scrolled away. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>Orden — review</title>
   </head>
   <body>
@@ -167,26 +170,7 @@
         </div>
       </section>
 
-      <aside id="sessions">
-        <header class="sess-head">
-          <span class="sess-dot"></span>
-          <span class="sess-name">churn model review</span>
-          <span class="sess-state">ready</span>
-        </header>
-        <div class="term">
-          <pre class="term-body">
-<span class="t-dim">$ claude</span>
-<span class="t-accent">●</span> Trained gradient-boosted churn model on 48,210 rows.
-  Calibrated on the held-out signup cohort.
-
-<span class="t-dim">› writing review to</span> review.md
-<span class="t-accent">●</span> open_in_main_view("review.md")
-  parked for review — state: <span class="t-ready">ready</span>
-
-<span class="t-dim">› awaiting your feedback…</span>
-<span class="t-cursor">▋</span></pre>
-        </div>
-      </aside>
+      <aside id="sessions"></aside>
 
       <div id="scrim"></div>
     </div>
