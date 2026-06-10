@@ -162,6 +162,31 @@ describe("sessions store (host-backed)", () => {
     expect(after?.touched).toBe(true); // the web's own change still landed
   });
 
+  it("a web persist never clobbers the host-authored workdir/branch", async () => {
+    // Same mechanism as conversationId: the host assigns the session's worktree
+    // (workdir) and branch at launch (resolveSessionCwd) and writes them straight
+    // to the vault. A stale-cache web persist must preserve both, or panel_open/
+    // doc_render lose the session-scoped file root.
+    const h = new BrowserHost();
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    const s = createSession({ title: "Isolated", agent: "claude" });
+    await settle();
+    const rec = (await h.vault.get<Session>("sessions", s.id)) as Session;
+    await h.vault.set("sessions", s.id, {
+      ...rec,
+      workdir: "/home/u/.orden/worktrees/p1/s1",
+      branch: "orden/isolated",
+    });
+    markSessionTouched(s.id);
+    await settle();
+    const after = await h.vault.get<Session>("sessions", s.id);
+    expect(after?.workdir).toBe("/home/u/.orden/worktrees/p1/s1");
+    expect(after?.branch).toBe("orden/isolated");
+    expect(after?.touched).toBe(true);
+  });
+
   it("a web persist never clobbers the host-authored `prompted` flag", async () => {
     // Same mechanism as conversationId: `prompted` flows host -> vault -> cache
     // only (reapDeadSessions reads it to spare real work). A stale-cache persist

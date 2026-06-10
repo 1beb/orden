@@ -33,6 +33,8 @@ export interface Session {
   // Text handed to the agent on first launch (the card's title when started from
   // a card). The host consumes + clears it in buildCommand.
   initialPrompt?: string;
+  workdir?: string; // host-assigned per-session git worktree the agent runs in
+  branch?: string; // the orden/<slug> branch that worktree was created on
 }
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -199,7 +201,7 @@ export function deleteSession(id: string): void {
 // (sessionForConversation), that silently severs the auto-cycle and freezes the
 // card at planning. So persist re-reads the freshest record and always takes
 // these host-owned fields from it rather than from the (possibly stale) cache.
-const HOST_OWNED = ["conversationId", "prompted"] as const;
+const HOST_OWNED = ["conversationId", "prompted", "workdir", "branch"] as const;
 
 function persist(session: Session): void {
   if (!host) return;
