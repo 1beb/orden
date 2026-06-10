@@ -86,7 +86,7 @@ export class NodeTerminalChat implements TerminalChat {
     if (this.mirrors.has(sessionId)) return true;
     const sess = await this.host.vault.get<Session>("sessions", sessionId);
     if (!sess || !sess.conversationId) return false;
-    const cwd = await resolveSessionCwd(this.host, sess.projectId, this.defaultCwd);
+    const cwd = await resolveSessionCwd(this.host, sess, sessionId, this.defaultCwd);
 
     if (sess.agent === "claude") {
       const mirror = new TranscriptMirror(this.host.vault, sessionId, cwd, sess.conversationId);
@@ -157,7 +157,7 @@ export class NodeTerminalChat implements TerminalChat {
   ): Promise<QuestionSpec[] | null> {
     const sess = await this.host.vault.get<Session>("sessions", sessionId);
     if (!sess || sess.agent !== "claude" || !sess.conversationId) return null;
-    const cwd = await resolveSessionCwd(this.host, sess.projectId, this.defaultCwd);
+    const cwd = await resolveSessionCwd(this.host, sess, sessionId, this.defaultCwd);
     const raw = this.readTranscript(cwd, sess.conversationId);
     if (raw == null) return null;
     return questionSpecsFromTranscript(raw, toolId);

@@ -122,7 +122,7 @@ export async function reconcileIdleCards(
     for (const sid of sessionIds) {
       const ses = await host.vault.get<SessionRec>("sessions", sid);
       if (!ses) continue;
-      const cwd = await resolveSessionCwd(host, ses.projectId, defaultCwd);
+      const cwd = await resolveSessionCwd(host, ses, sid, defaultCwd);
       const a = deps.lastActivity(ses, cwd);
       if (a !== null && (newest === null || a > newest)) newest = a;
     }

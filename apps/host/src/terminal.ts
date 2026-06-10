@@ -27,6 +27,12 @@ import {
   existingOpencodeSessions,
   readOpencodeTitle,
 } from "./opencodeSession";
+import {
+  readWorktreeSettings,
+  isolationEnabled,
+  ensureSessionWorktree,
+  type GitExec,
+} from "./worktrees";
 
 const exec = promisify(execFile);
 
@@ -83,6 +89,11 @@ interface SessionRecord {
   // started from a card). Consumed + cleared by buildCommand so a later reattach
   // doesn't re-send it.
   initialPrompt?: string;
+  // Worktree isolation (HOST_OWNED, like conversationId): the per-session git
+  // worktree the agent runs in, and the orden/<slug> branch it was created on.
+  // Set by resolveSessionCwd on first launch; reused on resume.
+  workdir?: string;
+  branch?: string;
   [k: string]: unknown;
 }
 
@@ -225,30 +236,87 @@ function ensureOpencodePluginDir(sessionId: string): string {
   return dir;
 }
 
-// Resolve the working directory a session's agent should launch in: the folder
-// its project is associated with. A `local` project runs in its OWN path; every
-// other source kind (ephemeral has no folder; ssh/s3 are remote, not a local
-// dir yet) falls back to the host's defaultCwd. A configured-but-missing local
-// path also falls back rather than failing the tmux `-c` launch. Used by both
-// launch paths (launchDetached + handle) so a session, its opencode session
-// discovery, and its title polling all agree on one cwd.
+// Resolve the working directory a session's agent should launch in. A `local`
+// project runs in its OWN path; every other source kind (ephemeral has no
+// folder; ssh/s3 are remote, not a local dir yet) falls back to the host's
+// defaultCwd. A configured-but-missing local path also falls back rather than
+// failing the tmux `-c` launch. Used by both launch paths (launchDetached +
+// handle) so a session, its opencode session discovery, and its title polling
+// all agree on one cwd.
+//
+// Worktree isolation: when the global setting (project-overridable) is on and
+// the project path is a git repo, the session gets its OWN worktree on an
+// orden/<slug> branch so no session can clobber a sibling's — or the user's —
+// uncommitted state. The worktree is created lazily, but ONLY by the launch
+// paths (opts.launch): read-only consumers (idle reconciler, transcript
+// mirroring) just follow the persisted `workdir` and must never mint worktrees
+// for sessions that were never launched. The chosen workdir/branch are
+// persisted on the session record (HOST_OWNED).
+//
+// The rec param is structural (not the full SessionRecord) so read-side callers
+// with their own narrower session types can pass theirs.
+export interface SessionCwdRec {
+  projectId?: string;
+  workdir?: string;
+  branch?: string;
+  title?: string;
+  initialPrompt?: string;
+  [k: string]: unknown;
+}
+
 export async function resolveSessionCwd(
   host: Host,
-  projectId: string | undefined,
+  rec: SessionCwdRec,
+  sessionId: string,
   defaultCwd: string,
+  opts?: { launch?: boolean; exec?: GitExec },
 ): Promise<string> {
+  // A session that already ran in a worktree stays associated with it — even
+  // for reads after the worktree was reaped (claude keys transcripts by the
+  // cwd the agent RAN in, so consistency beats existence here).
+  if (!opts?.launch && typeof rec.workdir === "string" && rec.workdir) return rec.workdir;
+
+  const projectId = rec.projectId;
   if (!projectId) return defaultCwd;
   const project = await host.vault.get<Project>("projects", projectId);
   if (!project || project.source.kind !== "local") return defaultCwd;
   const path = project.source.path;
+  let dirOk = false;
   try {
-    if (existsSync(path) && statSync(path).isDirectory()) return path;
+    dirOk = existsSync(path) && statSync(path).isDirectory();
   } catch {
     /* fall through to the warn + default */
   }
-  // eslint-disable-next-line no-console
-  console.warn(`orden: project ${projectId} local path is not a directory, using ${defaultCwd}: ${path}`);
-  return defaultCwd;
+  if (!dirOk) {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: project ${projectId} local path is not a directory, using ${defaultCwd}: ${path}`);
+    return defaultCwd;
+  }
+  if (!opts?.launch) return path;
+
+  const settings = await readWorktreeSettings(host.vault);
+  if (!isolationEnabled(settings.isolation, project)) return path;
+  const vaultRoot = host.capabilities().vaultRoot;
+  if (!vaultRoot) return path; // no persistent vault → nowhere to root worktrees
+  const wt = await ensureSessionWorktree(
+    {
+      repo: path,
+      vaultRoot,
+      projectId: project.id,
+      sessionId,
+      title: rec.title && rec.title !== "Untitled session" ? rec.title : rec.initialPrompt,
+      existingWorkdir: typeof rec.workdir === "string" ? rec.workdir : undefined,
+      baseRefSetting: settings.baseRef,
+    },
+    opts?.exec,
+  );
+  if (!wt) return path; // non-git dir or creation failed: shared checkout
+  if (rec.workdir !== wt.workdir) {
+    rec.workdir = wt.workdir;
+    if (wt.branch) rec.branch = wt.branch;
+    await host.vault.set("sessions", sessionId, rec);
+  }
+  return wt.workdir;
 }
 
 async function markTouched(host: Host, sessionId: string): Promise<void> {
@@ -426,7 +494,7 @@ export async function launchDetached(
   try {
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
-    const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
+    const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: true });
     const ocEnv = opencodeEnv(rec, sessionId);
     const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
     const tmuxName = tmuxNameFor(sessionId);
@@ -565,10 +633,11 @@ async function handle(
     return;
   }
 
-  // Launch in the session's project directory (falls back to defaultCwd). Used
-  // for the tmux launch AND for opencode discovery / title polling below — they
-  // must all read the same cwd the agent actually runs in.
-  const cwd = await resolveSessionCwd(host, rec.projectId, defaultCwd);
+  // Launch in the session's project directory or its isolated worktree (falls
+  // back to defaultCwd). Used for the tmux launch AND for opencode discovery /
+  // title polling below — they must all read the same cwd the agent actually
+  // runs in.
+  const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: true });
 
   // For a first-open opencode session (no id yet) snapshot the session ids that
   // already exist in this cwd BEFORE launching, so post-launch discovery only picks

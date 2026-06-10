@@ -23,18 +23,36 @@ import {
 import { encodeCwd } from "../src/transcriptTitle";
 import type { Host, Project } from "@orden/host-api";
 
-// A host whose vault returns the given project records (ns "projects") and
-// nothing else — enough to drive resolveSessionCwd without real storage.
-function hostWithProjects(projects: Record<string, Project>): Host {
+// A host whose vault returns the given project records (ns "projects"), plus an
+// optional settings record and vaultRoot capability — enough to drive
+// resolveSessionCwd (including its worktree branch) without real storage.
+// Session writes are captured in `written` for assertions.
+function hostWithProjects(
+  projects: Record<string, Project>,
+  opts: { settings?: Record<string, unknown>; vaultRoot?: string } = {},
+): Host & { written: Record<string, unknown> } {
+  const written: Record<string, unknown> = {};
   return {
+    written,
     vault: {
-      get: async (ns: string, key: string) =>
-        ns === "projects" ? (projects[key] ?? null) : null,
-      set: async () => {},
+      get: async (ns: string, key: string) => {
+        if (ns === "projects") return projects[key] ?? null;
+        if (ns === "settings" && key === "app") return opts.settings ?? null;
+        return null;
+      },
+      set: async (ns: string, key: string, value: unknown) => {
+        written[`${ns}/${key}`] = value;
+      },
       list: async () => [],
       delete: async () => {},
     },
-  } as unknown as Host;
+    capabilities: () => ({ vaultRoot: opts.vaultRoot }),
+  } as unknown as Host & { written: Record<string, unknown> };
+}
+
+// Minimal session record for resolveSessionCwd.
+function recFor(projectId: string | undefined, extra: Record<string, unknown> = {}) {
+  return { id: "s1", agent: "claude" as const, projectId: projectId as string, ...extra };
 }
 
 const ORIGINAL_PORT = process.env.ORDEN_PORT;
@@ -134,33 +152,37 @@ describe("settingsArg", () => {
 
 describe("resolveSessionCwd", () => {
   const DEFAULT = "/host/default";
+  // Worktree creation off (isolation disabled) keeps these focused on the
+  // project-path resolution rules; isolation cases have their own describe.
+  const NO_ISO = { settings: { worktreeIsolation: false } };
 
   test("uses a local project's own path", async () => {
     const dir = tmpdir(); // a real directory, so the existence guard passes
-    const host = hostWithProjects({
-      p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } },
-    });
-    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(dir);
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      NO_ISO,
+    );
+    expect(await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT)).toBe(dir);
   });
 
   test("falls back to defaultCwd for an ephemeral project", async () => {
     const host = hostWithProjects({
       p1: { id: "p1", name: "Homeroom", source: { kind: "ephemeral" } },
     });
-    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT)).toBe(DEFAULT);
   });
 
   test("falls back to defaultCwd for an ssh project (no local folder yet)", async () => {
     const host = hostWithProjects({
       p1: { id: "p1", name: "Box", source: { kind: "ssh", host: "h", path: "/srv" } },
     });
-    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT)).toBe(DEFAULT);
   });
 
   test("falls back when the project is unknown or projectId is missing", async () => {
     const host = hostWithProjects({});
-    expect(await resolveSessionCwd(host, "nope", DEFAULT)).toBe(DEFAULT);
-    expect(await resolveSessionCwd(host, undefined, DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, recFor("nope"), "s1", DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, recFor(undefined), "s1", DEFAULT)).toBe(DEFAULT);
   });
 
   test("falls back when a local path does not exist", async () => {
@@ -171,7 +193,103 @@ describe("resolveSessionCwd", () => {
         source: { kind: "local", path: "/no/such/orden/dir/xyz" },
       },
     });
-    expect(await resolveSessionCwd(host, "p1", DEFAULT)).toBe(DEFAULT);
+    expect(await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT)).toBe(DEFAULT);
+  });
+});
+
+describe("resolveSessionCwd worktree isolation", () => {
+  const DEFAULT = "/host/default";
+
+  // A git-positive exec that records worktree adds and reports branches free.
+  function gitExec(calls: string[][]) {
+    return (cwd: string, args: string[]) => {
+      calls.push([cwd, ...args]);
+      if (args.includes("--is-inside-work-tree"))
+        return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") return Promise.resolve({ stdout: "", code: 0 });
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+  }
+
+  test("creates a worktree for a local git project and persists workdir+branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const vaultRoot = join(dir, "vault");
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot },
+    );
+    const calls: string[][] = [];
+    const rec = recFor("p1", { title: "Fix It" });
+    const cwd = await resolveSessionCwd(host, rec, "s1", DEFAULT, { launch: true, exec: gitExec(calls) });
+    expect(cwd).toBe(join(vaultRoot, "..", "worktrees", "p1", "s1"));
+    const persisted = host.written["sessions/s1"] as { workdir?: string; branch?: string };
+    expect(persisted.workdir).toBe(cwd);
+    expect(persisted.branch).toBe("orden/fix-it");
+  });
+
+  test("global setting off keeps the project path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault"), settings: { worktreeIsolation: false } },
+    );
+    const calls: string[][] = [];
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: gitExec(calls) });
+    expect(cwd).toBe(dir);
+    expect(calls.length).toBe(0);
+  });
+
+  test("project override off beats global on", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      {
+        p1: {
+          id: "p1", name: "Repo", source: { kind: "local", path: dir }, worktreeIsolation: false,
+        },
+      },
+      { vaultRoot: join(dir, "vault"), settings: { worktreeIsolation: true } },
+    );
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: gitExec([]) });
+    expect(cwd).toBe(dir);
+  });
+
+  test("an existing workdir on the record is reused as-is", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const existing = join(dir, "wt");
+    mkdirSync(existing);
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault") },
+    );
+    const calls: string[][] = [];
+    const cwd = await resolveSessionCwd(host, recFor("p1", { workdir: existing }), "s1", DEFAULT, {
+      launch: true,
+      exec: gitExec(calls),
+    });
+    expect(cwd).toBe(existing);
+    expect(calls.length).toBe(0);
+    expect(host.written["sessions/s1"]).toBeUndefined(); // nothing changed
+  });
+
+  test("a non-git project dir falls back to the project path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault") },
+    );
+    const noGit = (_cwd: string, _args: string[]) => Promise.resolve({ stdout: "", code: 128 });
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: noGit });
+    expect(cwd).toBe(dir);
+  });
+
+  test("no vaultRoot capability keeps the project path (browser-style host)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects({
+      p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } },
+    });
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: gitExec([]) });
+    expect(cwd).toBe(dir);
   });
 });
 
