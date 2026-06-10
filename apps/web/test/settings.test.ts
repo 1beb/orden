@@ -16,6 +16,9 @@ const DEFAULTS = {
   timeZone: "",
   defaultMode: { claude: "tui", opencode: "tui" },
   showScratchTerminal: true,
+  worktreeIsolation: true,
+  worktreeBaseRef: "",
+  prForge: "auto",
 };
 
 describe("settings store (host-backed)", () => {
@@ -69,6 +72,9 @@ describe("settings store (host-backed)", () => {
       timeZone: "",
       defaultMode: { claude: "tui", opencode: "tui" },
       showScratchTerminal: true,
+      worktreeIsolation: true,
+      worktreeBaseRef: "",
+      prForge: "auto",
     });
   });
 
@@ -158,4 +164,19 @@ describe("settings store (host-backed)", () => {
     expect(coerce({ showScratchTerminal: "yes" }).showScratchTerminal).toBe(true);
     expect(coerce({ showScratchTerminal: false }).showScratchTerminal).toBe(false);
   });
+  it("defaults the worktree isolation fields", () => {
+    const s = coerce({});
+    expect(s.worktreeIsolation).toBe(true);
+    expect(s.worktreeBaseRef).toBe("");
+    expect(s.prForge).toBe("auto");
+  });
+
+  it("keeps valid worktree fields and rejects junk", () => {
+    expect(coerce({ worktreeIsolation: false }).worktreeIsolation).toBe(false);
+    expect(coerce({ worktreeBaseRef: "origin/develop" }).worktreeBaseRef).toBe("origin/develop");
+    expect(coerce({ prForge: "glab" }).prForge).toBe("glab");
+    expect(coerce({ prForge: "hg" }).prForge).toBe("auto");
+    expect(coerce({ worktreeBaseRef: 42 }).worktreeBaseRef).toBe("");
+  });
+
 });

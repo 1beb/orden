@@ -9,6 +9,7 @@ import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 export type StartupView = "journal" | "kanban" | "last";
 export type KanbanView = "board" | "list";
 export type SessionMode = "tui" | "gui";
+export type PrForge = "auto" | "gh" | "glab" | "none";
 
 export interface Settings {
   startup: StartupView;
@@ -24,10 +25,14 @@ export interface Settings {
   timeZone: string; // IANA zone for journal day-keys; "" = inherit the host's zone
   defaultMode: { claude: SessionMode; opencode: SessionMode }; // per-tool session UI default (TUI terminal vs native GUI chat)
   showScratchTerminal: boolean; // show the scratch-terminal button in the session pane
+  worktreeIsolation: boolean; // launch agent sessions in per-session git worktrees
+  worktreeBaseRef: string; // session branch base ref; "" = the repo's default branch (origin/HEAD)
+  prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
 const KANBAN_VIEWS: readonly KanbanView[] = ["board", "list"];
+const PR_FORGES: readonly PrForge[] = ["auto", "gh", "glab", "none"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
@@ -78,6 +83,9 @@ const DEFAULT_SETTINGS: Settings = {
   timeZone: "",
   defaultMode: { claude: "tui", opencode: "tui" },
   showScratchTerminal: true,
+  worktreeIsolation: true,
+  worktreeBaseRef: "",
+  prForge: "auto",
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -142,6 +150,17 @@ export function coerce(stored: unknown): Settings {
       typeof s.showScratchTerminal === "boolean"
         ? s.showScratchTerminal
         : DEFAULT_SETTINGS.showScratchTerminal,
+    worktreeIsolation:
+      typeof s.worktreeIsolation === "boolean"
+        ? s.worktreeIsolation
+        : DEFAULT_SETTINGS.worktreeIsolation,
+    worktreeBaseRef:
+      typeof s.worktreeBaseRef === "string"
+        ? s.worktreeBaseRef
+        : DEFAULT_SETTINGS.worktreeBaseRef,
+    prForge: (PR_FORGES as readonly string[]).includes(s.prForge as string)
+      ? (s.prForge as PrForge)
+      : DEFAULT_SETTINGS.prForge,
   };
 }
 
