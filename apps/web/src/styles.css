@@ -3829,11 +3829,18 @@ li.sess-done-head {
   transition: clip-path 0.2s ease;
 }
 /* The description IS the input, continued: match the add input's text metrics
-   so the typed text doesn't shift when the form grows around it. */
+   so the typed text doesn't shift when the form grows around it, and keep the
+   add input's focus treatment (the browser's default ring — .project-add-input
+   defines no :focus) instead of the desc's accent border, so the highlight
+   doesn't flip from black to purple mid-growth. */
 .card-modal--insitu .card-modal__desc {
   font-size: calc(14px * var(--font-scale));
   padding: 7px 10px;
   border-radius: 7px;
+}
+.card-modal--insitu .card-modal__desc:focus {
+  outline: revert;
+  border-color: var(--line);
 }
 .card-modal--insitu .card-modal__header {
   transition:
