@@ -3,7 +3,7 @@
 // Pages are the natural agent-editable surface (vault ns "pages"); vault_* give
 // raw access to any namespace.
 
-import type { Host, VaultStore } from "@orden/host-api";
+import type { Host, VaultStore, PublishResult } from "@orden/host-api";
 // Deep import the DOM-free ./page subpath, not the barrel: the barrel re-exports
 // kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
 import { journalKey } from "@orden/outliner/page";
@@ -313,13 +313,56 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
   await appendAutoLog(vault, journalKey(when, tz), entry);
 }
 
+// Ranking for picking the card-level publish stamp when a card has several
+// sessions: surface the most "published" outcome.
+const PUBLISH_RANK: Record<PublishResult["state"], number> = {
+  "pr-opened": 5,
+  pushed: 4,
+  "push-failed": 3,
+  "no-remote": 2,
+  dirty: 1,
+  "no-worktree": 0,
+};
+
 export async function cardComplete(
   vault: VaultStore,
   target: string,
   summary?: string,
+  opts?: {
+    /** Complete even with unpublished/dirty work — only on the user's explicit say-so. */
+    force?: boolean;
+    /**
+     * The host's capability-gated publish service (Host.publish). Absent when
+     * running standalone / on a host without git — completion then behaves
+     * exactly as before the publish gate existed.
+     */
+    publish?: (sessionId: string, meta: { title: string; summary?: string }) => Promise<PublishResult>;
+  },
 ): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
+
+  // Publish gate: committed-and-pushed is the only durable exit state for
+  // session work. Runs BEFORE the state flips so a dirty worktree can refuse
+  // the completion (a post-write reactor could not block it).
+  let best: PublishResult | undefined;
+  if (opts?.publish) {
+    const results: PublishResult[] = [];
+    for (const sessionId of cardSessionIds(card)) {
+      results.push(await opts.publish(sessionId, { title: card.title, summary: summary?.trim() || undefined }));
+    }
+    const real = results.filter((r) => r.state !== "no-worktree");
+    const dirty = real.find((r) => r.state === "dirty");
+    if (dirty && !opts.force) {
+      return text(
+        `cannot complete: session worktree has uncommitted changes on branch ${dirty.branch ?? "(unknown)"}.\n` +
+          `Commit your work (git add <files> && git commit) in the worktree, then call card_complete again.\n` +
+          `Pass force:true ONLY if the user explicitly said to complete without publishing.`,
+      );
+    }
+    best = real.sort((a, b) => PUBLISH_RANK[b.state] - PUBLISH_RANK[a.state])[0];
+  }
+
   // Stamp completion + stash the summary on the card so logCardCompletion (and
   // the host reactor, which fires off this very write) can render it. We also
   // log directly here so the journal lands even when no reactor is wired (the
@@ -330,10 +373,26 @@ export async function cardComplete(
     state: "complete",
     completedAt: Date.now(),
     completionSummary: summary?.trim() || undefined,
+    ...(best
+      ? {
+          publishState: best.state,
+          ...(best.branch ? { branch: best.branch } : {}),
+          ...(best.prUrl ? { prUrl: best.prUrl } : {}),
+          ...(best.compareUrl ? { compareUrl: best.compareUrl } : {}),
+          ...(best.error ? { publishError: best.error } : {}),
+        }
+      : {}),
   };
   await vault.set("cards", card.id, completed);
   await logCardCompletion(vault, completed);
-  return text(`card "${card.title}" -> complete`);
+  const pub = !best
+    ? ""
+    : best.state === "pr-opened"
+      ? ` (branch ${best.branch} pushed, PR ${best.prUrl})`
+      : best.state === "pushed"
+        ? ` (branch ${best.branch} pushed${best.compareUrl ? `, compare: ${best.compareUrl}` : ""})`
+        : ` (publish: ${best.state}${best.error ? ` — ${best.error}` : ""})`;
+  return text(`card "${card.title}" -> complete${pub}`);
 }
 
 // Associate a planning document (a docs/plans/*.md repo file) with a card. The

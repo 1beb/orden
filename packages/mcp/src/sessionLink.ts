@@ -30,6 +30,16 @@ export interface CardRec {
    * completion, which logs without a summary.
    */
   completionSummary?: string;
+  /**
+   * Integration state stamped at completion by the publish gate (cardComplete
+   * with a Host.publish hook, or the host's publish reactor for web drags):
+   * how the session branch left the system. See PublishResult in host-api.
+   */
+  publishState?: string;
+  branch?: string;
+  prUrl?: string;
+  compareUrl?: string;
+  publishError?: string;
   [k: string]: unknown;
 }
 

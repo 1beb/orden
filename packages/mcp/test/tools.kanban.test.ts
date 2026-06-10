@@ -241,6 +241,72 @@ describe("cardComplete", () => {
       /^- earlier entry\n- Automatic Logging\n  - \d\d:\d\d Completed "Fix login" — later \[\[Project: Alpha\]\]\n$/,
     );
   });
+  // --- publish gate (worktree isolation) -----------------------------------
+
+  const publishOf = (results: Record<string, import("@orden/host-api").PublishResult>) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      publish: async (sessionId: string) => {
+        calls.push(sessionId);
+        return results[sessionId] ?? { state: "no-worktree" as const };
+      },
+    };
+  };
+
+  it("completes exactly as today when no publish hook is wired (standalone)", async () => {
+    const v = seed();
+    expect(out(await cardComplete(v, "c1", "done"))).toBe('card "Fix login" -> complete');
+    expect((await v.get<Record<string, unknown>>("cards", "c1"))?.state).toBe("complete");
+  });
+
+  it("refuses to complete when a session worktree is dirty (no force)", async () => {
+    const v = seed();
+    const { publish } = publishOf({ s1: { state: "dirty", branch: "orden/fix-login" } });
+    const t = out(await cardComplete(v, "c1", "done", { publish }));
+    expect(t).toContain("uncommitted changes");
+    expect(t).toContain("orden/fix-login");
+    expect((await v.get<Record<string, unknown>>("cards", "c1"))?.state).toBe("in-progress");
+  });
+
+  it("force completes past a dirty worktree, stamping the publish state", async () => {
+    const v = seed();
+    const { publish } = publishOf({ s1: { state: "dirty", branch: "orden/fix-login" } });
+    const t = out(await cardComplete(v, "c1", "done", { publish, force: true }));
+    expect(t).toContain("-> complete");
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card?.state).toBe("complete");
+    expect(card?.publishState).toBe("dirty");
+    expect(card?.branch).toBe("orden/fix-login");
+  });
+
+  it("stamps branch + PR url on the card when publish opens a PR", async () => {
+    const v = seed();
+    const { publish, calls } = publishOf({
+      s1: {
+        state: "pr-opened",
+        branch: "orden/fix-login",
+        prUrl: "https://github.com/x/y/pull/7",
+      },
+    });
+    const t = out(await cardComplete(v, "c1", "done", { publish }));
+    expect(calls).toEqual(["s1"]);
+    expect(t).toContain("https://github.com/x/y/pull/7");
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card?.state).toBe("complete");
+    expect(card?.publishState).toBe("pr-opened");
+    expect(card?.prUrl).toBe("https://github.com/x/y/pull/7");
+  });
+
+  it("a no-worktree session completes silently (nothing to publish)", async () => {
+    const v = seed();
+    const { publish } = publishOf({ s1: { state: "no-worktree" } });
+    const t = out(await cardComplete(v, "c1", "done", { publish }));
+    expect(t).toBe('card "Fix login" -> complete');
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card?.publishState).toBeUndefined();
+  });
+
   it("does not write a duplicate journal/card-log entry when completion is logged twice", async () => {
     // Reproduces the double-write seen in the field: a single completion that
     // gets logged twice (e.g. an MCP double-dispatch, or the direct call plus

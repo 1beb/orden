@@ -170,12 +170,23 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
           .string()
           .optional()
           .describe("one- or two-sentence summary of what was done, for the journal entry"),
+        force: z
+          .boolean()
+          .optional()
+          .describe(
+            "complete even with unpublished/dirty worktree changes — pass ONLY when the user explicitly said to complete without publishing",
+          ),
       },
     },
-    async ({ target, summary }) => {
+    async ({ target, summary, force }) => {
       const id = target ?? (await currentCardId());
       if (!id) return unbound();
-      return tools.cardComplete(host.vault, id, summary);
+      // The publish gate (clean-check + push + PR) rides the host's optional
+      // capability; standalone hosts complete exactly as before.
+      return tools.cardComplete(host.vault, id, summary, {
+        force,
+        publish: host.publish?.bind(host),
+      });
     },
   );
 
