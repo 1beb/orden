@@ -1837,6 +1837,30 @@ if (autoLaunchCb) {
   });
 }
 
+// Worktree isolation: when on (the default), each new session of a local git
+// project launches in its own git worktree on an orden/<slug> branch. Read at
+// launch time by the host; flipping it affects the NEXT launch only.
+const worktreeCb = document.querySelector<HTMLInputElement>("#worktree-isolation");
+if (worktreeCb) {
+  worktreeCb.checked = loadSettings().worktreeIsolation;
+  worktreeCb.addEventListener("change", () => {
+    void saveSettings({ worktreeIsolation: worktreeCb.checked });
+  });
+}
+
+// PR forge: how card completion publishes a session branch — auto-infer the
+// forge CLI from the remote URL, force one, or push without opening a PR.
+const prForgeSel = document.querySelector<HTMLSelectElement>("#pr-forge");
+if (prForgeSel) {
+  prForgeSel.value = loadSettings().prForge;
+  prForgeSel.addEventListener("change", () => {
+    const v = prForgeSel.value;
+    if (v === "auto" || v === "gh" || v === "glab" || v === "none") {
+      void saveSettings({ prForge: v });
+    }
+  });
+}
+
 // HTML render default: when on, .html files open rendered; off shows source.
 // This is the default only — a per-file topbar toggle can override it for the
 // session. Changing it re-opens the current file if it's HTML, so the change is

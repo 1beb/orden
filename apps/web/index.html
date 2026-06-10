@@ -103,6 +103,14 @@
                 <section class="settings-group">
                   <h2 class="settings-group-title">Sessions &amp; Board</h2>
                   <label class="settings-opt"><input type="checkbox" id="session-autolaunch" /> Launch new sessions immediately</label>
+                  <label class="settings-opt"><input type="checkbox" id="worktree-isolation" /> Isolate sessions in git worktrees</label>
+                  <div class="settings-label">PRs on completion</div>
+                  <select id="pr-forge" class="settings-select">
+                    <option value="auto">Auto-detect from remote</option>
+                    <option value="gh">GitHub (gh)</option>
+                    <option value="glab">GitLab (glab)</option>
+                    <option value="none">Push only</option>
+                  </select>
                   <label class="settings-opt"><input type="checkbox" id="show-scratch-terminal" /> Show Terminal Only button</label>
                   <label class="settings-opt"><input type="checkbox" id="show-archived" /> Show archived sessions</label>
                   <div class="settings-mode-block">
