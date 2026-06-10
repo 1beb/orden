@@ -201,6 +201,20 @@ export function createMcpServer(host: Host, ctx?: { conversationId?: string }): 
   );
 
   server.registerTool(
+    "card_delete",
+    {
+      description:
+        "Delete a kanban card outright. DESTRUCTIVE — ONLY call this when the user has explicitly told you to delete the card. Requires an explicit card id or title; it NEVER acts on this session's card by default. Linked sessions are left intact.",
+      inputSchema: {
+        target: z
+          .string()
+          .describe("card id or title (required — deletion never defaults to the current session's card)"),
+      },
+    },
+    ({ target }) => tools.cardDelete(host.vault, target),
+  );
+
+  server.registerTool(
     "session_create",
     {
       description:

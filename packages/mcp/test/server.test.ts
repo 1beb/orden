@@ -44,6 +44,7 @@ describe("createMcpServer registration + binding", () => {
       "card_complete",
       "card_set_plan",
       "card_create",
+      "card_delete",
       "session_create",
       "project_list",
       "panel_open",
@@ -80,6 +81,30 @@ describe("createMcpServer registration + binding", () => {
     })) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
     expect(res.isError).toBe(true);
     expect(resultText(res)).toContain("Invalid");
+    await client.close();
+  });
+
+  it("rejects a no-target card_delete at the schema boundary (never the session's card)", async () => {
+    const { host, client } = await connectedClient({ conversationId: "uuid-1" });
+    const res = (await client.callTool({ name: "card_delete", arguments: {} })) as {
+      isError?: boolean;
+      content: Array<{ type: string; text?: string }>;
+    };
+    expect(res.isError).toBe(true);
+    // The bound session's card survives: deletion demands an explicit target.
+    expect(await host.vault.get("cards", "c1")).not.toBeNull();
+    await client.close();
+  });
+
+  it("card_delete by id removes the card but keeps the linked session", async () => {
+    const { host, client } = await connectedClient({ conversationId: "uuid-1" });
+    const res = (await client.callTool({
+      name: "card_delete",
+      arguments: { target: "c1" },
+    })) as { content: Array<{ type: string; text?: string }> };
+    expect(resultText(res)).toBe('deleted card "Fix login" (c1); linked sessions left intact: s1');
+    expect(await host.vault.get("cards", "c1")).toBeNull();
+    expect(await host.vault.get("sessions", "s1")).not.toBeNull();
     await client.close();
   });
 

@@ -10,6 +10,7 @@ import {
   logCardCompletion,
   cardSetPlan,
   cardCreate,
+  cardDelete,
   projectList,
   sessionCreate,
   panelOpen,
@@ -357,6 +358,53 @@ describe("cardCreate", () => {
     expect(out(await cardCreate(seed(), "x", "Nope"))).toBe(
       'unknown project "Nope"; available: Homeroom, Alpha',
     );
+  });
+});
+
+describe("cardDelete", () => {
+  it("deletes by id and reports the linked sessions left intact", async () => {
+    const v = seed();
+    const r = await cardDelete(v, "c1");
+    expect(out(r)).toBe('deleted card "Fix login" (c1); linked sessions left intact: s1');
+    expect(await v.get("cards", "c1")).toBeNull();
+  });
+  it("deletes by title (case-insensitive, trimmed), omitting the session suffix when none", async () => {
+    const v = seed();
+    const r = await cardDelete(v, "  write docs  ");
+    expect(out(r)).toBe('deleted card "Write docs" (c2)');
+    expect(await v.get("cards", "c2")).toBeNull();
+  });
+  it("leaves the linked session records untouched", async () => {
+    const v = seed();
+    await v.set("sessions", "s1", { id: "s1", title: "Sess", projectId: "proj_alpha" });
+    await cardDelete(v, "c1");
+    expect(await v.get("cards", "c1")).toBeNull();
+    expect(await v.get<Record<string, unknown>>("sessions", "s1")).toMatchObject({
+      id: "s1",
+      title: "Sess",
+      projectId: "proj_alpha",
+    });
+  });
+  it("requires an explicit target", async () => {
+    expect(out(await cardDelete(seed(), "   "))).toBe(
+      "card_delete requires an explicit card id or title",
+    );
+  });
+  it("reports a miss with closest candidates", async () => {
+    expect(out(await cardDelete(seed(), "login"))).toBe(
+      'no card matches "login"; closest: Fix login',
+    );
+  });
+  it("reports a miss with no candidates", async () => {
+    expect(out(await cardDelete(seed(), "zzz"))).toBe('no card matches "zzz"');
+  });
+  it("refuses an ambiguous title, listing the matching ids, and deletes nothing", async () => {
+    const v = seed();
+    await v.set("cards", "c3", { id: "c3", title: "Fix login", state: "planning", sessionIds: [] });
+    const r = await cardDelete(v, "Fix login");
+    expect(out(r)).toBe('"Fix login" matches 2 cards (c1, c3); pass a card id');
+    expect(await v.get("cards", "c1")).not.toBeNull();
+    expect(await v.get("cards", "c3")).not.toBeNull();
   });
 });
 

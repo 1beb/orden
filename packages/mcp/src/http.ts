@@ -89,6 +89,21 @@ export async function handleMcpRequest(
       );
       return;
     }
+
+    // The Streamable HTTP transport (via @hono/node-server) reads from
+    // req.rawHeaders, not req.headers. Some MCP clients send Accept headers
+    // that don't include both required media types (application/json and
+    // text/event-stream). Replace with the exact required value so the MCP
+    // SDK's handshake succeeds.
+    const acceptIdx = req.rawHeaders.findIndex(
+      (h, i) => i % 2 === 0 && h.toLowerCase() === "accept",
+    );
+    if (acceptIdx === -1) {
+      req.rawHeaders.push("Accept", "application/json, text/event-stream");
+    } else {
+      req.rawHeaders[acceptIdx + 1] = "application/json, text/event-stream";
+    }
+
     await transport.handleRequest(req, res, body);
     return;
   }

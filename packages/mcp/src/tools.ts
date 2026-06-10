@@ -7,7 +7,7 @@ import type { Host, VaultStore } from "@orden/host-api";
 // Deep import the DOM-free ./page subpath, not the barrel: the barrel re-exports
 // kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
 import { journalKey } from "@orden/outliner/page";
-import { findCard, type CardRec, type SessionRec } from "./sessionLink";
+import { findCard, cardSessionIds, type CardRec, type SessionRec } from "./sessionLink";
 import { putLearning, getLearning, type Learning, type LearningType } from "./learnings";
 
 export interface ToolResult {
@@ -382,6 +382,44 @@ export async function cardCreate(
   // `card.notes` field.
   if (notes?.trim()) await appendToPage(vault, cardLogKey(id), notes.trim());
   return text(`created card "${card.title}" in planning (${id})`);
+}
+
+// Delete a card record outright from vault ns "cards", mirroring the web's
+// removeItem: only the record goes; linked sessions are first-class and
+// survive. Unlike the other card tools this NEVER falls back to the current
+// session's card — deletion demands an explicit target — and a title shared by
+// several cards is refused rather than resolved to the first match.
+export async function cardDelete(vault: VaultStore, target: string): Promise<ToolResult> {
+  const t = target?.trim() ?? "";
+  if (!t) return text("card_delete requires an explicit card id or title");
+  const ids = await vault.list("cards");
+  const cards = (await Promise.all(ids.map((id) => vault.get<CardRec>("cards", id)))).filter(
+    (c): c is CardRec => !!c,
+  );
+  let card = cards.find((c) => c.id === t);
+  if (!card) {
+    const tl = t.toLowerCase();
+    const byTitle = cards.filter((c) => c.title.trim().toLowerCase() === tl);
+    if (byTitle.length > 1) {
+      return text(
+        `"${t}" matches ${byTitle.length} cards (${byTitle.map((c) => c.id).join(", ")}); pass a card id`,
+      );
+    }
+    card = byTitle[0];
+  }
+  if (!card) {
+    const candidates = cards
+      .filter((c) => c.title.toLowerCase().includes(t.toLowerCase()))
+      .map((c) => c.title)
+      .slice(0, 5);
+    return cardMiss(t, candidates);
+  }
+  await vault.delete("cards", card.id);
+  const linked = cardSessionIds(card);
+  return text(
+    `deleted card "${card.title}" (${card.id})` +
+      (linked.length ? `; linked sessions left intact: ${linked.join(", ")}` : ""),
+  );
 }
 
 export async function projectList(vault: VaultStore): Promise<ToolResult> {
