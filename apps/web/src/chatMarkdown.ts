@@ -57,6 +57,29 @@ function appendInline(parent: Node, text: string): void {
 
 const LIST_RE = /^\s*([-*]|\d+\.)\s+/;
 
+// Table helpers: a separator row has only |, -, :, and whitespace between pipes.
+// A data/header row has at least one pipe with content around it.
+function isTableSep(line: string): boolean {
+  return /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line);
+}
+function looksLikeTable(line: string): boolean {
+  return line.includes("|");
+}
+function parseTableRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|");
+}
+function parseTableAlign(line: string): ("left" | "center" | "right")[] {
+  return parseTableRow(line).map((c) => {
+    const t = c.trim();
+    if (t.startsWith(":") && t.endsWith(":")) return "center";
+    if (t.endsWith(":")) return "right";
+    return "left";
+  });
+}
+
 export function renderMarkdown(src: string): HTMLElement {
   const root = document.createElement("div");
   root.className = "chat-md";
@@ -82,6 +105,45 @@ export function renderMarkdown(src: string): HTMLElement {
       codeEl.textContent = code.join("\n");
       pre.appendChild(codeEl);
       root.appendChild(pre);
+      continue;
+    }
+
+    // Table: a row with pipes followed by a separator row.
+    if (looksLikeTable(line) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const headerCells = parseTableRow(line);
+      const aligns = parseTableAlign(lines[i + 1]);
+      i += 2; // skip header + separator
+      const dataRows: string[][] = [];
+      while (i < lines.length && looksLikeTable(lines[i]) && !isTableSep(lines[i])) {
+        dataRows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      const table = document.createElement("table");
+      table.className = "chat-md-table";
+      const thead = document.createElement("thead");
+      const trH = document.createElement("tr");
+      for (let ci = 0; ci < headerCells.length; ci++) {
+        const th = document.createElement("th");
+        if (aligns[ci]) th.style.textAlign = aligns[ci];
+        appendInline(th, headerCells[ci].trim());
+        trH.appendChild(th);
+      }
+      thead.appendChild(trH);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      for (const row of dataRows) {
+        const tr = document.createElement("tr");
+        const maxCols = Math.max(headerCells.length, aligns.length);
+        for (let ci = 0; ci < maxCols; ci++) {
+          const td = document.createElement("td");
+          if (aligns[ci]) td.style.textAlign = aligns[ci];
+          appendInline(td, (row[ci] ?? "").trim());
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      root.appendChild(table);
       continue;
     }
 
