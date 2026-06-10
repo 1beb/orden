@@ -259,6 +259,9 @@ export async function cardGet(vault: VaultStore, target: string): Promise<ToolRe
         state: card.state,
         project: card.projectId,
         log,
+        ...(typeof card.description === "string" && card.description
+          ? { description: card.description }
+          : {}),
         ...(typeof card.planDoc === "string" && card.planDoc ? { planDoc: card.planDoc } : {}),
       },
       null,
@@ -421,6 +424,7 @@ export async function cardCreate(
   title: string,
   projectIdOrName?: string,
   notes?: string,
+  description?: string,
 ): Promise<ToolResult> {
   let projectId: string;
   try {
@@ -435,6 +439,7 @@ export async function cardCreate(
     state: "planning",
     projectId,
     sessionIds: [],
+    ...(description?.trim() ? { description: description.trim() } : {}),
   };
   await vault.set("cards", id, card);
   // Seed the card log page with the opening notes rather than the retired

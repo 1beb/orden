@@ -15,6 +15,8 @@ import {
   type Project,
 } from "./projects";
 import { agentLauncher } from "./agentMarks";
+import { splitThought, type ThoughtSplit } from "./thoughtSplit";
+import { openNewCardModal } from "./newCardModal";
 import { loadSettings } from "./settings";
 import {
   listSessions,
@@ -289,11 +291,43 @@ function addBar(
   addBtn.className = "project-add-btn";
   addBtn.textContent = "Add";
 
+  // A thought that crossed its first sentence graduates to the new-card modal:
+  // the split (first sentence → title, rest → description) shows pre-filled so
+  // it can be corrected, and the cursor continues in the description. Dismissal
+  // hands the text back to the input, so a misfire costs nothing.
+  const graduate = (split: ThoughtSplit): void => {
+    input.value = "";
+    openNewCardModal(
+      { projectId, ...split },
+      {
+        onStartSession: (item, agent) => {
+          onStartSession?.(item, agent);
+          refreshItems();
+        },
+        onChange: () => {
+          onChange();
+          refreshItems();
+        },
+        onDismiss: (text) => {
+          input.value = text;
+          input.focus();
+        },
+      },
+    );
+  };
+
   // Create the card from the typed title and refresh the Items list. Returns the
-  // new item so the launch buttons can immediately start a session on it.
+  // new item so the launch buttons can immediately start a session on it. Multi-
+  // sentence text (e.g. pasted, so the input listener's modal is already up — or
+  // submitted straight away) routes through the modal instead.
   const create = (): Item | null => {
     const title = input.value.trim();
     if (!title) return null;
+    const split = splitThought(input.value);
+    if (split) {
+      graduate(split);
+      return null;
+    }
     const item = addItem(projectId, title);
     input.value = "";
     onChange();
@@ -301,6 +335,10 @@ function addBar(
     return item;
   };
 
+  input.addEventListener("input", () => {
+    const split = splitThought(input.value);
+    if (split) graduate(split);
+  });
   addBtn.addEventListener("click", () => create());
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") create();

@@ -13,6 +13,7 @@ export interface Item {
   title: string;
   state: CardState;
   notes: string;
+  description?: string; // free text sent to the agent with the title on session start
   sessionIds: string[]; // linked AI sessions (0+)
   dueDate?: string; // ISO yyyy-mm-dd, optional
   completedAt?: number; // epoch ms the card last entered "complete"; drives the 1h fall-off
@@ -94,19 +95,43 @@ export function itemsByProject(projectId: string): Item[] {
   return cache.filter((i) => i.projectId === projectId);
 }
 
-export function addItem(projectId: string, title: string, sessionId?: string): Item {
+export interface AddItemOpts {
+  sessionId?: string;
+  description?: string;
+}
+
+export function addItem(projectId: string, title: string, opts: AddItemOpts = {}): Item {
   counter += 1;
+  const description = opts.description?.trim();
   const item: Item = {
     id: `item_${Date.now().toString(36)}_${counter}`,
     projectId,
     title: title.trim(),
     state: "planning",
     notes: "",
-    sessionIds: sessionId ? [sessionId] : [],
+    sessionIds: opts.sessionId ? [opts.sessionId] : [],
+    ...(description ? { description } : {}),
   };
   cache.push(item);
   if (host) void host.vault.set("cards", item.id, item);
   return item;
+}
+
+/** Set (or clear, with empty/whitespace) a card's description. */
+export function setItemDescription(id: string, description: string): void {
+  const trimmed = description.trim();
+  cache = cache.map((i) => {
+    if (i.id !== id) return i;
+    const next: Item = { ...i, description: trimmed };
+    if (!trimmed) delete next.description;
+    return next;
+  });
+  persist(id);
+}
+
+/** The text handed to an agent starting on this card: title, then description. */
+export function promptForItem(item: Item): string {
+  return item.description ? `${item.title}\n\n${item.description}` : item.title;
 }
 
 function persist(id: string): void {

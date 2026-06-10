@@ -4006,6 +4006,36 @@ li.sess-done-head {
   background: #fee2e2;
   border-color: #f3c4c4;
 }
+/* Description: free text sent to the agent with the title. Dressed like the
+   per-session summary textarea. */
+.card-modal__desc {
+  width: 100%;
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  resize: vertical;
+  box-sizing: border-box;
+  min-height: 72px;
+}
+.card-modal__desc:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.card-modal__hint {
+  font-size: calc(11px * var(--font-scale));
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+/* Meta moved below the description: divider above it instead of below. */
+.card-modal__meta--bottom {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 16px;
+}
 
 /* per-state accents: a colored dot before the issue-group label (on the project
    page). The board columns themselves carry no colored top border. */
@@ -4484,5 +4514,17 @@ li.sess-done-head {
   .block-hide {
     font-size: calc(13px * var(--font-scale));
     padding: 8px 10px;
+  }
+
+  /* Card modals (detail + new-card) join the bottom-sheet idiom: full width,
+     pinned to the bottom, rounded top corners — the form sits by the keyboard. */
+  .preview-overlay.card-modal-overlay {
+    align-items: flex-end;
+  }
+  .preview-modal.card-modal {
+    width: 100%;
+    max-width: none;
+    max-height: 85vh;
+    border-radius: 12px 12px 0 0;
   }
 }

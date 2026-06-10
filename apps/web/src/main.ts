@@ -30,6 +30,7 @@ import {
   cardSessionIds,
   itemsByProject,
   setItemProject,
+  promptForItem,
   removeItem,
   type Item,
 } from "./cards";
@@ -1253,8 +1254,9 @@ function startSessionForItem(item: Item, agent: Agent): void {
     agent,
     projectId: item.projectId,
     linkToCardId: item.id,
-    // Hand the card's text to the agent the moment its TUI launches.
-    initialPrompt: item.title,
+    // Hand the card's text (title + description) to the agent the moment its
+    // TUI launches.
+    initialPrompt: promptForItem(item),
   });
   refreshBoard();
   app.classList.remove("right-closed"); // ensure the sessions pane is visible

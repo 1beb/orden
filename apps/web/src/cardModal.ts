@@ -9,6 +9,7 @@ import {
   setItemTitle,
   setItemProject,
   setItemDueDate,
+  setItemDescription,
   removeItem,
   type Item,
 } from "./cards";
@@ -103,9 +104,25 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
     const bodyEl = document.createElement("div");
     bodyEl.className = "card-modal__body";
 
+    // Description: free text handed to the agent with the title when a session
+    // starts on this card. Mirrors the new-card modal's layout (description
+    // above, meta below).
+    const descHead = document.createElement("div");
+    descHead.className = "card-modal__section-head";
+    descHead.textContent = "Description";
+    const desc = document.createElement("textarea");
+    desc.className = "card-modal__desc";
+    desc.placeholder = "Description…";
+    desc.value = item.description ?? "";
+    desc.addEventListener("change", () => {
+      setItemDescription(item.id, desc.value);
+      deps.onChange();
+    });
+    bodyEl.append(descHead, desc);
+
     // Meta row: state, project, due date.
     const meta = document.createElement("div");
-    meta.className = "card-modal__meta";
+    meta.className = "card-modal__meta card-modal__meta--bottom";
 
     const stateSel = labelled("State", document.createElement("select"));
     const stateInput = stateSel.field as HTMLSelectElement;

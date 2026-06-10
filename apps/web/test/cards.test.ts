@@ -7,6 +7,8 @@ import {
   listItems,
   setItemState,
   setItemDueDate,
+  setItemDescription,
+  promptForItem,
   addItemSession,
   removeItemSession,
   cardSessionIds,
@@ -56,7 +58,7 @@ describe("cards store (host-backed)", () => {
 
   it("addItem starts with an empty sessionIds array (or seeds one)", () => {
     expect(addItem("p1", "no sessions").sessionIds).toEqual([]);
-    expect(addItem("p1", "seeded", "sess_1").sessionIds).toEqual(["sess_1"]);
+    expect(addItem("p1", "seeded", { sessionId: "sess_1" }).sessionIds).toEqual(["sess_1"]);
   });
 
   it("addItemSession / removeItemSession link and unlink sessions (deduped)", () => {
@@ -84,6 +86,22 @@ describe("cards store (host-backed)", () => {
     // Leaving complete clears the stamp.
     setItemState(i.id, "in-progress");
     expect(listItems().find((x) => x.id === i.id)?.completedAt).toBeUndefined();
+  });
+
+  it("addItem stores a description; setItemDescription edits and clears it", () => {
+    const i = addItem("p1", "x", { description: "  more context  " });
+    expect(listItems().find((x) => x.id === i.id)?.description).toBe("more context");
+    setItemDescription(i.id, "rewritten");
+    expect(listItems().find((x) => x.id === i.id)?.description).toBe("rewritten");
+    setItemDescription(i.id, "   ");
+    expect(listItems().find((x) => x.id === i.id)?.description).toBeUndefined();
+  });
+
+  it("promptForItem joins title and description; title alone without one", () => {
+    const bare = addItem("p1", "Just a title");
+    expect(promptForItem(bare)).toBe("Just a title");
+    const full = addItem("p1", "Fix the test", { description: "It fails twice a day." });
+    expect(promptForItem(full)).toBe("Fix the test\n\nIt fails twice a day.");
   });
 
   it("setItemDueDate sets and clears a due date", () => {
