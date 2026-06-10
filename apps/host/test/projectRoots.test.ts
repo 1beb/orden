@@ -34,6 +34,33 @@ describe("makeProjectRootResolver", () => {
     const r = makeProjectRootResolver(vaultWith({}), undefined);
     expect(await r("repo")).toBeUndefined();
   });
+
+  // session:<id> exposes a session's git worktree as a file root, so
+  // panel_open / doc_render / repo-file resolve worktree paths.
+  test("resolves session:<id> to the session's workdir", async () => {
+    const host = {
+      vault: {
+        get: async (ns: string, key: string) =>
+          ns === "sessions" && key === "sess_1"
+            ? { id: "sess_1", workdir: "/home/u/.orden/worktrees/p1/sess_1" }
+            : null,
+      },
+    } as unknown as Host;
+    const r = makeProjectRootResolver(host, FILES_ROOT);
+    expect(await r("session:sess_1")).toBe("/home/u/.orden/worktrees/p1/sess_1");
+  });
+
+  test("returns undefined for an unknown session or one without a workdir", async () => {
+    const host = {
+      vault: {
+        get: async (ns: string, key: string) =>
+          ns === "sessions" && key === "plain" ? { id: "plain" } : null,
+      },
+    } as unknown as Host;
+    const r = makeProjectRootResolver(host, FILES_ROOT);
+    expect(await r("session:plain")).toBeUndefined();
+    expect(await r("session:ghost")).toBeUndefined();
+  });
 });
 
 describe("listLocalProjectRoots", () => {

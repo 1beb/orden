@@ -13,6 +13,14 @@ export function makeProjectRootResolver(
 ): ProjectRootResolver {
   return async (projectId: string) => {
     if (projectId === "repo") return filesRoot;
+    // Session-scoped root: a session running in its own git worktree exposes
+    // that worktree as a file root. The repo-file route, FsFiles, and
+    // Host.render all resolve through here, so panel_open / doc_render work on
+    // worktree paths with no other plumbing.
+    if (projectId.startsWith("session:")) {
+      const rec = await host.vault.get<{ workdir?: string }>("sessions", projectId.slice(8));
+      return typeof rec?.workdir === "string" && rec.workdir ? rec.workdir : undefined;
+    }
     const rec = await host.vault.get<Project>("projects", projectId);
     if (rec?.source.kind === "local") return rec.source.path;
     return undefined;
