@@ -34,6 +34,7 @@ export interface WorktreeSettings {
   isolation: boolean;
   baseRef: string;
   prForge: string;
+  autoTrust: boolean;
 }
 
 // Host-side read of the web's ("settings","app") record. The web owns the full
@@ -48,6 +49,7 @@ export async function readWorktreeSettings(vault: VaultStore): Promise<WorktreeS
     isolation: typeof s.worktreeIsolation === "boolean" ? s.worktreeIsolation : true,
     baseRef: typeof s.worktreeBaseRef === "string" ? s.worktreeBaseRef : "",
     prForge: typeof s.prForge === "string" ? s.prForge : "auto",
+    autoTrust: typeof s.worktreeAutoTrust === "boolean" ? s.worktreeAutoTrust : true,
   };
 }
 

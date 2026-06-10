@@ -1850,6 +1850,16 @@ if (worktreeCb) {
   });
 }
 
+// Worktree auto-trust: pre-accept claude's "do you trust this workspace?" dialog
+// for new worktrees of an already-trusted repo. Read at launch time by the host.
+const autoTrustCb = document.querySelector<HTMLInputElement>("#worktree-auto-trust");
+if (autoTrustCb) {
+  autoTrustCb.checked = loadSettings().worktreeAutoTrust;
+  autoTrustCb.addEventListener("change", () => {
+    void saveSettings({ worktreeAutoTrust: autoTrustCb.checked });
+  });
+}
+
 // PR forge: how card completion publishes a session branch — auto-infer the
 // forge CLI from the remote URL, force one, or push without opening a PR.
 const prForgeSel = document.querySelector<HTMLSelectElement>("#pr-forge");

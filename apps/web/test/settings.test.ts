@@ -17,6 +17,7 @@ const DEFAULTS = {
   defaultMode: { claude: "tui", opencode: "tui" },
   showScratchTerminal: true,
   worktreeIsolation: true,
+  worktreeAutoTrust: true,
   worktreeBaseRef: "",
   prForge: "auto",
 };
@@ -73,6 +74,7 @@ describe("settings store (host-backed)", () => {
       defaultMode: { claude: "tui", opencode: "tui" },
       showScratchTerminal: true,
       worktreeIsolation: true,
+      worktreeAutoTrust: true,
       worktreeBaseRef: "",
       prForge: "auto",
     });
@@ -167,12 +169,15 @@ describe("settings store (host-backed)", () => {
   it("defaults the worktree isolation fields", () => {
     const s = coerce({});
     expect(s.worktreeIsolation).toBe(true);
+    expect(s.worktreeAutoTrust).toBe(true);
     expect(s.worktreeBaseRef).toBe("");
     expect(s.prForge).toBe("auto");
   });
 
   it("keeps valid worktree fields and rejects junk", () => {
     expect(coerce({ worktreeIsolation: false }).worktreeIsolation).toBe(false);
+    expect(coerce({ worktreeAutoTrust: false }).worktreeAutoTrust).toBe(false);
+    expect(coerce({ worktreeAutoTrust: "yes" }).worktreeAutoTrust).toBe(true);
     expect(coerce({ worktreeBaseRef: "origin/develop" }).worktreeBaseRef).toBe("origin/develop");
     expect(coerce({ prForge: "glab" }).prForge).toBe("glab");
     expect(coerce({ prForge: "hg" }).prForge).toBe("auto");

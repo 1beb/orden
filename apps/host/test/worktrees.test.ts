@@ -52,17 +52,24 @@ function fakeGit(
 }
 
 describe("readWorktreeSettings", () => {
-  it("defaults isolation on, base ref empty, forge auto", async () => {
+  it("defaults isolation on, base ref empty, forge auto, auto-trust on", async () => {
     const s = await readWorktreeSettings(memVault());
-    expect(s).toEqual({ isolation: true, baseRef: "", prForge: "auto" });
+    expect(s).toEqual({ isolation: true, baseRef: "", prForge: "auto", autoTrust: true });
   });
 
   it("reads explicit values from the settings record", async () => {
     const vault = memVault({
-      settings: { app: { worktreeIsolation: false, worktreeBaseRef: "origin/dev", prForge: "glab" } },
+      settings: {
+        app: {
+          worktreeIsolation: false,
+          worktreeBaseRef: "origin/dev",
+          prForge: "glab",
+          worktreeAutoTrust: false,
+        },
+      },
     });
     const s = await readWorktreeSettings(vault);
-    expect(s).toEqual({ isolation: false, baseRef: "origin/dev", prForge: "glab" });
+    expect(s).toEqual({ isolation: false, baseRef: "origin/dev", prForge: "glab", autoTrust: false });
   });
 });
 
