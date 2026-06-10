@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // Under vitest's worker pool os.homedir() is pinned to the real home and ignores
@@ -16,6 +16,7 @@ import {
   mcpConfigArg,
   settingsArg,
   launchDetached,
+  opencodeEnv,
   resolveSessionCwd,
   resolveAgentBin,
   buildCommand,
@@ -166,6 +167,31 @@ describe("settingsArg", () => {
     // use `>/dev/null 2>&1`, which would swallow the decision).
     expect(cmd).not.toContain(">/dev/null 2>&1");
     expect(cmd).toContain("2>/dev/null");
+  });
+});
+
+describe("opencodeEnv worktree flag + plugin guard", () => {
+  test("marks the env with ORDEN_WORKTREE and writes the guard into the plugin", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "orden-oc-"));
+    osHome.dir = tmp; // ensureOpencodePluginDir writes under homedir()
+    try {
+      const inWt = opencodeEnv({ agent: "opencode" }, "sess_oc", true);
+      expect(inWt.env.ORDEN_WORKTREE).toBe("1");
+      expect(inWt.cmdPrefix).toContain("ORDEN_WORKTREE=1");
+      const shared = opencodeEnv({ agent: "opencode" }, "sess_oc", false);
+      expect(shared.env.ORDEN_WORKTREE).toBe("0");
+      // The generated plugin carries the destructive-git guard, gated on the env.
+      const plugin = readFileSync(
+        join(tmp, ".orden", "opencode-plugins", "sess_oc", "plugins", "orden-kanban.js"),
+        "utf8",
+      );
+      expect(plugin).toContain("tool.execute.before");
+      expect(plugin).toContain('process.env.ORDEN_WORKTREE === "1"');
+      expect(plugin).toContain("reset\\s+");
+      expect(plugin).toContain("destructive git is blocked");
+    } finally {
+      osHome.dir = "";
+    }
   });
 });
 

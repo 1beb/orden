@@ -50,28 +50,35 @@ export async function killSessionTmux(sessionId: string): Promise<void> {
 
 // Build the env vars (tmux -e arguments + spawn env entries) for opencode
 // sessions that carry the kanban state plugin.
-function opencodeEnv(
+export function opencodeEnv(
   rec: { agent: "claude" | "opencode" },
   sessionId: string,
+  // True when the session launches in its own orden worktree: the plugin's
+  // destructive-git guard stands down there (the blast radius is the session's
+  // own sandbox).
+  inWorktree = false,
 ): { args: string[]; env: Record<string, string>; cmdPrefix: string } {
   if (rec.agent !== "opencode") return { args: [], env: {}, cmdPrefix: "" };
   const pluginDir = ensureOpencodePluginDir(sessionId);
   const port = process.env.ORDEN_PORT ?? 4319;
+  const wt = inWorktree ? "1" : "0";
   // Set env vars BOTH in the tmux session environment AND directly on the
   // command line. Shell init files (.bashrc, .zshrc) can clear inherited env,
   // but inline VAR=val cmd assignments survive regardless — so the plugin
   // always has ORDEN_SESSION_ID and can post back with a truthy value.
-  const cmdPrefix = `ORDEN_SESSION_ID=${shquote(sessionId)} OPENCODE_CONFIG_DIR=${shquote(pluginDir)} ORDEN_PORT=${shquote(String(port))}`;
+  const cmdPrefix = `ORDEN_SESSION_ID=${shquote(sessionId)} OPENCODE_CONFIG_DIR=${shquote(pluginDir)} ORDEN_PORT=${shquote(String(port))} ORDEN_WORKTREE=${wt}`;
   return {
     args: [
       "-e", `ORDEN_SESSION_ID=${sessionId}`,
       "-e", `OPENCODE_CONFIG_DIR=${pluginDir}`,
       "-e", `ORDEN_PORT=${port}`,
+      "-e", `ORDEN_WORKTREE=${wt}`,
     ],
     env: {
       ORDEN_SESSION_ID: sessionId,
       OPENCODE_CONFIG_DIR: pluginDir,
       ORDEN_PORT: String(port),
+      ORDEN_WORKTREE: wt,
     },
     cmdPrefix,
   };
@@ -193,6 +200,13 @@ export function settingsArg(sessionId: string): string {
 // Subagent gating (Claude's SubagentStart/Stop) is not wired for opencode yet;
 // session.idle fires even while child sessions run, which may cause premature
 // blocked transitions during subagent workflows.
+//
+// The plugin also carries the destructive-git guardrail (tool.execute.before):
+// in a SHARED checkout (ORDEN_WORKTREE != 1) it throws on the git commands
+// that wipe uncommitted state, mirroring the claude PreToolUse deny in
+// hooks.ts. Throwing in tool.execute.before aborts the call in opencode's
+// plugin protocol; if a future opencode version changes that, the guard
+// degrades to a logged error — instructions remain the fallback layer.
 function opencodePluginSource(): string {
   return `// auto-generated orden kanban plugin — do not edit
 export const OrdenKanban = async () => {
@@ -222,6 +236,19 @@ export const OrdenKanban = async () => {
       }
       if (event.type === "session.updated") {
         await post("session-state?state=in-progress")
+      }
+    },
+    "tool.execute.before": async (input, output) => {
+      if (process.env.ORDEN_WORKTREE === "1") return
+      if (input?.tool !== "bash") return
+      const cmd = String(output?.args?.command ?? "")
+      const destructive =
+        /\\bgit\\s+(?:\\S+\\s+)*reset\\s+(?:\\S+\\s+)*--hard\\b/.test(cmd) ||
+        /\\bgit\\s+checkout\\s+(?:--\\s+)?\\.(?:\\s|$|;|&|\\|)/.test(cmd) ||
+        /\\bgit\\s+clean\\s+-\\w*[fdx]/.test(cmd) ||
+        (/\\bgit\\s+stash\\b/.test(cmd) && !/\\bgit\\s+stash\\s+(?:list|show|pop|apply|branch|drop)/.test(cmd))
+      if (destructive) {
+        throw new Error("orden: destructive git is blocked in a SHARED checkout (it can wipe other sessions' and the user's uncommitted work). Commit instead, or ask the user.")
       }
     },
     "tool.execute.after": async () => {
@@ -502,7 +529,7 @@ export async function launchDetached(
     const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
     if (!rec) return;
     const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: true });
-    const ocEnv = opencodeEnv(rec, sessionId);
+    const ocEnv = opencodeEnv(rec, sessionId, !!rec.workdir && rec.workdir === cwd);
     const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
     const tmuxName = tmuxNameFor(sessionId);
     // (no pty needed to merely create). `cmd` is a single shell string and is
@@ -654,7 +681,7 @@ async function handle(
       ? await existingOpencodeSessions(cwd)
       : new Set<string>();
 
-  const ocEnv = opencodeEnv(rec, sessionId);
+  const ocEnv = opencodeEnv(rec, sessionId, !!rec.workdir && rec.workdir === cwd);
   const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
   const tmuxName = tmuxNameFor(sessionId);
   const term = ptySpawn(
