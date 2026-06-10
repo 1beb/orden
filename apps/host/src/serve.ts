@@ -19,6 +19,7 @@ import { createTerminalWss, launchDetached } from "./terminal";
 import { startIdleReconciler } from "./idleReconciler";
 import { reconcileUntitledSessions } from "./sessionTitles";
 import { reapCompletedCard } from "./cardReaper";
+import { publishCompletedCard } from "./publishReactor";
 import { journalCompletedCard } from "./cardJournal";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleHookRequest } from "./hooks";
@@ -95,6 +96,19 @@ host.onChange((change) => {
   void reapCompletedCard(host, change.key, reapedCards).catch((err) => {
     // eslint-disable-next-line no-console
     console.warn(`orden: reapCompletedCard failed for ${change.key}:`, err);
+  });
+});
+
+// Publish-on-complete reactor: the web drag-to-Done path skips the MCP
+// card_complete publish gate, so publish best-effort here (never blocks — the
+// drag is the user's explicit override). The MCP path stamps publishState,
+// which this reactor skips on, so the two never double-publish.
+const publishedCards = new Set<string>();
+host.onChange((change) => {
+  if (change.ns !== "cards") return;
+  void publishCompletedCard(host, change.key, publishedCards).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: publishCompletedCard failed for ${change.key}:`, err);
   });
 });
 
