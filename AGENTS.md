@@ -38,8 +38,8 @@ conversation — they map to real DOM ids / modules, so we don't re-explain each
   **Kanban** (with an action-count badge), a collapsible **Recent files** list, and the
   **Projects** section: each project expands to its nested **sessions**, with **+ Add
   project** (`projectModal.ts`). Footer has **Show outline** / **Show annotations**
-  toggles and the **Settings cog** (⚙) popover. Built in `main.ts`; project rows in
-  `projects.ts` / `sessions.ts`.
+  toggles, the **Settings cog** (⚙) popover, and the **help (?)** button (keyboard
+  shortcuts). Built in `main.ts`; project rows in `projects.ts` / `sessions.ts`.
 - **Topbar** (`#topbar`) — left **pane toggle** (⌘\\), the **view title**, an HTML
   source/render toggle, **omnisearch** (the "Search…" box), and the right pane toggle.
 - **Main panel** / central view / "the main view" (`#view-area`) — the primary work
@@ -60,6 +60,19 @@ conversation — they map to real DOM ids / modules, so we don't re-explain each
   backend). Both are **two views of one live session** — the same agent, mirrored.
 - **Settings popover** (`settings.ts`) — startup view, fonts/accent, completed-task
   fade, session-pane width, autolaunch new sessions, render-HTML toggle, vault location.
+
+**Keyboard shortcuts** route through `apps/web/src/keybindings.ts` — an action
+registry (id + label + default chords) with vault-backed overrides (ns `settings`,
+key `keybindings`) and ONE global dispatcher. Never add ad-hoc document-level
+`keydown` listeners for shortcuts; register an action instead, so it shows up in the
+help (?) view and stays user-rebindable there (`helpView.ts`). Chords are derived
+from `KeyboardEvent.code` (layout-independent; Shift can't mutate the key token).
+Defaults: `mod+\` nav, `mod+.` session pane, `mod+'` context panel, `mod+shift+\`
+focus mode, `mod+k` search, `mod+shift+p` palette, `mod+/` or `?` help, `mod+,`
+settings. While the terminal is focused, xterm yields only bound mod+punctuation /
+mod+shift chords to the app (`terminalShouldYield` in `keybindings.ts`, wired via
+`attachCustomKeyEventHandler` in `terminalView.ts`); `mod+letter` and bare keys stay
+with the TUI.
 
 Entity terms: **project** (a working dir, owns sessions), **session** (one agent run,
 has a lifecycle state, hosted by a tmux/pty process), **card** (a session's projection
