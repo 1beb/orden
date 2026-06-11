@@ -33,6 +33,9 @@ export interface NewCardModalDeps {
   onChange: () => void;
   // Dismissed without creating (Escape/backdrop/✕): restore this text to the bar.
   onDismiss?: (restoredText: string) => void;
+  // The add-bar row the thought was typed into. When present (and measurable),
+  // the form grows in-situ out of it instead of opening as a centered modal.
+  anchor?: HTMLElement;
 }
 
 export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): void {
@@ -168,11 +171,62 @@ export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): voi
   modal.append(actions);
 
   document.body.append(overlay);
+  if (deps.anchor) anchorInSitu(overlay, modal, deps.anchor, desc, header);
 
   // Continue typing where the thought left off: cursor at the end of the
   // description.
   desc.focus();
   desc.setSelectionRange(desc.value.length, desc.value.length);
+}
+
+// In-situ growth: the description textarea lands EXACTLY on the add input —
+// same box, the typed text stays put — and the rest of the form grows around
+// it: the panel is rendered at full size but clipped to the input's box, then
+// the clip expands outward while the title row rises out of the input into
+// the header. An in-place expansion that overlays the content below, like a
+// modal but not centered. Falls back to the centered modal when the anchor
+// can't be measured (e.g. headless tests).
+function anchorInSitu(
+  overlay: HTMLElement,
+  modal: HTMLElement,
+  anchor: HTMLElement,
+  desc: HTMLElement,
+  header: HTMLElement,
+): void {
+  const r = anchor.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  overlay.classList.add("card-modal-overlay--insitu");
+  modal.classList.add("card-modal--insitu");
+  // Make the description exactly as wide as the input (the chrome around it —
+  // body padding, borders — is width-independent), then shift the panel so the
+  // description's box sits on the input's.
+  const chrome = modal.offsetWidth - desc.offsetWidth;
+  modal.style.width = `${r.width + chrome}px`;
+  const top = r.top - desc.offsetTop;
+  modal.style.left = `${r.left - desc.offsetLeft}px`;
+  modal.style.top = `${top}px`;
+  // Natural height, capped to the viewport (the body scrolls past the cap).
+  modal.style.maxHeight = `${window.innerHeight - top - 24}px`;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    modal.classList.add("is-grown");
+    return;
+  }
+  // Start clipped to the input's box; grow the visible window around it.
+  const clipTop = desc.offsetTop;
+  const clipLeft = desc.offsetLeft;
+  const clipRight = Math.max(modal.offsetWidth - (clipLeft + desc.offsetWidth), 0);
+  const clipBottom = Math.max(modal.offsetHeight - (clipTop + r.height), 0);
+  modal.style.clipPath = `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px round 8px)`;
+  // The title rises from the input's position up into the header.
+  header.style.transform = `translateY(${clipTop - header.offsetTop}px)`;
+  requestAnimationFrame(() => {
+    modal.classList.add("is-grown");
+    modal.style.clipPath = "inset(0 0 0 0 round 12px)";
+    header.style.transform = "translateY(0)";
+  });
+  modal.addEventListener("transitionend", (e) => {
+    if (e.target === modal && e.propertyName === "clip-path") modal.style.clipPath = "none";
+  });
 }
 
 // A labelled form field: a small caption above the control (as in cardModal).

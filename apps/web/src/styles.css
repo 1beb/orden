@@ -468,44 +468,43 @@ a.breadcrumb-seg:hover {
 .settings-group-title {
   font-weight: 700;
   font-size: calc(19px * var(--font-scale));
-  margin: 0 0 14px;
+  margin: 0 0 8px;
 }
 
-/* A group's first label/option sits right under its heading — no extra top gap
-   from the popover-era "second label onward" spacing rule. */
-.settings-group > .settings-label:first-of-type {
-  margin-top: 0;
-}
-
-.settings-label {
-  font-size: calc(11px * var(--font-scale));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-
-.settings-opt {
+/* One setting per row: label on the left, control right-aligned, shared
+   height — so mixed control types (switch, segment, select, slider) read as
+   one rhythm instead of a stack of unlike widgets. */
+.settings-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 4px;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 560px;
+  min-height: 38px;
+  padding: 4px 0;
   font-size: calc(14px * var(--font-scale));
+}
+
+/* switch rows are <label>s so the whole row toggles */
+label.settings-row {
   cursor: pointer;
 }
 
-/* second and later section labels get breathing room above */
-.settings-label ~ .settings-label,
-.settings-select + .settings-label {
-  margin-top: 14px;
+.settings-row-label {
+  color: var(--ink);
+}
+
+/* slider + live readout pair on the control side of a row */
+.settings-row-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .settings-select {
-  width: 100%;
-  max-width: 480px;
   font: inherit;
-  font-size: calc(14px * var(--font-scale));
+  font-size: calc(13px * var(--font-scale));
+  max-width: 280px;
   padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -530,65 +529,114 @@ a.breadcrumb-seg:hover {
 }
 
 .settings-range {
-  width: 100%;
-  max-width: 480px;
+  width: 180px;
   /* fainter lavender than the full accent, derived so a custom accent still themes it */
   accent-color: color-mix(in srgb, var(--accent) 40%, #fff);
   cursor: pointer;
 }
 
-/* live "% · px" readout next to the panel-width label; normalize the inherited
-   uppercase label styling so the value reads as a plain number. */
+/* live readout ("16px", "33% · 633px") beside a slider */
 .settings-value {
-  margin-left: 6px;
   color: var(--accent);
-  text-transform: none;
-  letter-spacing: normal;
+  font-size: calc(12px * var(--font-scale));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* The default-session-mode control gets extra breathing room above and below. */
-.settings-mode-block {
-  margin: 22px 0;
-}
-
-/* Default-mode table: tool rows × mode columns, ruled and left-aligned. */
-.settings-mode-table {
-  border-collapse: collapse;
-  font-size: calc(14px * var(--font-scale));
-}
-
-.settings-mode-table th,
-.settings-mode-table td {
-  border: 1px solid var(--line);
-  padding: 6px 14px;
-}
-
-.settings-mode-rowlabel {
-  font-weight: 500;
-  text-align: left;
-}
-
-.settings-mode-colhead {
-  font-size: calc(11px * var(--font-scale));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-align: center;
-}
-
-.settings-mode-cell {
-  text-align: center;
-}
-
-.settings-mode-cell label {
+/* Boolean settings: a toggle switch drawn over the real (hidden) checkbox the
+   wiring binds to, so on/off reads at a glance and rows stay uniform. */
+.settings-switch {
+  position: relative;
   display: inline-flex;
+  flex: none;
+}
+
+.settings-switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
-.settings-mode-cell input {
-  accent-color: var(--accent);
+.settings-switch-track {
+  position: relative;
+  width: 36px;
+  height: 21px;
+  border-radius: 999px;
+  background: #d6d6d2;
+  transition: background 0.15s ease;
+  pointer-events: none;
+}
+
+.settings-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.settings-switch input:checked + .settings-switch-track {
+  background: var(--accent);
+}
+
+.settings-switch input:checked + .settings-switch-track::after {
+  transform: translateX(15px);
+}
+
+.settings-switch input:focus-visible + .settings-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Small enums: a segmented control over hidden radios — one bordered strip,
+   the checked segment tinted with the accent. */
+.settings-seg {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.settings-seg label {
+  display: flex;
   cursor: pointer;
+}
+
+.settings-seg label + label {
+  border-left: 1px solid var(--line);
+}
+
+.settings-seg input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-seg input + span {
+  padding: 5px 12px;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--muted);
+}
+
+.settings-seg input:checked + span {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.settings-seg input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* read-only vault path: monospace, wraps long absolute paths instead of clipping */
@@ -597,6 +645,7 @@ a.breadcrumb-seg:hover {
   font-size: calc(12px * var(--font-scale));
   color: var(--muted);
   word-break: break-all;
+  text-align: right;
   user-select: text;
 }
 
@@ -2559,15 +2608,17 @@ li.sess-done-head {
 .dialog__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid var(--line);
 }
+/* Sized to match .project-add-btn, so Add reads the same here as in the bar. */
 .dialog__btn {
   font: inherit;
   font-size: calc(13px * var(--font-scale));
-  padding: 7px 14px;
+  padding: 7px 16px;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid var(--line);
@@ -3906,6 +3957,75 @@ li.sess-done-head {
 /* card detail modal (reuses .preview-overlay / .preview-modal base) */
 .card-modal {
   width: 480px;
+}
+/* In-situ variant (new-card form growing out of the add bar): the overlay
+   keeps its dismiss surface but stops centering and dims less; the panel is
+   positioned so the description textarea sits exactly on the add input
+   (newCardModal.anchorInSitu), rendered at full size but clipped to the
+   input's box. The clip then grows outward around the description while the
+   title rises out of the input into the header and the remaining controls
+   fade in — the form grows in place around where you were typing. */
+@keyframes insitu-dim {
+  from {
+    background: rgba(15, 18, 20, 0);
+  }
+}
+.card-modal-overlay--insitu {
+  background: rgba(15, 18, 20, 0.18);
+  display: block;
+  animation: insitu-dim 0.2s ease;
+}
+.card-modal--insitu {
+  position: absolute;
+  transition: clip-path 0.2s ease;
+}
+/* The description IS the input, continued: match the add input's text metrics
+   so the typed text doesn't shift when the form grows around it, and keep the
+   add input's focus treatment (the browser's default ring — .project-add-input
+   defines no :focus) instead of the desc's accent border, so the highlight
+   doesn't flip from black to purple mid-growth. */
+.card-modal--insitu .card-modal__desc {
+  font-size: calc(14px * var(--font-scale));
+  padding: 7px 10px;
+  border-radius: 7px;
+}
+.card-modal--insitu .card-modal__desc:focus {
+  outline: revert;
+  border-color: var(--line);
+}
+.card-modal--insitu .card-modal__header {
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+.card-modal--insitu:not(.is-grown) .card-modal__header {
+  opacity: 0;
+}
+.card-modal--insitu .card-modal__section-head,
+.card-modal--insitu .card-modal__hint,
+.card-modal--insitu .card-modal__meta,
+.card-modal--insitu .dialog__actions {
+  opacity: 0;
+  transition: opacity 0.15s ease 0.08s;
+}
+.card-modal--insitu.is-grown .card-modal__section-head,
+.card-modal--insitu.is-grown .card-modal__hint,
+.card-modal--insitu.is-grown .card-modal__meta,
+.card-modal--insitu.is-grown .dialog__actions {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-modal-overlay--insitu {
+    animation: none;
+  }
+  .card-modal--insitu,
+  .card-modal--insitu .card-modal__header,
+  .card-modal--insitu .card-modal__section-head,
+  .card-modal--insitu .card-modal__hint,
+  .card-modal--insitu .card-modal__meta,
+  .card-modal--insitu .dialog__actions {
+    transition: none;
+  }
 }
 .card-modal__header {
   display: flex;

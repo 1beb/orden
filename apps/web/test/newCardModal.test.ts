@@ -19,8 +19,17 @@ function open(deps: Partial<NewCardModalDeps> = {}): void {
       onStartSession: deps.onStartSession ?? (() => {}),
       onChange: deps.onChange ?? (() => {}),
       onDismiss: deps.onDismiss,
+      anchor: deps.anchor,
     },
   );
+}
+
+// An element that measures like a real add bar (happy-dom rects are all zero).
+function measurableAnchor(): HTMLElement {
+  const el = document.createElement("div");
+  el.getBoundingClientRect = () =>
+    ({ left: 100, top: 200, width: 600, height: 33 }) as DOMRect;
+  return el;
 }
 
 describe("new-card modal", () => {
@@ -96,6 +105,31 @@ describe("new-card modal", () => {
     expect(started).toHaveLength(1);
     expect(started[0].item.description).toBe("It fails twice a day.");
     expect(listItems()[0].id).toBe(started[0].item.id);
+  });
+
+  it("grows in-situ from a measurable anchor: description box over it, not centered", () => {
+    open({ anchor: measurableAnchor() });
+    const o = overlay()!;
+    const modal = o.querySelector<HTMLElement>(".card-modal")!;
+    expect(o.classList.contains("card-modal-overlay--insitu")).toBe(true);
+    expect(modal.classList.contains("card-modal--insitu")).toBe(true);
+    // The DESCRIPTION box lands exactly on the anchor: modal position is the
+    // anchor's minus the description's offsets inside the modal, and modal
+    // width is the anchor's plus the chrome around the description. happy-dom
+    // measures offsets/widths as 0, so the modal rect equals the anchor rect.
+    expect(modal.style.left).toBe("100px");
+    expect(modal.style.top).toBe("200px");
+    expect(modal.style.width).toBe("600px");
+  });
+
+  it("stays a centered modal without an anchor", () => {
+    open();
+    expect(overlay()!.classList.contains("card-modal-overlay--insitu")).toBe(false);
+  });
+
+  it("falls back to centered when the anchor measures empty (headless)", () => {
+    open({ anchor: document.createElement("div") });
+    expect(overlay()!.classList.contains("card-modal-overlay--insitu")).toBe(false);
   });
 
   it("a cleared description saves none", () => {
