@@ -28,6 +28,7 @@ export interface Settings {
   worktreeIsolation: boolean; // launch agent sessions in per-session git worktrees
   worktreeBaseRef: string; // session branch base ref; "" = the repo's default branch (origin/HEAD)
   prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
+  learningPrompt: string; // system prompt given to agents for proposing learnings on completion
 }
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
@@ -69,6 +70,10 @@ function isValidTimeZone(value: unknown): value is string {
     return false;
   }
 }
+export const DEFAULT_LEARNING_PROMPT =
+  "- Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.\n" +
+  "- A Comment on a proposed learning is a request to REVISE that learning: re-run learning_propose with that learning's id (passed as the id arg) and the updated full file content — it replaces the proposal in place and returns it to pending for re-review. Do not create a new learning for a revision.";
+
 const DEFAULT_SETTINGS: Settings = {
   startup: "last",
   kanbanView: "board",
@@ -86,6 +91,7 @@ const DEFAULT_SETTINGS: Settings = {
   worktreeIsolation: true,
   worktreeBaseRef: "",
   prForge: "auto",
+  learningPrompt: DEFAULT_LEARNING_PROMPT,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -161,6 +167,10 @@ export function coerce(stored: unknown): Settings {
     prForge: (PR_FORGES as readonly string[]).includes(s.prForge as string)
       ? (s.prForge as PrForge)
       : DEFAULT_SETTINGS.prForge,
+    learningPrompt:
+      typeof s.learningPrompt === "string" && s.learningPrompt.length > 0
+        ? s.learningPrompt
+        : DEFAULT_SETTINGS.learningPrompt,
   };
 }
 

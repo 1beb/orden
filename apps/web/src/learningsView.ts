@@ -35,11 +35,13 @@ export interface DiffRow {
   text: string;
 }
 
+const CONTEXT = 3;
+
 // A small, readable line diff — NOT a full Myers diff. For a create (no base),
-// every proposed line is an addition. For an edit, trim a common prefix/suffix of
-// identical lines, then show the remaining base lines as removals (-) followed by
-// the remaining proposed lines as additions (+). Plain ink text; the gutter alone
-// signals add/remove (no color).
+// every proposed line is an addition. For an edit, find the first and last
+// differing region, then show only that region surrounded by a small context
+// window (3 lines above/below) with an omission marker (...) when lines are
+// skipped. Plain ink text; the gutter alone signals add/remove (no color).
 export function diffLines(base: string | undefined, proposed: string): DiffRow[] {
   const add = (text: string): DiffRow => ({ gutter: "+", text });
   if (base === undefined) {
@@ -59,10 +61,16 @@ export function diffLines(base: string | undefined, proposed: string): DiffRow[]
   }
 
   const rows: DiffRow[] = [];
-  for (let i = 0; i < start; i++) rows.push({ gutter: " ", text: baseL[i] });
+  const ctxStart = Math.max(0, start - CONTEXT);
+  const ctxEndB = Math.min(baseL.length, endB + CONTEXT);
+  const ctxEndP = Math.min(propL.length, endP + CONTEXT);
+
+  if (ctxStart > 0) rows.push({ gutter: " ", text: "..." });
+  for (let i = ctxStart; i < start; i++) rows.push({ gutter: " ", text: baseL[i] });
   for (let i = start; i < endB; i++) rows.push({ gutter: "-", text: baseL[i] });
   for (let i = start; i < endP; i++) rows.push({ gutter: "+", text: propL[i] });
-  for (let i = endB; i < baseL.length; i++) rows.push({ gutter: " ", text: baseL[i] });
+  for (let i = endB; i < ctxEndB; i++) rows.push({ gutter: " ", text: baseL[i] });
+  if (ctxEndB < baseL.length) rows.push({ gutter: " ", text: "..." });
   return rows;
 }
 
@@ -174,13 +182,20 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
   headInner.append(eyebrow, dots, el("h1", "lr-title", learning.title), el("div", "lr-kind", kindLine(learning)));
   head.append(headInner);
 
-  // Body: change label, file path, diff, recap.
+  // Body: change label, file path, recap (why), diff.
   const body = el("div", "lr-body");
   const inner = el("div", "lr-inner");
   inner.append(
     el("p", "change-label", learning.op === "create" ? "Proposed new file" : "Proposed change"),
     el("div", "filepath", learning.targetPath),
   );
+
+  const recap = el("div", "recap");
+  recap.append(el("div", "recap-head", "Why this"));
+  const recapBody = el("div", "recap-body");
+  recapBody.append(el("p", undefined, learning.recap));
+  recap.append(recapBody);
+  inner.append(recap);
 
   const diff = el("div", "diff");
   for (const row of diffLines(learning.baseContent, learning.proposedContent)) {
@@ -190,13 +205,6 @@ export function renderLearnings(container: HTMLElement, deps: LearningsDeps): vo
     diff.append(r);
   }
   inner.append(diff);
-
-  const recap = el("div", "recap");
-  recap.append(el("div", "recap-head", "Why this"));
-  const recapBody = el("div", "recap-body");
-  recapBody.append(el("p", undefined, learning.recap));
-  recap.append(recapBody);
-  inner.append(recap);
 
   body.append(inner);
 

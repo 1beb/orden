@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
-import { coerce, hydrateSettings, loadSettings, saveSettings } from "../src/settings";
+import { coerce, hydrateSettings, loadSettings, saveSettings, DEFAULT_LEARNING_PROMPT } from "../src/settings";
 
 const DEFAULTS = {
   startup: "last",
@@ -19,6 +19,7 @@ const DEFAULTS = {
   worktreeIsolation: true,
   worktreeBaseRef: "",
   prForge: "auto",
+  learningPrompt: DEFAULT_LEARNING_PROMPT,
 };
 
 describe("settings store (host-backed)", () => {
@@ -75,6 +76,7 @@ describe("settings store (host-backed)", () => {
       worktreeIsolation: true,
       worktreeBaseRef: "",
       prForge: "auto",
+      learningPrompt: DEFAULT_LEARNING_PROMPT,
     });
   });
 
