@@ -74,6 +74,19 @@ mod+shift chords to the app (`terminalShouldYield` in `keybindings.ts`, wired vi
 `attachCustomKeyEventHandler` in `terminalView.ts`); `mod+letter` and bare keys stay
 with the TUI.
 
+**Web extension seams** (same contract style as keybindings — extend the table, don't
+add a switch): center views register ONCE in the **view registry**
+(`apps/web/src/viewRegistry.ts` — section el, breadcrumb, annotatable/realm flags,
+nav link, `onEnter`); a single router subscriber applies the cross-cutting rules, so
+never add a second `viewStore.subscribe` or a per-view `switch` in `main.ts`.
+Vault-change reactions register per namespace on the **vault-change router**
+(`apps/web/src/vaultChangeRouter.ts`) — one handler per ns, future shared-state
+namespaces (presence, locks, org) are new registrations. Settings controls wire
+through the binders in `apps/web/src/settingsBindings.ts`
+(`bindCheckbox`/`bindSelect`/`bindRadios`), not hand-rolled query+listener blocks.
+Overlay views that return to the prior view (settings, help) come from
+`makeViewToggler` in `main.ts`.
+
 Entity terms: **project** (a working dir, owns sessions), **session** (one agent run,
 has a lifecycle state, hosted by a tmux/pty process), **card** (a session's projection
 on the board), **document** (a rendered writeup attached to a session), **annotation**
@@ -164,7 +177,8 @@ several **reactors** off this feed (see `serve.ts`): launch-on-create (spawn an 
 when a session is flagged `pendingLaunch`), reap-on-complete (kill agents when a card
 hits Done). On the web side, stores **hydrate from the vault at boot and write through**
 it — there is no direct localStorage; `apps/web/src/main.ts` wires the hydration of
-projects/pages/cards/sessions/annotations and the change feed keeps views live.
+projects/pages/cards/sessions/annotations, and the change feed keeps views live through
+the per-namespace handlers registered on `vaultChangeRouter.ts`.
 
 ### Agent sessions
 
@@ -187,9 +201,12 @@ Completion publishes the branch (clean-check → push → PR per the prForge set
 `publishSession.ts`, surfaced on the card) and never merges; pushed worktrees are
 reaped (`cardReaper.ts`). In SHARED checkouts (isolation off / non-git),
 destructive git (`reset --hard`, `checkout .`, `clean -f`, `stash`) is denied via
-an injected PreToolUse hook (`hooks.ts`) / opencode plugin guard. Note for THIS
-repo: with isolation on, an agent's web changes only reach the served dist after
-merge + rebuild.
+an injected PreToolUse hook (`hooks.ts`) and the generated opencode plugin
+(`opencodePlugin.ts`). The patterns + denial text live in ONE place —
+`apps/host/src/destructiveGit.ts` — and are embedded into the plugin at generation
+time; `destructiveGit.test.ts` runs one command corpus against BOTH consumers, so
+extend the corpus when touching the patterns. Note for THIS repo: with isolation
+on, an agent's web changes only reach the served dist after merge + rebuild.
 
 ### Chat backend is modular (`packages/chat-core`)
 
