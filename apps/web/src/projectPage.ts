@@ -40,6 +40,24 @@ let pageContainer: HTMLElement | null = null;
 // item crosses its TTL and falls off. Module-scoped so it survives re-renders.
 let dropTimer: ReturnType<typeof setTimeout> | undefined;
 
+// The add-item box of the currently rendered page, captured so a global
+// shortcut (pressing "c" while on a project page) can focus it from outside
+// this module. Reassigned each render; reads guard on isConnected.
+let addInput: HTMLInputElement | null = null;
+
+// Focus the add-item box and flash it so the jump is visible. No-op when the
+// page isn't currently rendered (input detached). The flash class is removed on
+// animationend so a repeated press can re-trigger it; the reflow read restarts
+// the keyframe even if the class is somehow still attached.
+export function focusProjectAddItem(): void {
+  const input = addInput;
+  if (!input?.isConnected) return;
+  input.focus();
+  input.classList.remove("project-add-input--flash");
+  void input.offsetWidth; // force reflow so re-adding the class restarts the animation
+  input.classList.add("project-add-input--flash");
+}
+
 // True while focus is in an editable control on the page (the add-item box, a
 // state/project picker). A live card transition rebuilds the whole page, so
 // callers skip the rebuild when this is set or they'd wipe what's being typed.
@@ -287,6 +305,12 @@ function addBar(
   const input = document.createElement("input");
   input.className = "project-add-input";
   input.placeholder = "Add an item…";
+  // Expose this render's input to the "c" shortcut, and self-clean the flash
+  // class when its animation ends so a later press can re-trigger it.
+  addInput = input;
+  input.addEventListener("animationend", () => {
+    input.classList.remove("project-add-input--flash");
+  });
   const addBtn = document.createElement("button");
   addBtn.className = "project-add-btn";
   addBtn.textContent = "Add";

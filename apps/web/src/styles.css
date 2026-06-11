@@ -3306,6 +3306,21 @@ li.sess-done-head {
   border: 1px solid var(--line);
   border-radius: 7px;
 }
+/* Brief accent flash when the "c" shortcut jumps focus here, so the move is
+   visible. The class is removed on animationend (see projectPage.ts). */
+.project-add-input--flash {
+  animation: project-add-flash 0.5s ease-out;
+}
+@keyframes project-add-flash {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  100% {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
 .project-add-btn {
   font: inherit;
   font-size: calc(13px * var(--font-scale));

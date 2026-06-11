@@ -62,7 +62,7 @@ import { mountTerminal, updateTerminalFonts } from "./terminalView";
 import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
 import { renderKanban } from "./kanban";
-import { renderProjectPage, projectPageHasFocus } from "./projectPage";
+import { renderProjectPage, projectPageHasFocus, focusProjectAddItem } from "./projectPage";
 import { renderCodeView, assignCodeBlockIds } from "./codeView";
 import { AnnotationStore } from "./annotationStore";
 import { fileSource } from "./viewerSource";
@@ -107,6 +107,7 @@ import {
   onAction,
   chordsFor,
   formatChord,
+  isTypingContext,
 } from "./keybindings";
 import { renderHelp } from "./helpView";
 import { getHost, onVaultChange, onReconnect } from "./host";
@@ -1651,6 +1652,17 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (viewStore.get() === "settings") viewStore.set(preSettingsView);
   else if (viewStore.get() === "help") viewStore.set(preHelpView);
+});
+
+// On a project page, a bare "c" (create) jumps focus to the add-item box — the
+// list/board convention (GitHub/Linear "create"). Scoped to the project view
+// and skipped while typing, so it never swallows a literal "c" elsewhere.
+document.addEventListener("keydown", (e) => {
+  if (viewStore.get() !== "project") return;
+  if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  if (isTypingContext(e.target)) return;
+  e.preventDefault();
+  focusProjectAddItem();
 });
 
 // --- Open real repo docs in the review editor (dogfooding) ---

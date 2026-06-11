@@ -48,6 +48,7 @@ export const KEY_ACTIONS: readonly KeyAction[] = [
 // Reference-only rows the help view shows; not dispatched or rebindable here.
 export const FIXED_KEYS: readonly { label: string; chords: readonly string[] }[] = [
   { label: "Close view / dialog / palette", chords: ["escape"] },
+  { label: "Add item (project page)", chords: ["c"] },
   { label: "Save annotation note", chords: ["mod+enter"] },
   { label: "Undo / redo (editor)", chords: ["mod+z", "mod+y"] },
   { label: "Indent / unindent item (editor)", chords: ["tab", "shift+tab"] },
