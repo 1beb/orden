@@ -4,7 +4,7 @@
 // can clobber a sibling's (or the user's) uncommitted state. All git calls go
 // through an injectable exec so the logic is unit-testable without real repos.
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -141,6 +141,14 @@ export async function ensureSessionWorktree(
   mkdirSync(dirname(workdir), { recursive: true });
   const r = await exec(input.repo, ["worktree", "add", workdir, "-b", branch, base]);
   if (r.code !== 0) return null;
+  // Build a fresh codegraph index in the worktree so MCP codegraph tools work
+  // inside the isolated session. Fire-and-forget: the index isn't needed for
+  // the agent to start, and the agent can re-sync it after making changes.
+  const codegraphBin = process.env.CODEGRAPH_BIN ?? "codegraph";
+  spawn(codegraphBin, ["index", workdir], {
+    stdio: "ignore",
+    detached: true,
+  }).unref();
   return { workdir, branch };
 }
 
