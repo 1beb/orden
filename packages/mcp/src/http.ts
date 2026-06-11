@@ -66,7 +66,7 @@ export async function handleMcpRequest(
       transport.onclose = () => {
         if (transport!.sessionId) delete transports[transport!.sessionId];
       };
-      await createMcpServer(host, { conversationId: parseSessionBinding(req) }).connect(transport);
+      (await createMcpServer(host, { conversationId: parseSessionBinding(req) })).connect(transport);
     }
 
     if (!transport) {

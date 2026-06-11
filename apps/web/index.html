@@ -159,6 +159,14 @@
                     <span class="settings-row-label">Show archived sessions</span>
                     <span class="settings-switch"><input type="checkbox" id="show-archived" /><span class="settings-switch-track"></span></span>
                   </label>
+                  <div class="settings-row settings-row-stack">
+                    <div class="settings-row-label-with-reset">
+                      <span class="settings-row-label">Learning prompt</span>
+                      <button id="learning-prompt-reset" class="settings-reset-btn" title="Revert to the default learning prompt">Reset</button>
+                    </div>
+                    <textarea id="learning-prompt" class="settings-textarea" rows="6" spellcheck="false"></textarea>
+                    <p class="settings-hint">Instructions given to agents for proposing README/ADR/AGENTS.md changes and skills during session completion.</p>
+                  </div>
                 </section>
 
                 <section class="settings-group">

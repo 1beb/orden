@@ -19,7 +19,7 @@ function seededHost(): Host {
 
 async function connectedClient(ctx?: { conversationId?: string }) {
   const host = seededHost();
-  const server = createMcpServer(host, ctx);
+  const server = await createMcpServer(host, ctx);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -141,7 +141,7 @@ describe("worktree-scoped doc tools", () => {
   }
 
   async function clientFor(host: Host) {
-    const server = createMcpServer(host, { conversationId: "uuid-1" });
+    const server = await createMcpServer(host, { conversationId: "uuid-1" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "test", version: "0.0.0" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

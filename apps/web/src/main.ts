@@ -99,6 +99,7 @@ import {
   MIN_FONT_SIZE,
   MAX_FONT_SIZE,
   TIME_ZONE_OPTIONS,
+  DEFAULT_LEARNING_PROMPT,
   type StartupView,
 } from "./settings";
 import {
@@ -1227,21 +1228,24 @@ function renderLearningsView(): void {
       renderLearningsView();
     },
     onAccept: async (id) => {
+      // Optimistically mark accepted and advance the stepper immediately, so the
+      // user sees instant feedback and auto-advances to the next learning. Then
+      // write the file to disk (and commit when it's a repo); revert if it fails.
+      setLearningStatus(id, "accepted");
+      renderLearningsView();
       try {
-        // The host writes the file on disk (and commits when it's a repo); only
-        // then do we flip the learning to accepted. A browser host has no
-        // applyLearning, so it falls through to a status-only accept (no toast).
-        const r = host.applyLearning ? await host.applyLearning(id) : undefined;
-        setLearningStatus(id, "accepted");
-        renderLearningsView();
-        // Honest toast from the result: warn only when a commit was attempted in a
-        // repo and failed (the real problem). Repo-committed and non-repo write-only
-        // are both normal — stay silent to avoid noise.
-        if (r && r.isRepo && !r.committed) {
-          showToast("Accepted and saved, but the commit failed");
+        if (host.applyLearning) {
+          const r = await host.applyLearning(id);
+          // Honest toast from the result: warn only when a commit was attempted in
+          // a repo and failed (the real problem). Repo-committed and non-repo
+          // write-only are both normal — stay silent to avoid noise.
+          if (r.isRepo && !r.committed) {
+            showToast("Accepted and saved, but the commit failed");
+          }
         }
       } catch (err) {
-        // Leave the learning pending and surface the failure; do NOT mark accepted.
+        setLearningStatus(id, "pending");
+        renderLearningsView();
         console.error("accept failed", err);
         showToast(`Couldn't accept: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -2025,6 +2029,22 @@ if (vaultLocationEl) {
   const vaultRoot = host.capabilities().vaultRoot;
   vaultLocationEl.textContent = vaultRoot ?? "Browser storage (in-memory host)";
   if (vaultRoot) vaultLocationEl.title = vaultRoot;
+}
+
+// Learning prompt: editable system instruction for agents proposing learnings.
+const learningPromptTa = document.querySelector<HTMLTextAreaElement>("#learning-prompt");
+const learningPromptReset = document.querySelector<HTMLElement>("#learning-prompt-reset");
+if (learningPromptTa) {
+  learningPromptTa.value = settings.learningPrompt;
+  learningPromptTa.addEventListener("input", () => {
+    void saveSettings({ learningPrompt: learningPromptTa.value });
+  });
+  if (learningPromptReset) {
+    learningPromptReset.addEventListener("click", () => {
+      learningPromptTa.value = DEFAULT_LEARNING_PROMPT;
+      void saveSettings({ learningPrompt: DEFAULT_LEARNING_PROMPT });
+    });
+  }
 }
 
 // --- Omnisearch / command palette: one topbar box that fuzzy-finds across the

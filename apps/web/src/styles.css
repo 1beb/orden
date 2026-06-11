@@ -649,6 +649,61 @@ label.settings-row {
   user-select: text;
 }
 
+/* Stacked row for multi-line settings (textarea, etc.) */
+.settings-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  min-height: unset;
+  padding: 8px 0;
+}
+
+.settings-row-label-with-reset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-reset-btn {
+  font-size: calc(12px * var(--font-scale));
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--accent-soft);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.settings-reset-btn:hover {
+  background: var(--accent-soft);
+}
+
+.settings-textarea {
+  font: inherit;
+  font-size: calc(12.5px * var(--font-scale));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--ink);
+  resize: vertical;
+  line-height: 1.5;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.settings-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-hint {
+  font-size: calc(11.5px * var(--font-scale));
+  color: var(--muted);
+  margin: 2px 0 0;
+  line-height: 1.45;
+}
+
 .nav-brand {
   font-weight: 700;
   font-size: calc(15px * var(--font-scale));
@@ -4481,11 +4536,11 @@ li.sess-done-head {
   user-select: none;
 }
 
-/* recap — bottom of the body, always visible, no well */
+/* recap — sits between filepath and diff, explains why the change is proposed */
 #view-learnings .recap {
   margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
 }
 #view-learnings .recap-head {
   font-size: calc(11px * var(--font-scale));

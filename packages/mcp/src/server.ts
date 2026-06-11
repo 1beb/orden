@@ -17,16 +17,29 @@ import { sessionForConversation, cardForSession } from "./sessionLink";
 const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - card_move("in-progress") when you start real work; card_move("blocked") only when you genuinely need the user's input or are done with the turn.
 - NEVER call card_complete unless the user explicitly tells you to finish, close, or mark something done. When you do, pass a one- or two-sentence summary — it is written to today's journal.
-- Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.
-- A Comment on a proposed learning is a request to REVISE that learning: re-run learning_propose with that learning's id (passed as the id arg) and the updated full file content — it replaces the proposal in place and returns it to pending for re-review. Do not create a new learning for a revision.
+__LEARNINGS__
 - Your session may run in an ISOLATED git worktree on its own orden/<slug> branch. Commit your work there as you go — card_complete verifies a clean tree, pushes the branch, and opens a PR. It REFUSES on uncommitted changes; pass force:true only when the user explicitly says to complete without publishing. NEVER merge to the default branch yourself — integration is the user's process.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
 - Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
 - card_get/card_move with no target act on THIS session's card.`;
 
-export function createMcpServer(host: Host, ctx?: { conversationId?: string }): McpServer {
-  const server = new McpServer({ name: "orden", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+const DEFAULT_LEARNINGS_LINES =
+  "- Right BEFORE card_complete, distill what this session changed into learnings: call learning_propose once per proposed README/ADR/AGENTS.md edit or new skill, passing the FULL post-change file content (not a diff). The user reviews each one. Do NOT propose memories, and skip it when nothing was worth capturing.\n" +
+  "- A Comment on a proposed learning is a request to REVISE that learning: re-run learning_propose with that learning's id (passed as the id arg) and the updated full file content — it replaces the proposal in place and returns it to pending for re-review. Do not create a new learning for a revision.";
+
+export async function createMcpServer(host: Host, ctx?: { conversationId?: string }): Promise<McpServer> {
+  let learningLines = DEFAULT_LEARNINGS_LINES;
+  try {
+    const settings = await host.vault.get<{ learningPrompt?: string }>("settings", "app");
+    if (settings?.learningPrompt) learningLines = settings.learningPrompt;
+  } catch {
+    // vault read failed or no settings; use the default
+  }
+  const server = new McpServer(
+    { name: "orden", version: "0.1.0" },
+    { instructions: INSTRUCTIONS.replace("__LEARNINGS__", learningLines) },
+  );
 
   const UNBOUND =
     "no target given and this connection isn't bound to a session card — pass a card id or title";
