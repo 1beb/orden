@@ -20,6 +20,7 @@ import {
   resolveSessionCwd,
   resolveAgentBin,
   buildCommand,
+  killSessionTmux,
 } from "../src/terminal";
 import { encodeCwd } from "../src/transcriptTitle";
 import type { Host, Project } from "@orden/host-api";
@@ -317,6 +318,36 @@ describe("resolveSessionCwd worktree isolation", () => {
     expect(host.written["sessions/s1"]).toBeUndefined(); // nothing changed
   });
 
+  // A reaped worktree recreated at the SAME path gets a NEW branch (the old
+  // one still exists, so pickBranch suffixes it). The path being unchanged must
+  // not skip the persist — otherwise the record keeps naming the old (often
+  // already-merged) branch and a later publish pushes the wrong one.
+  test("recreating a reaped worktree persists the new branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const vaultRoot = join(dir, "vault");
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot },
+    );
+    const workdir = join(vaultRoot, "..", "worktrees", "p1", "s1"); // does NOT exist on disk
+    // First probe (the un-suffixed branch) reports taken; the -2 probe is free.
+    const exec = (cwd: string, args: string[]) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "rev-parse" && args.includes("refs/heads/orden/fix-it"))
+        return Promise.resolve({ stdout: "abc123\n", code: 0 });
+      if (args[0] === "worktree") return Promise.resolve({ stdout: "", code: 0 });
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    const rec = recFor("p1", { title: "Fix It", workdir, branch: "orden/fix-it" });
+    const cwd = await resolveSessionCwd(host, rec, "s1", DEFAULT, { launch: true, exec });
+    expect(cwd).toBe(workdir);
+    const persisted = host.written["sessions/s1"] as { workdir?: string; branch?: string };
+    expect(persisted).toBeDefined();
+    expect(persisted.workdir).toBe(workdir);
+    expect(persisted.branch).toBe("orden/fix-it-2");
+  });
+
   test("a non-git project dir falls back to the project path", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
     const host = hostWithProjects(
@@ -530,6 +561,66 @@ describe("buildCommand (claude resume vs mint)", () => {
     const cmd = await buildCommand(host, rec, "sess_1", CWD);
     expect(cmd).not.toContain("--resume");
     expect(cmd).toContain("--session-id conv-gone");
+  });
+});
+
+describe("killSessionTmux", () => {
+  // `tmux kill-session` only SIGHUPs the pane process; claude catches that and
+  // can linger for minutes still holding its conversation id, so a prompt
+  // resume dies with "Session ID … is already in use" ([exited] in the pane).
+  // The kill must therefore escalate: TERM the pane process groups right away,
+  // KILL whatever survives the grace period.
+  test("snapshots pane pids, kills the session, TERMs then KILLs the process groups", async () => {
+    const tmux: string[][] = [];
+    const signals: Array<[number, string]> = [];
+    const exec = (cmd: string, args: string[]) => {
+      tmux.push([cmd, ...args]);
+      if (args[0] === "list-panes") return Promise.resolve({ stdout: "1234\n5678\n", stderr: "" });
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+    await killSessionTmux("s1", {
+      exec,
+      kill: (pid, sig) => signals.push([pid, sig]),
+      graceMs: 0,
+    });
+    await new Promise((r) => setTimeout(r, 5)); // let the grace timer fire
+    // panes listed BEFORE the session is killed, against the whole session (-s)
+    expect(tmux[0].slice(0, 2)).toEqual(["tmux", "list-panes"]);
+    expect(tmux[0]).toContain("-s");
+    expect(tmux[1].slice(0, 2)).toEqual(["tmux", "kill-session"]);
+    // negative pids = the pane process GROUPS; TERM first, KILL after the grace
+    expect(signals).toEqual([
+      [-1234, "SIGTERM"],
+      [-5678, "SIGTERM"],
+      [-1234, "SIGKILL"],
+      [-5678, "SIGKILL"],
+    ]);
+  });
+
+  test("a missing tmux session stays a silent no-op (no signals sent)", async () => {
+    const signals: Array<[number, string]> = [];
+    const exec = (_cmd: string, args: string[]) =>
+      args[0] === "list-panes"
+        ? Promise.reject(new Error("no such session"))
+        : Promise.resolve({ stdout: "", stderr: "" });
+    await expect(
+      killSessionTmux("gone", { exec, kill: (pid, sig) => signals.push([pid, sig]), graceMs: 0 }),
+    ).resolves.toBeUndefined();
+    expect(signals).toEqual([]);
+  });
+
+  test("an already-dead process group is swallowed (kill throws ESRCH)", async () => {
+    const exec = (_cmd: string, args: string[]) =>
+      Promise.resolve({ stdout: args[0] === "list-panes" ? "999\n" : "", stderr: "" });
+    await expect(
+      killSessionTmux("s1", {
+        exec,
+        kill: () => {
+          throw new Error("ESRCH");
+        },
+        graceMs: 0,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
