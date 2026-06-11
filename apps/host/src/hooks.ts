@@ -56,6 +56,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Host } from "@orden/host-api";
 import { sessionForConversation, cardForSession } from "@orden/mcp";
 import { noteHookActivity } from "./idleReconciler";
+import { hasLiveBackgroundCommand } from "./backgroundCommands";
 
 // Hooks may only set the automatic cycle states. "complete" is intentionally
 // excluded — it comes solely from the `card_complete` MCP tool.
@@ -86,15 +87,30 @@ function subagentsActive(claudeSessionId: string): boolean {
   return (subagentDepth.get(claudeSessionId) ?? 0) > 0;
 }
 
-// Stop edge: blocked the card ONLY when no subagent is in flight. While a
-// background subagent workflow runs, the main agent's Stop is a turn-end, not a
-// wait-on-you, so the card must stay in-progress — but the blocked is OWED, so we
-// remember it and settle it when the last subagent stops.
-export async function applyStop(host: Host, claudeSessionId: string): Promise<void> {
+// Stop edge: block the card ONLY when no subagent AND no background command is
+// still working. Two distinct "the turn ended but work continues" cases:
+//
+//   1. A background SUBAGENT workflow: the main Stop is a turn-end, not a wait,
+//      so we stay in-progress — and the blocked is OWED (settled when the last
+//      subagent stops; SubagentStop fires, so we can defer it).
+//   2. A run_in_background BASH command: the tool returns immediately, the turn
+//      ends, and Claude auto-wakes the agent when the shell finishes — but that
+//      wake fires NO catchable hook, so there is nothing to "settle" against.
+//      Instead we read the live truth at every Stop (hasBgCommand → the OS
+//      process tree, see backgroundCommands.ts): if a command is still running,
+//      stay in-progress. The NEXT Stop (after the shell completes and the agent
+//      wakes) re-checks and blocks, and the idle reconciler is the backstop. No
+//      deferred bookkeeping — the process IS the durable state.
+export async function applyStop(
+  host: Host,
+  claudeSessionId: string,
+  hasBgCommand: (conversationId: string) => boolean = hasLiveBackgroundCommand,
+): Promise<void> {
   if (subagentsActive(claudeSessionId)) {
     pendingBlock.add(claudeSessionId); // background turn-end; settle when depth hits 0
     return;
   }
+  if (hasBgCommand(claudeSessionId)) return; // a background/foreground command is still running
   await applyState(host, claudeSessionId, "blocked");
 }
 

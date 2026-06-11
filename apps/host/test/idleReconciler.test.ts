@@ -30,11 +30,14 @@ const NOW = 1_000_000_000_000;
 const IDLE_MS = 5 * 60 * 1000;
 
 // deps with a per-session activity table; sessions absent from it report null.
-function depsFrom(activity: Record<string, number | null>): IdleDeps {
+// `liveBg` is the set of session ids that have a running background command.
+function depsFrom(activity: Record<string, number | null>, liveBg: string[] = []): IdleDeps {
+  const bg = new Set(liveBg);
   return {
     now: () => NOW,
     idleMs: IDLE_MS,
     lastActivity: (s: SessionRec) => (s.id in activity ? activity[s.id] : null),
+    hasLiveBackgroundCommand: (s: SessionRec) => bg.has(s.id),
   };
 }
 
@@ -59,6 +62,24 @@ describe("reconcileIdleCards (idle in-progress → blocked safety net)", () => {
       cards: { c1: { id: "c1", title: "T", state: "in-progress", sessionIds: ["s1"] } },
     });
     const moved = await reconcileIdleCards(hostWith(vault), "/cwd", depsFrom({ s1: NOW - 1000 }));
+    expect(moved).toEqual([]);
+    expect((await vault.get<{ state: string }>("cards", "c1"))?.state).toBe("in-progress");
+  });
+
+  // A run_in_background shell can run for many minutes with no transcript writes
+  // (a quiet command leaves its mtime stale), so the activity signals all look
+  // idle. A live background command is itself a sign of work — the reconciler
+  // must not block the card while the shell is still running.
+  test("does NOT block a long-idle card whose session has a live background command", async () => {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1", conversationId: "uuid-1" } },
+      cards: { c1: { id: "c1", title: "T", state: "in-progress", sessionIds: ["s1"] } },
+    });
+    const moved = await reconcileIdleCards(
+      hostWith(vault),
+      "/cwd",
+      depsFrom({ s1: NOW - IDLE_MS - 1 }, ["s1"]), // stale activity, but bg command alive
+    );
     expect(moved).toEqual([]);
     expect((await vault.get<{ state: string }>("cards", "c1"))?.state).toBe("in-progress");
   });
