@@ -106,6 +106,17 @@ describe("handleAgentRequest — panel-open fallback", () => {
     expect(intent?.projectId).toBe("repo");
   });
 
+  test("an absolute doc target routes through the 'host' root, not the session root", async () => {
+    const vault = fakeVault({ sessions: { s1: { id: "s1", workdir: "/wt/s1", projectId: "repo" } } });
+    await call(hostWith(vault), "POST", "/agent/panel-open?orden_session_id=s1", {
+      kind: "doc",
+      target: "/home/user/.config/notes.md",
+    });
+    const intent = await vault.get<{ projectId?: string; target: string }>("ui", "panel-intent");
+    expect(intent?.target).toBe("/home/user/.config/notes.md");
+    expect(intent?.projectId).toBe("host"); // absolute path opens directly, no project
+  });
+
   test("an unknown kind is rejected 400", async () => {
     const vault = fakeVault();
     const cap = await call(hostWith(vault), "POST", "/agent/panel-open", { kind: "wat", target: "x" });

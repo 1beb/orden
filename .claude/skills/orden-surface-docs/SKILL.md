@@ -9,9 +9,10 @@ When you create or finish a document for the user to read — a plan, a review, 
 report, any `.md`/`.html`/`.qmd`/`.ipynb` writeup — open it in their main panel
 yourself, the moment it is ready. Don't wait to be asked.
 
-Only surface docs that live inside the session's project or worktree. `panel_open`
-resolves a path under a project root and refuses anything outside it, so an
-absolute path to a file elsewhere on the machine will not render.
+A doc target may be project-relative OR an absolute path. A project-relative
+target resolves against the session's project/worktree; an absolute path (e.g.
+`/home/user/.config/app.md`) opens that exact file directly — use it when the
+user asks to see a specific referenced file that isn't part of a project.
 
 ## The normal path (MCP up)
 

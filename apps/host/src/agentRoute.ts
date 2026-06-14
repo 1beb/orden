@@ -100,10 +100,14 @@ export async function handleAgentRequest(
         return;
       }
       const target = str(body.target) ?? "";
-      // Honour an explicit projectId; otherwise resolve a doc against the
-      // session's worktree root (kanban/page targets need no root).
+      // Honour an explicit projectId; an absolute doc target is a specific path
+      // on disk (not a project file) so it routes through the "host" root;
+      // otherwise resolve a doc against the session's worktree root (kanban/page
+      // targets need no root).
       let projectId = str(body.projectId);
-      if (kind === "doc" && !projectId && sid) projectId = await rootForSession(host, sid);
+      if (kind === "doc" && !projectId) {
+        projectId = target.startsWith("/") ? "host" : sid ? await rootForSession(host, sid) : undefined;
+      }
       send(res, 200, true, toolText(await panelOpen(host.vault, kind, target, projectId)));
       return;
     }

@@ -298,13 +298,14 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
   server.registerTool(
     "panel_open",
     {
-      description: "Surface a doc, page, the kanban board, or a card in the user's main panel.",
+      description:
+        "Surface a doc, page, the kanban board, or a card in the user's main panel. A doc target may be project-relative OR an absolute path (e.g. /home/user/.config/x.md) — an absolute path opens directly, no project needed.",
       inputSchema: {
         kind: z.enum(["doc", "page", "kanban", "card"]),
         target: z
           .string()
           .optional()
-          .describe("doc path, page name, or card id/title; omit for kanban"),
+          .describe("doc path (project-relative or absolute), page name, or card id/title; omit for kanban"),
       },
     },
     async ({ kind, target }) =>
@@ -313,8 +314,10 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
         kind,
         target ?? "",
         // Docs resolve against the session's worktree when it has one, so an
-        // agent can surface files it just wrote there.
-        kind === "doc" ? await currentRootId() : undefined,
+        // agent can surface files it just wrote there. An ABSOLUTE target isn't a
+        // project file at all — the user asked to see a specific path on disk — so
+        // route it through the "host" root (any absolute path, no project needed).
+        kind === "doc" ? (target?.startsWith("/") ? "host" : await currentRootId()) : undefined,
       ),
   );
 

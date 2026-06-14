@@ -1838,6 +1838,11 @@ function updateHtmlToggle(path: string | null): void {
 // HTML → rendered (sandboxed iframe) or source per the effective flag; all else
 // → read-only code viewer.
 async function openRepoFile(projectId: string, path: string): Promise<void> {
+  // An absolute path is a specific file on disk the user asked to see, not a
+  // project file — resolve it through the host root (see makeProjectRootResolver
+  // "host"). Centralised here so every caller (agent panel-intent, recent files,
+  // a click) opens absolute paths the same way, with no project plumbing.
+  if (path.startsWith("/")) projectId = "host";
   const title = path.split("/").pop() ?? path;
   const kind = viewerFor(path, effectiveHtmlRender(path));
   // Watch only the doc that's open: tell the host to start watching this file

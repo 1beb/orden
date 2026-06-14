@@ -234,8 +234,11 @@ so the verify-then-open step stays an explicit gate (don't open a doc you haven'
 confirmed rendered). Gated by `capabilities().docRender`. The gate is verify-then-open,
 not wait-to-be-asked: agents should `panel_open` a doc they wrote/rendered for review as
 soon as it's confirmed, unprompted (the `orden-surface-docs` skill carries the convention
-+ the MCP-drop curl fallback). `panel_open` only resolves paths *inside* a project/worktree
-root (`repoFileRoute.ts`), so an absolute path elsewhere on disk will not render.
++ the MCP-drop curl fallback). A doc target may be project-relative OR an absolute path:
+an absolute target routes through the `"host"` file root (`makeProjectRootResolver`), opening
+any file on disk directly — a single-user escape hatch from the per-project file model, so
+the user can have any referenced file surfaced without a project flow. These ad-hoc files are
+never listed/watched/searched (kept out of omnisearch); they only resolve on demand.
 
 **Agent HTTP fallback when MCP drops.** A session's MCP transport can disconnect
 mid-run (claude marks the `orden` server disconnected; the tools vanish) while the host
