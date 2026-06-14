@@ -35,6 +35,9 @@ export function mountJournal(
   // [[Project: X]] link that routes to a project page); false falls back to
   // opening a normal page in the journal.
   onWikiLink?: (target: string) => boolean,
+  // Optional callback that returns a DOM element for [[Session: <id>]] links
+  // so they render as widget buttons instead of inline [[Session: x]] text.
+  widgetForSession?: (sessionId: string) => HTMLElement | null | undefined,
 ): JournalController {
   let mode: "feed" | "page" = "feed";
   let currentName: string | null = null;
@@ -55,7 +58,7 @@ export function mountJournal(
     const view = makeOutlineEditor(host, name, (target) => {
       if (onWikiLink?.(target)) return; // handled externally (e.g. [[Project: X]])
       showPage(target);
-    });
+    }, widgetForSession);
     editors.push(view);
     return view;
   }
