@@ -41,7 +41,15 @@ describe("NodeHost change events", () => {
 });
 
 describe("change feed over the ws bus", () => {
-  test("a client receives a change frame when the vault is written", async () => {
+  // The change feed is for FOREIGN writes: a connection is its own subscription,
+  // so the server must NOT echo a client's own write back to it (the client
+  // already updated its synchronous cache). Echoing self was the source of a
+  // flaky bug — a host-side state flip (e.g. a hook moving a card to
+  // in-progress) landing on a key the client had just written looked
+  // indistinguishable from a self-echo and got dropped client-side. The fix is
+  // server-side origin attribution: don't send a change to the connection that
+  // caused it; send it to everyone else.
+  test("the originating client does NOT receive its own write back", async () => {
     const server = await startHostServer(new NodeHost({ vaultRoot: root }), { port: 0 });
     const conn = await createWsTransport(`ws://127.0.0.1:${server.port}`);
     const client: Host = await connectHostClient(conn.transport);
@@ -50,10 +58,58 @@ describe("change feed over the ws bus", () => {
     conn.onEvent((e) => events.push(e));
 
     await client.vault.set("pages", "Live", "# live");
-    // give the broadcast a tick to arrive
+    // give any (erroneous) broadcast a tick to arrive
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(events).toContainEqual({ type: "change", ns: "pages", key: "Live" });
+    expect(events).not.toContainEqual({ type: "change", ns: "pages", key: "Live" });
+
+    await conn.close();
+    await server.close();
+  });
+
+  test("a second client DOES receive another client's write", async () => {
+    const server = await startHostServer(new NodeHost({ vaultRoot: root }), { port: 0 });
+    const connA = await createWsTransport(`ws://127.0.0.1:${server.port}`);
+    const connB = await createWsTransport(`ws://127.0.0.1:${server.port}`);
+    const clientA: Host = await connectHostClient(connA.transport);
+
+    const seenByA: { type: string; ns: string; key: string }[] = [];
+    const seenByB: { type: string; ns: string; key: string }[] = [];
+    connA.onEvent((e) => seenByA.push(e));
+    connB.onEvent((e) => seenByB.push(e));
+    // let both connections settle so the server has wired both change listeners
+    await new Promise((r) => setTimeout(r, 20));
+
+    await clientA.vault.set("pages", "Live", "# live");
+    await new Promise((r) => setTimeout(r, 50));
+
+    // B (the observer) sees A's write; A (the author) does not get its own echo.
+    expect(seenByB).toContainEqual({ type: "change", ns: "pages", key: "Live" });
+    expect(seenByA).not.toContainEqual({ type: "change", ns: "pages", key: "Live" });
+
+    await connA.close();
+    await connB.close();
+    await server.close();
+  });
+
+  test("a host-side write (no originating client) reaches every client", async () => {
+    // Reactors, hooks, MCP agents and the idle reconciler write straight through
+    // host.vault — not over any client's RPC — so they have no origin and MUST
+    // broadcast to all connected clients (this is how an agent's card_move
+    // reaches the board).
+    const host = new NodeHost({ vaultRoot: root });
+    const server = await startHostServer(host, { port: 0 });
+    const conn = await createWsTransport(`ws://127.0.0.1:${server.port}`);
+    await connectHostClient(conn.transport);
+
+    const events: { type: string; ns: string; key: string }[] = [];
+    conn.onEvent((e) => events.push(e));
+    await new Promise((r) => setTimeout(r, 20));
+
+    await host.vault.set("cards", "item_x", { state: "in-progress" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(events).toContainEqual({ type: "change", ns: "cards", key: "item_x" });
 
     await conn.close();
     await server.close();
