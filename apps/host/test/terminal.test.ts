@@ -194,6 +194,24 @@ describe("opencodeEnv worktree flag + plugin guard", () => {
       osHome.dir = "";
     }
   });
+
+  test("writes a scoped opencode.json with the session in the MCP URL", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "orden-oc-"));
+    osHome.dir = tmp;
+    try {
+      opencodeEnv({ agent: "opencode" }, "sess_oc2", false);
+      const configRaw = readFileSync(
+        join(tmp, ".orden", "opencode-plugins", "sess_oc2", "opencode.json"),
+        "utf8",
+      );
+      const config = JSON.parse(configRaw);
+      expect(config.mcp.orden.type).toBe("remote");
+      expect(config.mcp.orden.enabled).toBe(true);
+      expect(config.mcp.orden.url).toMatch(/\/mcp\/sess_oc2$/);
+    } finally {
+      osHome.dir = "";
+    }
+  });
 });
 
 describe("resolveSessionCwd", () => {

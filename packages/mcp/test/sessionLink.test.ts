@@ -15,6 +15,11 @@ describe("sessionLink", () => {
     expect((await sessionForConversation(seed(), "uuid-1"))?.id).toBe("s1");
     expect(await sessionForConversation(seed(), "nope")).toBeNull();
   });
+  it("falls back to vault key when conversationId doesn't match (opencode scoped MCP)", async () => {
+    // The scoped /mcp/<sessionId> endpoint uses the orden session id in the URL
+    // path, not the agent's conversationId. The fallback does a direct vault get.
+    expect((await sessionForConversation(seed(), "s1"))?.id).toBe("s1");
+  });
   it("finds the card linked to a session", async () => {
     expect((await cardForSession(seed(), "s1"))?.id).toBe("c1");
     expect(await cardForSession(seed(), "sX")).toBeNull();
