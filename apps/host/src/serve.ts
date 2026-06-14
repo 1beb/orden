@@ -22,6 +22,7 @@ import { reapCompletedCard } from "./cardReaper";
 import { publishCompletedCard } from "./publishReactor";
 import { journalCompletedCard } from "./cardJournal";
 import { handleMcpRequest } from "@orden/mcp";
+import { handleAgentRequest } from "./agentRoute";
 import { handleHookRequest } from "./hooks";
 import { handleRepoFileRequest } from "./repoFileRoute";
 import { makeProjectRootResolver } from "./projectRoots";
@@ -204,6 +205,13 @@ function makeServer() {
     }
     if (req.url && req.url.startsWith("/hooks/")) {
       void handleHookRequest(host, req, res);
+      return;
+    }
+    // Plain-HTTP fallback for panel_open / card_* when an agent's MCP transport
+    // drops mid-session (the tools vanish but the host is still up). Mirrors the
+    // same @orden/mcp tool fns, keyed by ?orden_session_id=. See agentRoute.ts.
+    if (req.url && req.url.startsWith("/agent/")) {
+      void handleAgentRequest(host, req, res);
       return;
     }
     if (req.url && req.url.startsWith("/repo-file/")) {

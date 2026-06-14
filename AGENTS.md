@@ -231,7 +231,19 @@ agent drives it: edit the `.qmd`/`.md` source, call `doc_render({path})` (the ho
 quarto and returns `{ok, outputPath, errors}`), verify `ok`, then `panel_open(outputPath)`
 to surface it. Two tools on purpose — `doc_render` only builds, `panel_open` only opens —
 so the verify-then-open step stays an explicit gate (don't open a doc you haven't
-confirmed rendered). Gated by `capabilities().docRender`.
+confirmed rendered). Gated by `capabilities().docRender`. The gate is verify-then-open,
+not wait-to-be-asked: agents should `panel_open` a doc they wrote/rendered for review as
+soon as it's confirmed, unprompted (the `orden-surface-docs` skill carries the convention
++ the MCP-drop curl fallback). `panel_open` only resolves paths *inside* a project/worktree
+root (`repoFileRoute.ts`), so an absolute path elsewhere on disk will not render.
+
+**Agent HTTP fallback when MCP drops.** A session's MCP transport can disconnect
+mid-run (claude marks the `orden` server disconnected; the tools vanish) while the host
+stays up. `apps/host/src/agentRoute.ts` mirrors `panel_open` + `card_move` + `card_create`
+over plain HTTP at `POST /agent/{panel-open,card-move,card-create}?orden_session_id=…`,
+delegating to the SAME `@orden/mcp` tool fns (one implementation, two transports). The
+session id + port reach the agent's shell via `ORDEN_SESSION_ID`/`ORDEN_PORT`, injected
+for every agent by `sessionLaunchEnv` (`terminal.ts`).
 
 **Kanban card-state semantics** (enforced across MCP tools and hooks):
 `planning`=idle, `in-progress`=working, `blocked`=done-with-turn/waiting-on-user,
