@@ -154,7 +154,7 @@ reapDeadSessions();
 // arrives over the change feed). Seeded from the boot state so pre-existing
 // blocked cards don't fire on load.
 const cardWaitState = new Map<string, string>(listItems().map((i) => [i.id, i.state]));
-function showToast(text: string): void {
+function showToast(text: string, duration = 6000): void {
   const t = document.createElement("div");
   t.className = "orden-toast";
   t.textContent = text;
@@ -163,7 +163,22 @@ function showToast(text: string): void {
   setTimeout(() => {
     t.classList.remove("show");
     setTimeout(() => t.remove(), 300);
-  }, 6000);
+  }, duration);
+}
+
+declare const __BUILD_TIME__: number;
+
+function checkForUpdates(): void {
+  const btn = document.querySelector<HTMLButtonElement>("#new-build-available");
+  if (!btn) return;
+  fetch("/build-info")
+    .then((r) => r.json())
+    .then((info: { buildTime: number }) => {
+      if (info.buildTime > __BUILD_TIME__) {
+        btn.hidden = false;
+      }
+    })
+    .catch(() => {}); // silently ignore fetch failures
 }
 function notifyBlockedTransitions(): void {
   for (const it of listItems()) {
@@ -1969,6 +1984,10 @@ addProjectBtn.addEventListener("click", () =>
   }),
 );
 renderProjects();
+
+// Periodically check for a newer build so the user knows to reload after a rebuild.
+setInterval(checkForUpdates, 30_000);
+document.querySelector("#new-build-available")?.addEventListener("click", () => location.reload());
 
 // Right pane: sessions (claude/opencode conversations). Creating one drops a
 // linked card into the kanban planning column (separate-but-linked). The session open
