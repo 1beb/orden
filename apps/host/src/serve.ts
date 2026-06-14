@@ -226,6 +226,20 @@ function makeServer() {
       res.writeHead(403).end();
       return;
     }
+    if (req.url === "/build-info") {
+      readFile(join(webDist, "build-info.json"))
+        .then((body) => {
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "no-cache, must-revalidate",
+          });
+          res.end(body);
+        })
+        .catch(() => {
+          res.writeHead(404).end("not found");
+        });
+      return;
+    }
     if (pathname === "/capture") {
       if (req.method === "OPTIONS") {
         res.writeHead(403).end();

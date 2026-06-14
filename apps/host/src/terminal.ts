@@ -734,10 +734,21 @@ async function handle(
   }
 
   // Launch in the session's project directory or its isolated worktree (falls
-  // back to defaultCwd). Used for the tmux launch AND for opencode discovery /
-  // title polling below — they must all read the same cwd the agent actually
-  // runs in.
-  const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: true });
+  // back to defaultCwd). Only create a worktree on the FIRST launch; reconnects
+  // reuse the stored workdir even if the worktree was reaped — claude keys
+  // transcripts by the cwd the agent ran in, so consistency beats existence.
+  const isLaunch = !rec.workdir;
+  const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: isLaunch });
+  // If the worktree was reaped (common for completed sessions) the directory is
+  // gone but the transcript lives in ~/.claude/; recreate an empty directory so
+  // tmux can start the shell and the agent can find its conversation history.
+  if (!isLaunch && !existsSync(cwd)) {
+    try {
+      mkdirSync(cwd, { recursive: true });
+    } catch {
+      // can't create — let tmux report the error naturally
+    }
+  }
 
   // For a first-open opencode session (no id yet) snapshot the session ids that
   // already exist in this cwd BEFORE launching, so post-launch discovery only picks

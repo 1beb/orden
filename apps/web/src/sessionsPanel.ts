@@ -40,6 +40,8 @@ export interface SessionsPanel {
   refresh(): void;
   /** Open a specific session in the panel (e.g. just created from a card). */
   open(id: string): void;
+  /** Return to the session list view (tear down any open session detail). */
+  showList(): void;
 }
 
 function el(tag: string, cls?: string): HTMLElement {
@@ -471,6 +473,16 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
         scratchOpen = false;
       }
       setCurrent(id);
+      render();
+    },
+    showList: () => {
+      if (scratchOpen) {
+        teardownTab();
+        scratchOpen = false;
+      }
+      const left = currentId;
+      setCurrent(null);
+      if (left) deps.cleanup(left);
       render();
     },
   };

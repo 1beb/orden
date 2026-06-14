@@ -1,7 +1,13 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
+import { writeFileSync, mkdirSync } from "node:fs";
+
+const BUILD_TIME = Date.now();
 
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   // main.ts boots with top-level await (await getHost()); esnext keeps it in the
   // production bundle. All current browsers support top-level await.
   build: { target: "esnext" },
@@ -23,4 +29,17 @@ export default defineConfig({
       "@orden/host-client": resolve(__dirname, "../host/src/client.ts"),
     },
   },
+  plugins: [
+    {
+      name: "write-build-info",
+      writeBundle() {
+        const distDir = resolve(__dirname, "dist");
+        mkdirSync(distDir, { recursive: true });
+        writeFileSync(
+          resolve(distDir, "build-info.json"),
+          JSON.stringify({ buildTime: BUILD_TIME }),
+        );
+      },
+    },
+  ],
 });

@@ -244,6 +244,14 @@ async function projectLink(vault: VaultStore, projectId?: string): Promise<strin
   return `[[Project: ${p?.name ?? projectId}]]`;
 }
 
+// Session link targets for all sessions linked to a card. Each session gets a
+// [[Session: <id>]] wiki link so the journal entry is clickable to the session.
+async function sessionLinks(vault: VaultStore, card: CardRec): Promise<string[]> {
+  const ids = cardSessionIds(card);
+  if (ids.length === 0) return [];
+  return ids.map((sid) => `[[Session: ${sid}]]`);
+}
+
 export async function cardGet(vault: VaultStore, target: string): Promise<ToolResult> {
   const { card, candidates } = await findCard(vault, target);
   if (!card) return cardMiss(target, candidates);
@@ -306,12 +314,15 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
   await appendAutoLog(vault, cardLogKey(card.id), `${time} Completed${sum ? " — " + sum : ""}`);
 
   // Journal: a single entry on the completion day's page linking back to the
-  // project (and the plan doc, when one is associated).
+  // project and sessions (and the plan doc, when one is associated).
   const link = await projectLink(vault, card.projectId);
+  const sessions = await sessionLinks(vault, card);
   const plan =
     typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
   const entry =
-    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link].filter(Boolean).join(" ") +
+    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link, ...sessions]
+      .filter(Boolean)
+      .join(" ") +
     plan;
   await appendAutoLog(vault, journalKey(when, tz), entry);
 }
