@@ -1182,7 +1182,12 @@ function updateBreadcrumb(): void {
       crumbs = [{ label: "Keyboard shortcuts" }];
       break;
   }
-  renderBreadcrumb(crumbs);
+  if (crumbs.length <= 1) {
+    breadcrumbEl.hidden = true;
+  } else {
+    breadcrumbEl.hidden = false;
+    renderBreadcrumb(crumbs);
+  }
 }
 
 const viewEls: Record<View, HTMLElement> = {
@@ -1482,6 +1487,7 @@ function openProject(projectId: string): void {
   projectTitle = getProject(projectId)?.name ?? "Project";
   renderProject(projectId);
   viewStore.set("project");
+  void host.vault.set("ui", "last-project", projectId);
 }
 void currentProjectId;
 
@@ -1778,6 +1784,7 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   updateHtmlToggle(path);
   setActiveFile(path);
   recordRecentFile(projectId, path);
+  void host.vault.set("ui", "last-doc", { projectId, path });
   renderRecentFiles();
 }
 
@@ -1832,9 +1839,40 @@ onUpdate();
 applyLayout(mobile.matches);
 
 // Route the initial view from the startup preference.
-if (settings.startup === "journal") viewStore.set("journal");
-else if (settings.startup === "kanban") viewStore.set("kanban");
-else viewStore.set(lastView ?? "journal");
+if (settings.startup === "last") {
+  if (lastView === "project") {
+    const lastProjId = await host.vault.get<string>("ui", "last-project");
+    if (lastProjId) {
+      openProject(lastProjId);
+    } else {
+      const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
+        "ui",
+        "last-doc",
+      );
+      if (lastDoc?.projectId) {
+        openProject(lastDoc.projectId);
+      } else {
+        viewStore.set("journal");
+      }
+    }
+  } else if (lastView && !ANNOTATABLE_VIEWS.has(lastView)) {
+    viewStore.set(lastView);
+  } else {
+    const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
+      "ui",
+      "last-doc",
+    );
+    if (lastDoc?.projectId && lastDoc?.path) {
+      await openRepoFile(lastDoc.projectId, lastDoc.path);
+    } else {
+      viewStore.set(lastView ?? "journal");
+    }
+  }
+} else if (settings.startup === "journal") {
+  viewStore.set("journal");
+} else if (settings.startup === "kanban") {
+  viewStore.set("kanban");
+}
 
 // --- Projects registry (local/remote file access arrives with the host backend) ---
 const projectList = document.querySelector<HTMLElement>("#project-list")!;
