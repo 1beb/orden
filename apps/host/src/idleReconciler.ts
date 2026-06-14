@@ -37,6 +37,7 @@ import type { Host } from "@orden/host-api";
 import { cardSessionIds, type CardRec, type SessionRec } from "@orden/mcp";
 import { encodeCwd } from "./transcriptTitle";
 import { resolveSessionCwd } from "./terminal";
+import { hasLiveBackgroundCommand } from "./backgroundCommands";
 
 // Default idle window before an inactive in-progress card is moved to blocked.
 // Generous enough to ride out a single long-running tool turn (claude fires
@@ -97,6 +98,13 @@ export interface IdleDeps {
   idleMs: number;
   /** Last agent-activity epoch ms for a session, or null if unknown. Injectable for tests. */
   lastActivity: (session: SessionRec, cwd: string) => number | null;
+  /**
+   * Does the session have a running background command (run_in_background Bash)?
+   * Such a command is liveness in its own right — a quiet long-running shell
+   * leaves transcript mtime stale, so the activity signals all look idle even
+   * though work is plainly ongoing. Injectable for tests. See backgroundCommands.ts.
+   */
+  hasLiveBackgroundCommand: (session: SessionRec) => boolean;
 }
 
 /**
@@ -123,6 +131,12 @@ export async function reconcileIdleCards(
       const ses = await host.vault.get<SessionRec>("sessions", sid);
       if (!ses) continue;
       const cwd = await resolveSessionCwd(host, ses, sid, defaultCwd);
+      // A live background command counts as current activity: keep the card
+      // in-progress even when the transcript has gone stale under a quiet shell.
+      if (deps.hasLiveBackgroundCommand(ses)) {
+        newest = now;
+        break;
+      }
       const a = deps.lastActivity(ses, cwd);
       if (a !== null && (newest === null || a > newest)) newest = a;
     }
@@ -148,7 +162,13 @@ export function startIdleReconciler(
   const envMs = Number(process.env.ORDEN_IDLE_BLOCK_MS);
   const idleMs = opts?.idleMs ?? (Number.isFinite(envMs) && envMs > 0 ? envMs : DEFAULT_IDLE_MS);
   const intervalMs = opts?.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const deps: IdleDeps = { now: Date.now, idleMs, lastActivity: defaultLastActivity };
+  const deps: IdleDeps = {
+    now: Date.now,
+    idleMs,
+    lastActivity: defaultLastActivity,
+    hasLiveBackgroundCommand: (ses) =>
+      ses.conversationId ? hasLiveBackgroundCommand(ses.conversationId) : false,
+  };
   const tick = (): void => {
     void reconcileIdleCards(host, defaultCwd, deps).catch((err) => {
       // eslint-disable-next-line no-console

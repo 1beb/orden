@@ -223,6 +223,46 @@ describe("applyStop (subagent-aware Stop gating)", () => {
   });
 });
 
+// A run_in_background Bash command outlives the agent's turn: the tool returns
+// immediately, the turn ends (Stop fires) and Claude auto-wakes the agent when
+// the shell finishes — but that wake fires no catchable hook. So blocking on Stop
+// would park the card while the shell is plainly still working. applyStop instead
+// consults a live signal — does this session's claude still have a command child?
+// — injected here so the OS process tree isn't needed in the test.
+describe("applyStop (background-command-aware Stop gating)", () => {
+  const cardState = (v: VaultStore) => v.get<{ state: string }>("cards", "c1");
+  const seed = (conv: string) =>
+    fakeVault({
+      sessions: { s1: { id: "s1", conversationId: conv } },
+      cards: { c1: { id: "c1", title: "T", state: "in-progress", sessionIds: ["s1"] } },
+    });
+
+  test("Stop while a background command is still running leaves the card in-progress", async () => {
+    const vault = seed("c-bgcmd");
+    await applyStop(hostWith(vault), "c-bgcmd", () => true);
+    expect((await cardState(vault))?.state).toBe("in-progress");
+  });
+
+  test("Stop with no live background command blocks the card", async () => {
+    const vault = seed("c-nobg");
+    await applyStop(hostWith(vault), "c-nobg", () => false);
+    expect((await cardState(vault))?.state).toBe("blocked");
+  });
+
+  test("an in-flight subagent gates Stop before the background-command check even runs", async () => {
+    const vault = seed("c-both");
+    noteSubagentStart("c-both");
+    let checked = false;
+    await applyStop(hostWith(vault), "c-both", () => {
+      checked = true;
+      return false;
+    });
+    expect((await cardState(vault))?.state).toBe("in-progress");
+    expect(checked).toBe(false); // subagent short-circuit wins; no /proc work
+    resetSubagents("c-both");
+  });
+});
+
 // The trap: a BACKGROUND subagent workflow ends the main turn (Stop) WHILE the
 // subagent runs, and no Stop follows once it finishes. The deferred block must
 // fire when the last subagent stops, or the card is stuck at in-progress forever.
