@@ -14,6 +14,10 @@
      control happens to be tallest (topbar's 30px pane-toggle vs the sess-head's
      24px agent button) plus mismatched padding, so they drift apart. */
   --bar-h: 52px;
+  /* Height of the mobile bottom navigation bar. The slide-over drawers stop
+     above it and the center column pads for it, so the bar stays visible and
+     tappable on every view (incl. the full-width session pane). */
+  --bottomnav-h: 56px;
   /* Symbol/system stack for icon glyphs (☰ ⌕ › ←). The selectable app prose
      font (--app-font) frequently lacks these Unicode symbols, so the browser
      substitutes a per-glyph fallback whose metrics are condensed/narrow — that
@@ -2721,7 +2725,8 @@ li.sess-done-head {
     position: fixed;
     top: 0;
     left: 0;
-    bottom: 0;
+    /* stop above the bottom nav so it stays visible/tappable */
+    bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px));
     width: min(82vw, 300px);
     padding: 14px 12px;
     transform: translateX(-100%);
@@ -2739,7 +2744,8 @@ li.sess-done-head {
     position: fixed;
     top: 0;
     right: 0;
-    bottom: 0;
+    /* stop above the bottom nav so it stays visible/tappable */
+    bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px));
     width: 100vw;
     transform: translateX(100%);
     transition: transform 0.22s ease;
@@ -4949,7 +4955,8 @@ li.sess-done-head {
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 40;
+    /* above the slide-over drawers (z-index 45) so it shows on the session pane */
+    z-index: 50;
     justify-content: space-around;
     align-items: center;
     background: var(--panel-bg);
@@ -4959,7 +4966,7 @@ li.sess-done-head {
     -webkit-user-select: none;
   }
   #center {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px));
   }
 
   .bn-btn {
