@@ -1577,14 +1577,31 @@ document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
 document.querySelector("#nav-projects")?.addEventListener("click", () => viewStore.set("projects"));
 
-// Bottom nav (mobile): always-visible bar of icon buttons.
+// Bottom nav (mobile): always-visible bar of icon buttons. The view buttons
+// also dismiss the slide-over drawers so the chosen view isn't left hidden
+// behind the full-width session pane.
+function closeMobileDrawers(): void {
+  if (!mobile.matches) return;
+  app.classList.add("left-closed", "right-closed");
+  syncBottomNavSessions();
+}
 document.querySelector("#bn-journal")?.addEventListener("click", () => {
+  closeMobileDrawers();
   journal.showJournal();
   viewStore.set("journal");
 });
-document.querySelector("#bn-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
-document.querySelector("#bn-pages")?.addEventListener("click", () => viewStore.set("pages"));
-document.querySelector("#bn-projects")?.addEventListener("click", () => viewStore.set("projects"));
+document.querySelector("#bn-kanban")?.addEventListener("click", () => {
+  closeMobileDrawers();
+  viewStore.set("kanban");
+});
+document.querySelector("#bn-pages")?.addEventListener("click", () => {
+  closeMobileDrawers();
+  viewStore.set("pages");
+});
+document.querySelector("#bn-projects")?.addEventListener("click", () => {
+  closeMobileDrawers();
+  viewStore.set("projects");
+});
 document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
 
 // --- Settings: cog popover + startup preference ---
