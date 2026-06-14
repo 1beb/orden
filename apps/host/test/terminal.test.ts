@@ -276,6 +276,15 @@ describe("resolveSessionCwd worktree isolation", () => {
     };
   }
 
+  // A trust seeder stub recording (workdir, repo) pairs — keeps these tests off
+  // the user's real ~/.claude.json.
+  function trustStub(calls: string[][]) {
+    return (workdir: string, repo: string) => {
+      calls.push([workdir, repo]);
+      return Promise.resolve("seeded" as const);
+    };
+  }
+
   test("creates a worktree for a local git project and persists workdir+branch", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
     const vaultRoot = join(dir, "vault");
@@ -285,7 +294,7 @@ describe("resolveSessionCwd worktree isolation", () => {
     );
     const calls: string[][] = [];
     const rec = recFor("p1", { title: "Fix It" });
-    const cwd = await resolveSessionCwd(host, rec, "s1", DEFAULT, { launch: true, exec: gitExec(calls) });
+    const cwd = await resolveSessionCwd(host, rec, "s1", DEFAULT, { launch: true, exec: gitExec(calls), trust: trustStub([]) });
     expect(cwd).toBe(join(vaultRoot, "..", "worktrees", "p1", "s1"));
     const persisted = host.written["sessions/s1"] as { workdir?: string; branch?: string };
     expect(persisted.workdir).toBe(cwd);
@@ -330,6 +339,7 @@ describe("resolveSessionCwd worktree isolation", () => {
     const cwd = await resolveSessionCwd(host, recFor("p1", { workdir: existing }), "s1", DEFAULT, {
       launch: true,
       exec: gitExec(calls),
+      trust: trustStub([]),
     });
     expect(cwd).toBe(existing);
     expect(calls.length).toBe(0);
@@ -364,6 +374,52 @@ describe("resolveSessionCwd worktree isolation", () => {
     expect(persisted).toBeDefined();
     expect(persisted.workdir).toBe(workdir);
     expect(persisted.branch).toBe("orden/fix-it-2");
+  });
+
+  test("pre-trusts the worktree for a claude session (workdir inherits the repo's trust)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const vaultRoot = join(dir, "vault");
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot },
+    );
+    const trusted: string[][] = [];
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, {
+      launch: true,
+      exec: gitExec([]),
+      trust: trustStub(trusted),
+    });
+    expect(trusted).toEqual([[cwd, dir]]);
+  });
+
+  test("auto-trust setting off skips the seed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault"), settings: { worktreeAutoTrust: false } },
+    );
+    const trusted: string[][] = [];
+    await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, {
+      launch: true,
+      exec: gitExec([]),
+      trust: trustStub(trusted),
+    });
+    expect(trusted.length).toBe(0);
+  });
+
+  test("opencode sessions never touch claude's trust", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault") },
+    );
+    const trusted: string[][] = [];
+    await resolveSessionCwd(host, recFor("p1", { agent: "opencode" }), "s1", DEFAULT, {
+      launch: true,
+      exec: gitExec([]),
+      trust: trustStub(trusted),
+    });
+    expect(trusted.length).toBe(0);
   });
 
   test("a non-git project dir falls back to the project path", async () => {

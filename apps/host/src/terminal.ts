@@ -34,6 +34,7 @@ import {
   ensureSessionWorktree,
   type GitExec,
 } from "./worktrees";
+import { ensureClaudeTrust } from "./claudeTrust";
 
 const exec = promisify(execFile);
 
@@ -367,6 +368,7 @@ export interface SessionCwdRec {
   branch?: string;
   title?: string;
   initialPrompt?: string;
+  agent?: "claude" | "opencode";
 }
 
 export async function resolveSessionCwd(
@@ -374,7 +376,7 @@ export async function resolveSessionCwd(
   rec: SessionCwdRec,
   sessionId: string,
   defaultCwd: string,
-  opts?: { launch?: boolean; exec?: GitExec },
+  opts?: { launch?: boolean; exec?: GitExec; trust?: typeof ensureClaudeTrust },
 ): Promise<string> {
   // A session that already ran in a worktree stays associated with it — even
   // for reads after the worktree was reaped (claude keys transcripts by the
@@ -424,6 +426,16 @@ export async function resolveSessionCwd(
     rec.workdir = wt.workdir;
     if (wt.branch) rec.branch = wt.branch;
     await host.vault.set("sessions", sessionId, rec);
+  }
+  // Pre-seed claude's workspace trust for the worktree (inheriting the repo's
+  // own trust) so a fresh worktree doesn't re-prompt the trust dialog. Best
+  // effort: a failed seed costs one dialog, never the launch.
+  if (settings.autoTrust && rec.agent === "claude") {
+    const trust = await (opts?.trust ?? ensureClaudeTrust)(wt.workdir, path);
+    if (trust === "failed") {
+      // eslint-disable-next-line no-console
+      console.warn(`orden: could not pre-trust worktree ${wt.workdir} in claude's config`);
+    }
   }
   return wt.workdir;
 }

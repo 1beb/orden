@@ -26,6 +26,7 @@ export interface Settings {
   defaultMode: { claude: SessionMode; opencode: SessionMode }; // per-tool session UI default (TUI terminal vs native GUI chat)
   showScratchTerminal: boolean; // show the scratch-terminal button in the session pane
   worktreeIsolation: boolean; // launch agent sessions in per-session git worktrees
+  worktreeAutoTrust: boolean; // pre-accept claude's workspace-trust dialog for new worktrees (when the repo is trusted)
   worktreeBaseRef: string; // session branch base ref; "" = the repo's default branch (origin/HEAD)
   prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
   learningPrompt: string; // system prompt given to agents for proposing learnings on completion
@@ -89,6 +90,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultMode: { claude: "tui", opencode: "tui" },
   showScratchTerminal: true,
   worktreeIsolation: true,
+  worktreeAutoTrust: true,
   worktreeBaseRef: "",
   prForge: "auto",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
@@ -160,6 +162,10 @@ export function coerce(stored: unknown): Settings {
       typeof s.worktreeIsolation === "boolean"
         ? s.worktreeIsolation
         : DEFAULT_SETTINGS.worktreeIsolation,
+    worktreeAutoTrust:
+      typeof s.worktreeAutoTrust === "boolean"
+        ? s.worktreeAutoTrust
+        : DEFAULT_SETTINGS.worktreeAutoTrust,
     worktreeBaseRef:
       typeof s.worktreeBaseRef === "string"
         ? s.worktreeBaseRef
