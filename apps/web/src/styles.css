@@ -4732,13 +4732,30 @@ li.sess-done-head {
    stacked add-bar, and finger-sized tap targets across the chrome.
    ============================================================ */
 @media (max-width: 860px) {
-  /* Project page: the desktop reading-column padding eats a quarter of a
+  /* Three main views: the desktop reading-column padding eats a quarter of a
      phone's width. */
   #view-project.active {
-    padding: 16px 12px 96px;
+    padding: 12px 12px 96px;
   }
   #view-projects.active {
-    padding: 16px 12px 96px;
+    padding: 12px 12px 96px;
+  }
+  #view-journal.active {
+    padding: 12px 12px 96px;
+  }
+  #view-settings.active .settings-page {
+    padding: 8px 12px 48px;
+  }
+
+  .journal-date,
+  .journal-day-head {
+    margin-top: 0;
+  }
+  .backlinks {
+    margin-top: 16px;
+  }
+  .settings-group {
+    margin-top: 24px;
   }
   .project-header {
     margin-bottom: 12px;
