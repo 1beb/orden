@@ -13,6 +13,15 @@ export function makeProjectRootResolver(
 ): ProjectRootResolver {
   return async (projectId: string) => {
     if (projectId === "repo") return filesRoot;
+    // Host root: open/edit/annotate an arbitrary absolute path the user (or an
+    // agent on their behalf) referenced, WITHOUT it belonging to a project. The
+    // root is "/", so join("/", "/abs/path") === "/abs/path" and the traversal
+    // guard (relative("/", full) never starts with "..") admits any absolute
+    // path. This is a deliberate single-user escape hatch from the per-project
+    // file model (ADR-0013): these files are never listed, watched, or fed to
+    // omnisearch — only resolved on demand for a direct open. The byte route and
+    // FsFiles share this resolver, so read + write + annotate all work.
+    if (projectId === "host") return "/";
     // Session-scoped root: a session running in its own git worktree exposes
     // that worktree as a file root. The repo-file route, FsFiles, and
     // Host.render all resolve through here, so panel_open / doc_render work on

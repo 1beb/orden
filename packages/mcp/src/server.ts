@@ -21,7 +21,8 @@ __LEARNINGS__
 - Your session may run in an ISOLATED git worktree on its own orden/<slug> branch. Commit your work there as you go — card_complete verifies a clean tree, pushes the branch, and opens a PR. It REFUSES on uncommitted changes; pass force:true only when the user explicitly says to complete without publishing. NEVER merge to the default branch yourself — integration is the user's process.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
-- Use panel_open to surface a doc, page, the board, or a card in the user's main panel when it helps.
+- Proactively panel_open any doc you write or render for review (md/html/qmd/ipynb) the moment it is ready — don't wait to be asked. Use panel_open for the board, a page, or a card too when it helps.
+- If the orden MCP server drops mid-session (tools vanish), the host mirrors panel_open + card_move + card_create over plain HTTP at POST http://127.0.0.1:$ORDEN_PORT/agent/{panel-open,card-move,card-create}?orden_session_id=$ORDEN_SESSION_ID — curl them from a shell so the panel and board keep working.
 - card_get/card_move with no target act on THIS session's card.`;
 
 const DEFAULT_LEARNINGS_LINES =
@@ -297,13 +298,14 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
   server.registerTool(
     "panel_open",
     {
-      description: "Surface a doc, page, the kanban board, or a card in the user's main panel.",
+      description:
+        "Surface a doc, page, the kanban board, or a card in the user's main panel. A doc target may be project-relative OR an absolute path (e.g. /home/user/.config/x.md) — an absolute path opens directly, no project needed.",
       inputSchema: {
         kind: z.enum(["doc", "page", "kanban", "card"]),
         target: z
           .string()
           .optional()
-          .describe("doc path, page name, or card id/title; omit for kanban"),
+          .describe("doc path (project-relative or absolute), page name, or card id/title; omit for kanban"),
       },
     },
     async ({ kind, target }) =>
@@ -312,8 +314,10 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
         kind,
         target ?? "",
         // Docs resolve against the session's worktree when it has one, so an
-        // agent can surface files it just wrote there.
-        kind === "doc" ? await currentRootId() : undefined,
+        // agent can surface files it just wrote there. An ABSOLUTE target isn't a
+        // project file at all — the user asked to see a specific path on disk — so
+        // route it through the "host" root (any absolute path, no project needed).
+        kind === "doc" ? (target?.startsWith("/") ? "host" : await currentRootId()) : undefined,
       ),
   );
 

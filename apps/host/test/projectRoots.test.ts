@@ -35,6 +35,13 @@ describe("makeProjectRootResolver", () => {
     expect(await r("repo")).toBeUndefined();
   });
 
+  // The "host" root opens arbitrary absolute paths (open/edit/annotate a
+  // referenced file with no project), independent of any vault record.
+  test("resolves the 'host' id to the filesystem root", async () => {
+    const r = makeProjectRootResolver(vaultWith({}), FILES_ROOT);
+    expect(await r("host")).toBe("/");
+  });
+
   // session:<id> exposes a session's git worktree as a file root, so
   // panel_open / doc_render / repo-file resolve worktree paths.
   test("resolves session:<id> to the session's workdir", async () => {

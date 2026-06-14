@@ -40,6 +40,15 @@ describe("resolveRepoFile", () => {
     expect(await resolveRepoFile(throwingResolver, "/repo-file/pa/a.png")).toBeNull();
   });
 
+  it("serves an absolute path under the 'host' root (root '/')", async () => {
+    // The "host" project resolves to "/", so an absolute rel path joins to
+    // itself and passes the guard — this is how arbitrary referenced files open.
+    const hostResolve: ProjectRootResolver = async (id) => (id === "host" ? "/" : undefined);
+    expect(await resolveRepoFile(hostResolve, `/repo-file/host${join(ROOT, "a.png")}`)).toBe(
+      join(ROOT, "a.png"),
+    );
+  });
+
   it("rejects a path that escapes the root via ..", async () => {
     expect(await resolveRepoFile(resolve, "/repo-file/pa/../escape")).toBeNull();
   });

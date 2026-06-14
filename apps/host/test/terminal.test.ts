@@ -16,7 +16,7 @@ import {
   mcpConfigArg,
   settingsArg,
   launchDetached,
-  opencodeEnv,
+  sessionLaunchEnv,
   resolveSessionCwd,
   resolveAgentBin,
   buildCommand,
@@ -171,15 +171,15 @@ describe("settingsArg", () => {
   });
 });
 
-describe("opencodeEnv worktree flag + plugin guard", () => {
+describe("sessionLaunchEnv worktree flag + plugin guard", () => {
   test("marks the env with ORDEN_WORKTREE and writes the guard into the plugin", () => {
     const tmp = mkdtempSync(join(tmpdir(), "orden-oc-"));
     osHome.dir = tmp; // ensureOpencodePluginDir writes under homedir()
     try {
-      const inWt = opencodeEnv({ agent: "opencode" }, "sess_oc", true);
+      const inWt = sessionLaunchEnv({ agent: "opencode" }, "sess_oc", true);
       expect(inWt.env.ORDEN_WORKTREE).toBe("1");
       expect(inWt.cmdPrefix).toContain("ORDEN_WORKTREE=1");
-      const shared = opencodeEnv({ agent: "opencode" }, "sess_oc", false);
+      const shared = sessionLaunchEnv({ agent: "opencode" }, "sess_oc", false);
       expect(shared.env.ORDEN_WORKTREE).toBe("0");
       // The generated plugin carries the destructive-git guard, gated on the env.
       const plugin = readFileSync(
@@ -199,7 +199,7 @@ describe("opencodeEnv worktree flag + plugin guard", () => {
     const tmp = mkdtempSync(join(tmpdir(), "orden-oc-"));
     osHome.dir = tmp;
     try {
-      opencodeEnv({ agent: "opencode" }, "sess_oc2", false);
+      sessionLaunchEnv({ agent: "opencode" }, "sess_oc2", false);
       const configRaw = readFileSync(
         join(tmp, ".orden", "opencode-plugins", "sess_oc2", "opencode.json"),
         "utf8",
