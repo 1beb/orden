@@ -60,7 +60,11 @@ export async function sessionForConversation(
     const rec = await vault.get<SessionRec>("sessions", id);
     if (rec?.conversationId === conversationId) return rec;
   }
-  return null;
+  // Fallback: the id may be the orden session id itself (the vault key), used
+  // when an opencode session connects to the scoped /mcp/<sessionId> endpoint.
+  // At that point the opencode-internal conversationId hasn't been discovered
+  // yet, but the session record exists and is reachable by its own key.
+  return (await vault.get<SessionRec>("sessions", conversationId)) ?? null;
 }
 
 export async function cardForSession(

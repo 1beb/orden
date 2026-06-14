@@ -307,12 +307,37 @@ export const OrdenKanban = async () => {
 // Create the plugin directory for an opencode session. Returns the path that
 // should be set as OPENCODE_CONFIG_DIR. Idempotent — reattach reuses the same
 // directory so the plugin file is only written once per session id.
+//
+// Also writes an opencode.json that scopes the orden MCP server to this session
+// (via /mcp/<sessionId>), overriding any global orden MCP entry. Without this,
+// opencode connects to the global /mcp (unbound) and tools like learning_propose
+// and card_complete can't resolve "my card" automatically — they need the session
+// binding that the URL path provides. The global config's OTHER MCP servers (e.g.
+// codegraph) are preserved because opencode merges configs.
 function ensureOpencodePluginDir(sessionId: string): string {
   const dir = `${homedir()}/.orden/opencode-plugins/${sessionId}`;
   const pluginsDir = `${dir}/plugins`;
   mkdirSync(pluginsDir, { recursive: true });
   writeFileSync(`${dir}/package.json`, JSON.stringify({ type: "module" }), "utf8");
   writeFileSync(`${pluginsDir}/orden-kanban.js`, opencodePluginSource(), "utf8");
+  const port = process.env.ORDEN_PORT ?? 4319;
+  writeFileSync(
+    `${dir}/opencode.json`,
+    JSON.stringify(
+      {
+        mcp: {
+          orden: {
+            type: "remote",
+            url: `http://127.0.0.1:${port}/mcp/${sessionId}`,
+            enabled: true,
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
   return dir;
 }
 
