@@ -4876,6 +4876,14 @@ li.sess-done-head {
   .issue-project {
     max-width: 160px;
   }
+  /* Hide inline status and project dropdowns on mobile — the board/list card is
+     already scoped to a single project via the filter bar, and state changes
+     happen through the card modal. */
+  .orden-card__project,
+  .issue-state,
+  .issue-project {
+    display: none;
+  }
   .project-file-search {
     font-size: calc(16px * var(--font-scale));
     padding: 10px 12px;
