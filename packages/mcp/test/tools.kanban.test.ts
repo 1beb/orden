@@ -204,7 +204,7 @@ describe("cardComplete", () => {
     const journal = await v.get<string>("pages", todayKey());
     expect(journal).toContain("- Automatic Logging\n");
     // The entry is a second-level (indented) child of the section.
-    expect(journal).toMatch(/^  - \d\d:\d\d Completed "Fix login" — shipped the fix \[\[Project: Alpha\]\]$/m);
+    expect(journal).toMatch(/^  - \d\d:\d\d Completed "Fix login" — shipped the fix \[\[Project: Alpha\]\] \[\[Session: s1\]\]$/m);
   });
   it("includes the plan suffix when the card has a planDoc", async () => {
     const v = seed();
@@ -245,7 +245,7 @@ describe("cardComplete", () => {
     // User's flush-left line is untouched; the auto entry is a nested child of
     // a new Automatic Logging section appended after it.
     expect(journal).toMatch(
-      /^- earlier entry\n- Automatic Logging\n  - \d\d:\d\d Completed "Fix login" — later \[\[Project: Alpha\]\]\n$/,
+      /^- earlier entry\n- Automatic Logging\n  - \d\d:\d\d Completed "Fix login" — later \[\[Project: Alpha\]\] \[\[Session: s1\]\]\n$/,
     );
   });
   // --- publish gate (worktree isolation) -----------------------------------
@@ -346,7 +346,7 @@ describe("logCardCompletion", () => {
     await logCardCompletion(v, card as never);
     const day = journalKey(new Date(AT));
     const journal = await v.get<string>("pages", day);
-    expect(journal).toContain('Completed "Fix login" — shipped [[Project: Alpha]]');
+    expect(journal).toContain('Completed "Fix login" — shipped [[Project: Alpha]] [[Session: s1]]');
   });
   it("logs a card completed without a summary (the web-UI path)", async () => {
     const v = seed();

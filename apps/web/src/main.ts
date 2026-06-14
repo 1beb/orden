@@ -1304,6 +1304,10 @@ function renderLearningsView(): void {
   });
 }
 
+// Mutable reference so [[Session: <id>]] wiki links in the journal can open
+// sessions in the panel, which is created after the journal.
+let openSessionFromJournal: ((id: string) => void) | null = null;
+
 const journal = mountJournal(
   viewEls.journal,
   (t) => {
@@ -1313,13 +1317,27 @@ const journal = mountJournal(
   // [[Project: X]] links jump to project X's home page (case-insensitive match
   // on the project name). Consumed even when no such project exists, so it never
   // falls through to creating a junk "Project: X" page.
+  // [[Session: <id>]] links open the session in the sessions panel. The panel is
+  // created after the journal, so we capture its open method via a mutable
+  // reference assigned below.
   (target) => {
-    const m = /^Project:\s*(.+)$/i.exec(target);
-    if (!m) return false;
-    const name = m[1].trim().toLowerCase();
-    const proj = listProjects().find((p) => p.name.toLowerCase() === name);
-    if (proj) openProject(proj.id);
-    return true;
+    const projM = /^Project:\s*(.+)$/i.exec(target);
+    if (projM) {
+      const name = projM[1].trim().toLowerCase();
+      const proj = listProjects().find((p) => p.name.toLowerCase() === name);
+      if (proj) openProject(proj.id);
+      return true;
+    }
+    const sessM = /^Session:\s*(.+)$/i.exec(target);
+    if (sessM) {
+      const sid = sessM[1].trim();
+      if (openSessionFromJournal) {
+        app.classList.remove("right-closed");
+        openSessionFromJournal(sid);
+      }
+      return true;
+    }
+    return false;
   },
 );
 
@@ -2011,6 +2029,9 @@ const sessionsPanel = mountSessionsPanel({
   },
 });
 
+// Wire [[Session: <id>]] wiki links from the journal to open sessions here.
+openSessionFromJournal = (id) => sessionsPanel.open(id);
+
 // Show archived (Done) sessions in the list.
 const showArchivedCb = document.querySelector<HTMLInputElement>("#show-archived");
 if (showArchivedCb) {
@@ -2293,11 +2314,6 @@ onVaultChange((ns, key, projectId) => {
         else if (v === "journal") journal.refresh();
         else if (v === "project") refreshProject(); // notes page may have changed
         break;
-      case "projects":
-        await hydrateProjects(host);
-        renderProjects();
-        if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
-        break;
       case "cards":
         await hydrateCards(host);
         refreshBoard(); // kanban board + badge count
@@ -2316,6 +2332,7 @@ onVaultChange((ns, key, projectId) => {
       case "projects":
         await hydrateProjects(host);
         renderProjects();
+        if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
         refreshProject();
         break;
       case "docs": {
