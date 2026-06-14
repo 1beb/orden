@@ -92,6 +92,7 @@ import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
+import { bindCheckbox, bindSelect, bindRadios } from "./settingsBindings";
 import {
   hydrateSettings,
   loadSettings,
@@ -1591,12 +1592,7 @@ document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
 const settingsView = document.querySelector<HTMLElement>("#view-settings")!;
 const settings = loadSettings();
-for (const radio of settingsView.querySelectorAll<HTMLInputElement>('input[name="startup"]')) {
-  radio.checked = radio.value === settings.startup;
-  radio.addEventListener("change", () => {
-    if (radio.checked) saveSettings({ startup: radio.value as StartupView });
-  });
-}
+bindRadios(settingsView, "startup", "startup", (v) => v as StartupView);
 
 // Accent color: drive the --accent CSS var (--accent-soft, selection, hovers
 // all derive from it). Apply the saved choice now, then wire the picker.
@@ -1674,17 +1670,10 @@ sizeInput.addEventListener("input", () => {
 // Completed-card fade dwell time: how long a card sits in Complete before it
 // drops off the board/lists. Persist on change, then re-render the board and
 // the project page (both read the TTL) so the new threshold takes effect at once.
-for (const radio of settingsView.querySelectorAll<HTMLInputElement>(
-  'input[name="complete-fade"]',
-)) {
-  radio.checked = Number(radio.value) === settings.completeFadeHours;
-  radio.addEventListener("change", () => {
-    if (!radio.checked) return;
-    void saveSettings({ completeFadeHours: Number(radio.value) });
-    refreshBoard();
-    refreshProject();
-  });
-}
+bindRadios(settingsView, "complete-fade", "completeFadeHours", Number, () => {
+  refreshBoard();
+  refreshProject();
+});
 
 // Journal time zone: which calendar day a journal entry files under. "" inherits
 // the host's zone (shown in the default option's label); an explicit choice
@@ -2073,88 +2062,43 @@ const sessionsPanel = mountSessionsPanel({
 openSessionFromJournal = (id) => sessionsPanel.open(id);
 
 // Show archived (Done) sessions in the list.
-const showArchivedCb = document.querySelector<HTMLInputElement>("#show-archived");
-if (showArchivedCb) {
-  showArchivedCb.checked = loadSettings().showArchived;
-  showArchivedCb.addEventListener("change", () => {
-    void saveSettings({ showArchived: showArchivedCb.checked });
-    sessionsPanel.refresh();
-  });
-}
+bindCheckbox("show-archived", "showArchived", () => sessionsPanel.refresh());
 
 // When on, the MCP session_create tool launches the agent immediately; when
 // off, it only drops a planning card on the board.
-const autoLaunchCb = document.querySelector<HTMLInputElement>("#session-autolaunch");
-if (autoLaunchCb) {
-  autoLaunchCb.checked = loadSettings().sessionAutoLaunch;
-  autoLaunchCb.addEventListener("change", () => {
-    void saveSettings({ sessionAutoLaunch: autoLaunchCb.checked });
-  });
-}
+bindCheckbox("session-autolaunch", "sessionAutoLaunch");
 
 // Worktree isolation: when on (the default), each new session of a local git
 // project launches in its own git worktree on an orden/<slug> branch. Read at
 // launch time by the host; flipping it affects the NEXT launch only.
-const worktreeCb = document.querySelector<HTMLInputElement>("#worktree-isolation");
-if (worktreeCb) {
-  worktreeCb.checked = loadSettings().worktreeIsolation;
-  worktreeCb.addEventListener("change", () => {
-    void saveSettings({ worktreeIsolation: worktreeCb.checked });
-  });
-}
+bindCheckbox("worktree-isolation", "worktreeIsolation");
 
 // Worktree auto-trust: pre-accept claude's "do you trust this workspace?" dialog
 // for new worktrees of an already-trusted repo. Read at launch time by the host.
-const autoTrustCb = document.querySelector<HTMLInputElement>("#worktree-auto-trust");
-if (autoTrustCb) {
-  autoTrustCb.checked = loadSettings().worktreeAutoTrust;
-  autoTrustCb.addEventListener("change", () => {
-    void saveSettings({ worktreeAutoTrust: autoTrustCb.checked });
-  });
-}
+bindCheckbox("worktree-auto-trust", "worktreeAutoTrust");
 
 // PR forge: how card completion publishes a session branch — auto-infer the
 // forge CLI from the remote URL, force one, or push without opening a PR.
-const prForgeSel = document.querySelector<HTMLSelectElement>("#pr-forge");
-if (prForgeSel) {
-  prForgeSel.value = loadSettings().prForge;
-  prForgeSel.addEventListener("change", () => {
-    const v = prForgeSel.value;
-    if (v === "auto" || v === "gh" || v === "glab" || v === "none") {
-      void saveSettings({ prForge: v });
-    }
-  });
-}
+bindSelect("pr-forge", "prForge", ["auto", "gh", "glab", "none"]);
 
 // HTML render default: when on, .html files open rendered; off shows source.
 // This is the default only — a per-file topbar toggle can override it for the
 // session. Changing it re-opens the current file if it's HTML, so the change is
-// visible immediately.
-const htmlRenderCb = document.querySelector<HTMLInputElement>("#html-render");
-if (htmlRenderCb) {
-  htmlRenderCb.checked = loadSettings().htmlRender;
-  htmlRenderCb.addEventListener("change", async () => {
-    await saveSettings({ htmlRender: htmlRenderCb.checked });
-    const path = currentDocKey.startsWith("review:")
-      ? currentDocKey.slice("review:".length)
-      : null;
-    const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
-    if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
-      void openRepoFile(currentDocProjectId, path);
-    }
-  });
-}
+// visible immediately. (saveSettings updates the cache synchronously, so the
+// onChange reopen reads the new value.)
+bindCheckbox("html-render", "htmlRender", () => {
+  const path = currentDocKey.startsWith("review:")
+    ? currentDocKey.slice("review:".length)
+    : null;
+  const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
+  if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
+    void openRepoFile(currentDocProjectId, path);
+  }
+});
 
 // Scratch terminal: show (or hide) the plain-shell scratch button in the
 // session pane. Refresh the panel so the button appears/disappears at once.
-const scratchTermCb = document.querySelector<HTMLInputElement>("#show-scratch-terminal");
-if (scratchTermCb) {
-  scratchTermCb.checked = loadSettings().showScratchTerminal;
-  scratchTermCb.addEventListener("change", () => {
-    void saveSettings({ showScratchTerminal: scratchTermCb.checked });
-    sessionsPanel.refresh();
-  });
-}
+bindCheckbox("show-scratch-terminal", "showScratchTerminal", () => sessionsPanel.refresh());
 
 // Default session mode: one TUI/GUI segmented row per tool (Claude Code,
 // opencode) picking which surface a newly spawned session opens in. Selecting
