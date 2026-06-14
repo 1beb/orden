@@ -88,6 +88,11 @@ body {
   display: none;
 }
 
+/* Bottom navigation bar — hidden on desktop, fixed at the bottom on mobile. */
+#bottomnav {
+  display: none;
+}
+
 /* Transient notification (e.g. a session is waiting on you). Bottom-right,
    slides up + fades in; auto-dismissed from JS. */
 .orden-toast {
@@ -4818,5 +4823,86 @@ li.sess-done-head {
     max-width: none;
     max-height: 85vh;
     border-radius: 12px 12px 0 0;
+  }
+
+  /* Bottom navigation bar: always-visible row of icon buttons fixed to the
+     bottom of the viewport. The center column gets matching bottom padding so
+     the last content line is reachable above the bar. */
+  #bottomnav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    justify-content: space-around;
+    align-items: center;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--line);
+    padding: 4px 4px max(4px, env(safe-area-inset-bottom));
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #center {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .bn-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 6px 4px;
+    border-radius: 8px;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+  }
+  .bn-btn:hover {
+    color: var(--ink);
+  }
+  .bn-btn:active {
+    background: var(--accent-soft);
+  }
+  .bn-btn.active {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .bn-btn svg {
+    display: block;
+    flex: none;
+  }
+  .bn-label {
+    font-size: calc(10px * var(--font-scale));
+    line-height: 1.2;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+
+  /* Accent-styled button (new session) — a filled pill that stands out. */
+  .bn-btn--accent {
+    color: #fff;
+    background: var(--accent);
+    border-radius: 12px;
+    padding: 8px 14px;
+    flex: 0 0 auto;
+  }
+  .bn-btn--accent:hover {
+    color: #fff;
+    filter: brightness(1.1);
+  }
+  .bn-btn--accent:active {
+    filter: brightness(0.92);
+    background: var(--accent);
+  }
+  .bn-btn--accent.active {
+    color: #fff;
+    background: var(--accent);
   }
 }

@@ -260,12 +260,18 @@ function toggleLeft(): void {
   const opening = app.classList.contains("left-closed");
   app.classList.toggle("left-closed");
   if (opening && mobile.matches) app.classList.add("right-closed"); // one drawer at a time
+  syncBottomNavSessions();
 }
 function toggleRight(): void {
   dropFocusSnapshot();
   const opening = app.classList.contains("right-closed");
   app.classList.toggle("right-closed");
   if (opening && mobile.matches) app.classList.add("left-closed");
+  syncBottomNavSessions();
+}
+function syncBottomNavSessions(): void {
+  const open = !app.classList.contains("right-closed");
+  document.querySelector("#bn-sessions")?.classList.toggle("active", open);
 }
 
 const toggleLeftBtn = document.querySelector<HTMLButtonElement>("#toggle-left");
@@ -274,6 +280,7 @@ toggleLeftBtn?.addEventListener("click", toggleLeft);
 toggleRightBtn?.addEventListener("click", toggleRight);
 document.querySelector("#scrim")?.addEventListener("click", () => {
   app.classList.add("left-closed", "right-closed");
+  syncBottomNavSessions();
 });
 // All shortcuts route through the keybindings dispatcher (vault-backed,
 // rebindable in the help view). Actions register where their deps live.
@@ -292,6 +299,7 @@ function applyLayout(isMobile: boolean): void {
   } else {
     app.classList.remove("left-closed", "right-closed");
   }
+  syncBottomNavSessions();
 }
 mobile.addEventListener("change", (e) => applyLayout(e.matches));
 
@@ -419,6 +427,7 @@ function toggleFocusMode(): void {
       focusSnapshot = null;
       app.classList.toggle("left-closed", s.leftClosed);
       app.classList.toggle("right-closed", s.rightClosed);
+      syncBottomNavSessions();
       outlineHideShow.setHidden(s.outlineHidden);
       annHideShow.setHidden(s.annHidden);
     } else {
@@ -429,6 +438,7 @@ function toggleFocusMode(): void {
         annHidden: annHideShow.isHidden(),
       };
       app.classList.add("left-closed", "right-closed");
+      syncBottomNavSessions();
       outlineHideShow.setHidden(true);
       annHideShow.setHidden(true);
     }
@@ -1341,6 +1351,7 @@ function startSessionForItem(item: Item, agent: Agent): void {
   });
   refreshBoard();
   app.classList.remove("right-closed"); // ensure the sessions pane is visible
+  syncBottomNavSessions();
   sessionsPanel.open(s.id);
 }
 
@@ -1348,6 +1359,7 @@ function startSessionForItem(item: Item, agent: Agent): void {
 // sessions panel, revealing the right pane.
 function openSessionInPanel(id: string): void {
   app.classList.remove("right-closed");
+  syncBottomNavSessions();
   sessionsPanel.open(id);
 }
 
@@ -1358,6 +1370,7 @@ function startProjectSession(agent: Agent): void {
   const s = createSession({ title: "Untitled session", agent, projectId });
   refreshBoard();
   app.classList.remove("right-closed");
+  syncBottomNavSessions();
   sessionsPanel.open(s.id);
 }
 
@@ -1395,6 +1408,9 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  document.querySelector("#bn-journal")?.classList.toggle("active", v === "journal");
+  document.querySelector("#bn-kanban")?.classList.toggle("active", v === "kanban");
+  document.querySelector("#bn-pages")?.classList.toggle("active", v === "pages");
   // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
   // we navigate to a default element (kanban/journal/pages/project).
   if (v !== "html" && v !== "code") htmlToggle.hidden = true;
@@ -1500,6 +1516,20 @@ document.querySelector("#nav-journal")?.addEventListener("click", () => {
 });
 document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
+
+// Bottom nav (mobile): always-visible bar of icon buttons.
+document.querySelector("#bn-journal")?.addEventListener("click", () => {
+  journal.showJournal();
+  viewStore.set("journal");
+});
+document.querySelector("#bn-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
+document.querySelector("#bn-pages")?.addEventListener("click", () => viewStore.set("pages"));
+document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
+document.querySelector("#bn-new-session")?.addEventListener("click", () => {
+  app.classList.remove("right-closed");
+  syncBottomNavSessions();
+  sessionsPanel.showList();
+});
 
 // --- Settings: cog popover + startup preference ---
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
@@ -1972,7 +2002,10 @@ const sessionsPanel = mountSessionsPanel({
       refreshProject();
     }
   },
-  close: () => app.classList.add("right-closed"),
+  close: () => {
+    app.classList.add("right-closed");
+    syncBottomNavSessions();
+  },
 });
 
 // Show archived (Done) sessions in the list.
