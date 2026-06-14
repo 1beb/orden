@@ -57,6 +57,7 @@ import type { Host } from "@orden/host-api";
 import { sessionForConversation, cardForSession } from "@orden/mcp";
 import { noteHookActivity } from "./idleReconciler";
 import { hasLiveBackgroundCommand } from "./backgroundCommands";
+import { isDestructiveGit, DESTRUCTIVE_GIT_DENY_REASON } from "./destructiveGit";
 
 // Hooks may only set the automatic cycle states. "complete" is intentionally
 // excluded — it comes solely from the `card_complete` MCP tool.
@@ -125,22 +126,10 @@ export async function settleSubagents(host: Host, claudeSessionId: string): Prom
 }
 
 // --- Destructive-git guardrail (worktree isolation design) ------------------
-// Worktrees protect sessions from each other; this protects the SHARED checkout
-// (isolation off, non-git dir) from the commands that wipe uncommitted state.
-// String matching is a layered guardrail, not a sandbox — trivially bypassable
-// via sh -c, aliases, or scripts; the structural protection is the worktree.
-// `git stash` is included because in a shared checkout it sweeps up OTHER
-// sessions' (and the user's) dirty state, not just the caller's own.
-const DESTRUCTIVE_GIT = [
-  /\bgit\s+(?:\S+\s+)*reset\s+(?:\S+\s+)*--hard\b/,
-  /\bgit\s+checkout\s+(?:--\s+)?\.(?:\s|$|;|&|\|)/,
-  /\bgit\s+clean\s+-\w*[fdx]/,
-  /\bgit\s+stash\b(?!\s+(?:list|show|pop|apply|branch|drop))/,
-];
-
-export function isDestructiveGit(command: string): boolean {
-  return DESTRUCTIVE_GIT.some((re) => re.test(command));
-}
+// The patterns + denial text are the SINGLE source of truth in destructiveGit.ts
+// (shared verbatim with the generated opencode plugin). Re-exported here so the
+// claude-side consumer + its tests keep their existing import surface.
+export { isDestructiveGit };
 
 /**
  * Decide a PreToolUse hook call: deny destructive git when the session runs in
@@ -164,8 +153,7 @@ export async function preToolUseVerdict(
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason:
-        "orden: destructive git is blocked in a SHARED checkout (it can wipe other sessions' and the user's uncommitted work). Commit instead, or ask the user.",
+      permissionDecisionReason: DESTRUCTIVE_GIT_DENY_REASON,
     },
   };
 }
