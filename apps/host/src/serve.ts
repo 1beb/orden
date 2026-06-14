@@ -39,6 +39,8 @@ const port = Number(process.env.ORDEN_PORT ?? 4319);
 const vaultRoot = process.env.ORDEN_VAULT ?? join(homedir(), ".orden", "vault");
 const filesRoot = process.env.ORDEN_FILES_ROOT ?? repoRoot;
 const webDist = process.env.ORDEN_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
+const devCss = process.env.ORDEN_DEV_CSS === "1";
+const devCssSrc = devCss ? resolve(repoRoot, "apps/web/src/styles.css") : null;
 const host = new NodeHost({ vaultRoot, filesRoot });
 
 // Persists clipper snapshots (and per-highlight screenshots) under vaultRoot for
@@ -164,7 +166,13 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
     filePath = join(webDist, "index.html");
   }
   try {
-    const body = await readFile(filePath);
+    let body: string | Buffer = await readFile(filePath);
+    const isIndexHtml = filePath === join(webDist, "index.html");
+    if (devCss && isIndexHtml) {
+      body = body
+        .toString("utf-8")
+        .replace("</head>", '<link rel="stylesheet" href="/dev-styles.css"></head>');
+    }
     // Content-hashed assets/* are immutable — cache them hard. Everything else
     // (above all index.html, including the SPA fallback) must revalidate every
     // load, or the browser pins a stale bundle that points at old asset hashes
@@ -231,6 +239,20 @@ function makeServer() {
         .then((body) => {
           res.writeHead(200, {
             "content-type": "application/json",
+            "cache-control": "no-cache, must-revalidate",
+          });
+          res.end(body);
+        })
+        .catch(() => {
+          res.writeHead(404).end("not found");
+        });
+      return;
+    }
+    if (devCss && req.url === "/dev-styles.css") {
+      readFile(devCssSrc!)
+        .then((body) => {
+          res.writeHead(200, {
+            "content-type": "text/css",
             "cache-control": "no-cache, must-revalidate",
           });
           res.end(body);
