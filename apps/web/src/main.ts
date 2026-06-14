@@ -1464,6 +1464,7 @@ viewStore.subscribe((v) => {
   document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
   document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
+  document.querySelector("#nav-projects")?.classList.toggle("active", v === "projects");
   document.querySelector("#bn-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#bn-kanban")?.classList.toggle("active", v === "kanban");
   document.querySelector("#bn-pages")?.classList.toggle("active", v === "pages");
@@ -1574,6 +1575,7 @@ document.querySelector("#nav-journal")?.addEventListener("click", () => {
 });
 document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
+document.querySelector("#nav-projects")?.addEventListener("click", () => viewStore.set("projects"));
 
 // Bottom nav (mobile): always-visible bar of icon buttons.
 document.querySelector("#bn-journal")?.addEventListener("click", () => {
