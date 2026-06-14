@@ -61,6 +61,7 @@ import { mountSessionsPanel } from "./sessionsPanel";
 import { mountTerminal, updateTerminalFonts } from "./terminalView";
 import { createChatMount } from "./chatMount";
 import { renderPagesIndex } from "./pagesIndex";
+import { renderProjectsIndex } from "./projectsIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectPageHasFocus, focusProjectAddItem } from "./projectPage";
 import { renderCodeView, assignCodeBlockIds } from "./codeView";
@@ -1176,8 +1177,11 @@ function updateBreadcrumb(): void {
     case "pages":
       crumbs = [{ label: "Pages" }];
       break;
+    case "projects":
+      crumbs = [{ label: "Projects" }];
+      break;
     case "project":
-      crumbs = [{ label: "Projects" }, { label: projectTitle }];
+      crumbs = [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
       break;
     case "kanban":
       crumbs = [{ label: "Kanban" }];
@@ -1207,6 +1211,7 @@ const viewEls: Record<View, HTMLElement> = {
   html: document.querySelector<HTMLElement>("#view-html")!,
   journal: document.querySelector<HTMLElement>("#view-journal")!,
   pages: document.querySelector<HTMLElement>("#view-pages")!,
+  projects: document.querySelector<HTMLElement>("#view-projects")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
   settings: document.querySelector<HTMLElement>("#view-settings")!,
@@ -1411,10 +1416,12 @@ viewStore.subscribe((v) => {
   document.querySelector("#bn-journal")?.classList.toggle("active", v === "journal");
   document.querySelector("#bn-kanban")?.classList.toggle("active", v === "kanban");
   document.querySelector("#bn-pages")?.classList.toggle("active", v === "pages");
+  document.querySelector("#bn-projects")?.classList.toggle("active", v === "projects");
   // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
   // we navigate to a default element (kanban/journal/pages/project).
   if (v !== "html" && v !== "code") htmlToggle.hidden = true;
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
   if (v === "kanban") refreshBoard();
   if (v === "learnings") renderLearningsView();
   if (v === "help") renderHelp(viewEls.help);
@@ -1524,12 +1531,8 @@ document.querySelector("#bn-journal")?.addEventListener("click", () => {
 });
 document.querySelector("#bn-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
 document.querySelector("#bn-pages")?.addEventListener("click", () => viewStore.set("pages"));
+document.querySelector("#bn-projects")?.addEventListener("click", () => viewStore.set("projects"));
 document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
-document.querySelector("#bn-new-session")?.addEventListener("click", () => {
-  app.classList.remove("right-closed");
-  syncBottomNavSessions();
-  sessionsPanel.showList();
-});
 
 // --- Settings: cog popover + startup preference ---
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
@@ -2290,6 +2293,11 @@ onVaultChange((ns, key, projectId) => {
         else if (v === "journal") journal.refresh();
         else if (v === "project") refreshProject(); // notes page may have changed
         break;
+      case "projects":
+        await hydrateProjects(host);
+        renderProjects();
+        if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
+        break;
       case "cards":
         await hydrateCards(host);
         refreshBoard(); // kanban board + badge count
@@ -2390,6 +2398,7 @@ onReconnect(() => {
     sessionsPanel.refresh();
     const v = viewStore.get();
     if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+    else if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
     else if (v === "journal") journal.refresh();
     else if (v === "project") refreshProject();
   })();
