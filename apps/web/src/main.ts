@@ -90,6 +90,7 @@ import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
+import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
 import {
   hydrateSettings,
@@ -1353,6 +1354,23 @@ const journal = mountJournal(
       return true;
     }
     return false;
+  },
+  // Render [[Session: <id>]] links as session-open buttons (agent brand mark
+  // if the session is known, otherwise a simple badge). Clicking opens the
+  // session in the right pane, same as the wiki-link handler above.
+  (sid) => {
+    const s = getSession(sid);
+    const btn = document.createElement("span");
+    btn.className = "wikilink-session-btn";
+    if (s) {
+      btn.innerHTML = markFor(s.agent);
+      btn.title = `Open session (${s.agent})`;
+      btn.setAttribute("aria-label", `Open session (${s.agent})`);
+    } else {
+      btn.textContent = "Session";
+      btn.title = "Open session";
+    }
+    return btn;
   },
 );
 

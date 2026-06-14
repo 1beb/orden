@@ -20,10 +20,13 @@ export function serializePage(doc: Parameters<typeof markdownSerializer.serializ
 
 // Mount an editable outline for page `name` into `host`. Persists through to the
 // pages store on every doc change. `onWikiLink(target)` fires on a [[link]] click.
+// `widgetForSession` is an optional callback that returns a DOM element for
+// [[Session: <id>]] links so they render as widget buttons instead of inline text.
 export function makeOutlineEditor(
   host: HTMLElement,
   name: string,
   onWikiLink: (target: string) => void,
+  widgetForSession?: (sessionId: string) => HTMLElement | null | undefined,
 ): EditorView {
   const state = EditorState.create({
     doc: markdownParser.parse(getPageMarkdown(name) || "- "),
@@ -40,7 +43,7 @@ export function makeOutlineEditor(
         "Shift-Tab": liftListItem(schema.nodes.list_item),
       }),
       keymap(baseKeymap),
-      wikiLinkPlugin(onWikiLink),
+      wikiLinkPlugin(onWikiLink, widgetForSession),
     ],
   });
   const view = new EditorView(host, {

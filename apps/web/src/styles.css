@@ -3006,6 +3006,42 @@ li.sess-done-head {
   background: #e0e7ff;
 }
 
+/* [[Session: <id>]] widget buttons rendered in place of wiki-link text.
+   The underlying [[Session: x]] text is hidden and the widget sits inline. */
+.wikilink-widget {
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+}
+.wikilink-session-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.wikilink-session-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.wikilink-session-btn svg {
+  display: block;
+}
+.wikilink-session-hidden {
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+
 .backlinks {
   max-width: 720px;
   margin: 28px auto 0;
