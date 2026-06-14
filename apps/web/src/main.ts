@@ -116,6 +116,7 @@ import {
 import { renderHelp } from "./helpView";
 import { getHost, onVaultChange, onReconnect } from "./host";
 import { createVaultChangeRouter } from "./vaultChangeRouter";
+import { createViewRegistry, createViewRouter, type Crumb } from "./viewRegistry";
 import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
 import { openCardModal } from "./cardModal";
 import { applyFont, FONT_OPTIONS } from "./fonts";
@@ -1136,11 +1137,6 @@ async function showImageFile(projectId: string, path: string, title: string): Pr
 // --- Center views: review (the locked annotation core) / journal / kanban ---
 const breadcrumbEl = document.querySelector<HTMLElement>("#breadcrumb")!;
 
-interface Crumb {
-  label: string;
-  go?: () => void;
-}
-
 // Render the location breadcrumb at the inner top of the main panel. Segments
 // are light/muted; the last is the current location, and any with a `go` handler
 // is a clickable link (e.g. the project root).
@@ -1176,50 +1172,50 @@ function fileCrumbs(): Crumb[] {
   return crumbs;
 }
 
-// Recompute the breadcrumb for whatever view is currently active.
-function updateBreadcrumb(): void {
-  const v = viewStore.get();
-  let crumbs: Crumb[];
+// The breadcrumb segments for a given view. Each ViewSpec.breadcrumb closes over
+// this so the router can paint the crumb on every transition.
+function breadcrumbForView(v: View): Crumb[] {
   switch (v) {
     case "review":
     case "code":
     case "image":
     case "html":
-      crumbs = fileCrumbs();
-      break;
+      return fileCrumbs();
     case "journal":
-      crumbs = journalTitle && journalTitle !== "Journal"
+      return journalTitle && journalTitle !== "Journal"
         ? [{ label: "Journal", go: () => { journal.showJournal(); viewStore.set("journal"); } }, { label: journalTitle }]
         : [{ label: "Journal" }];
-      break;
     case "pages":
-      crumbs = [{ label: "Pages" }];
-      break;
+      return [{ label: "Pages" }];
     case "projects":
-      crumbs = [{ label: "Projects" }];
-      break;
+      return [{ label: "Projects" }];
     case "project":
-      crumbs = [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
-      break;
+      return [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
     case "kanban":
-      crumbs = [{ label: "Kanban" }];
-      break;
+      return [{ label: "Kanban" }];
     case "settings":
-      crumbs = [{ label: "Settings" }];
-      break;
+      return [{ label: "Settings" }];
     case "learnings":
-      crumbs = [{ label: "Learnings" }];
-      break;
+      return [{ label: "Learnings" }];
     case "help":
-      crumbs = [{ label: "Keyboard shortcuts" }];
-      break;
+      return [{ label: "Keyboard shortcuts" }];
   }
+}
+
+// Paint a breadcrumb: a single segment (a top-level view) hides the bar; a path
+// (a file or a project page) shows it.
+function paintBreadcrumb(crumbs: Crumb[]): void {
   if (crumbs.length <= 1) {
     breadcrumbEl.hidden = true;
   } else {
     breadcrumbEl.hidden = false;
     renderBreadcrumb(crumbs);
   }
+}
+
+// Recompute the breadcrumb for whatever view is currently active.
+function updateBreadcrumb(): void {
+  paintBreadcrumb(breadcrumbForView(viewStore.get()));
 }
 
 const viewEls: Record<View, HTMLElement> = {
@@ -1447,55 +1443,9 @@ const ANNOTATABLE_VIEWS = new Set<View>(["review", "code", "image", "html"]);
 const lastView = (await host.vault.get<string>("ui", "last-view")) as View | null;
 
 const viewStore = createViewStore("review");
-viewStore.subscribe((v) => {
-  for (const name of Object.keys(viewEls) as View[]) {
-    viewEls[name].classList.toggle("active", name === v);
-  }
-  viewArea.classList.toggle("no-panel", !ANNOTATABLE_VIEWS.has(v));
-  // The review Approve/Copy buttons act on the ProseMirror review doc; hide them
-  // on the other annotatable viewers (code/image/html) so they can't deliver the
-  // wrong (stale review) annotations. The source-view Send button is gated
-  // separately by refreshSourceSend().
-  viewArea.classList.toggle("source-view", ANNOTATABLE_VIEWS.has(v) && v !== "review");
-  // Only the HTML viewer carries its own extracted outline; clear the flag on
-  // every transition so a stale one can't leak onto code/image. showHtmlFile
-  // re-sets it once the iframe loads and headings are found.
-  if (v !== "html") viewArea.classList.remove("has-outline");
-  syncPanelColumn();
-  updateBreadcrumb();
-  document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
-  document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
-  document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
-  document.querySelector("#nav-projects")?.classList.toggle("active", v === "projects");
-  document.querySelector("#bn-journal")?.classList.toggle("active", v === "journal");
-  document.querySelector("#bn-kanban")?.classList.toggle("active", v === "kanban");
-  document.querySelector("#bn-pages")?.classList.toggle("active", v === "pages");
-  document.querySelector("#bn-projects")?.classList.toggle("active", v === "projects");
-  // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
-  // we navigate to a default element (kanban/journal/pages/project).
-  if (v !== "html" && v !== "code") htmlToggle.hidden = true;
-  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
-  if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
-  if (v === "kanban") refreshBoard();
-  if (v === "learnings") renderLearningsView();
-  if (v === "help") renderHelp(viewEls.help);
-  // Text-annotation lifecycle: the code, html, and review views share the single
-  // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
-  // annotator + highlights — clearing the SAME realm it painted into (parent for
-  // code, the iframe for html). Entering review re-renders the review panel into
-  // the shared list. (A text view's own panel is rendered by openAnnotatableText
-  // via showCodeFile/showHtmlFile on open.)
-  if (v !== "code" && v !== "html") teardownActiveText();
-  if (v !== "image") teardownActiveImage();
-  if (v === "review") renderPanel();
-  // Hide the source Send button outside source views (and show it when a source
-  // view with open annotations is active); never touches the review buttons.
-  refreshSourceSend();
-  if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
-});
-viewStore.subscribe((v) => {
-  void host.vault.set("ui", "last-view", v);
-});
+// The single view router is built and subscribed below, once its cross-cutting
+// dependencies (htmlToggle, the openers) exist — see `registerCenterViews`. No
+// boot-time viewStore.set() runs before then; the startup view is set last.
 
 function openPage(name: string): void {
   journal.showPage(name);
@@ -1914,6 +1864,98 @@ loadReviewDoc({
 
 onUpdate();
 applyLayout(mobile.matches);
+
+// --- View registry + router -------------------------------------------------
+// Each center view registers ONE self-describing spec (DOM section, breadcrumb,
+// annotation surfaces, nav links, onEnter); the single router subscriber below
+// applies every cross-cutting rule per transition (section/nav .active toggles,
+// panel flags, breadcrumb, html-toggle visibility, annotator teardown, persist,
+// drawer close). Adding a view (a future team dashboard, org-admin panel) is one
+// registration here — no edits to a switch. Registered late so the router's
+// deps (htmlToggle, the openers) already exist; no boot-time set ran before now.
+const viewRegistry = createViewRegistry();
+viewRegistry.register("review", {
+  el: viewEls.review,
+  breadcrumb: () => breadcrumbForView("review"),
+  annotatable: true,
+  onEnter: renderPanel,
+});
+viewRegistry.register("code", {
+  el: viewEls.code,
+  breadcrumb: () => breadcrumbForView("code"),
+  annotatable: true,
+  textRealm: true,
+  keepsHtmlToggle: true,
+});
+viewRegistry.register("image", {
+  el: viewEls.image,
+  breadcrumb: () => breadcrumbForView("image"),
+  annotatable: true,
+  imageRealm: true,
+});
+viewRegistry.register("html", {
+  el: viewEls.html,
+  breadcrumb: () => breadcrumbForView("html"),
+  annotatable: true,
+  textRealm: true,
+  keepsHtmlToggle: true,
+});
+viewRegistry.register("journal", {
+  el: viewEls.journal,
+  breadcrumb: () => breadcrumbForView("journal"),
+  navLinks: ["#nav-journal", "#bn-journal"],
+});
+viewRegistry.register("pages", {
+  el: viewEls.pages,
+  breadcrumb: () => breadcrumbForView("pages"),
+  navLinks: ["#nav-pages", "#bn-pages"],
+  onEnter: () => renderPagesIndex(viewEls.pages, openPage),
+});
+viewRegistry.register("projects", {
+  el: viewEls.projects,
+  breadcrumb: () => breadcrumbForView("projects"),
+  navLinks: ["#nav-projects", "#bn-projects"],
+  onEnter: () => renderProjectsIndex(viewEls.projects, openProject),
+});
+viewRegistry.register("project", {
+  el: viewEls.project,
+  breadcrumb: () => breadcrumbForView("project"),
+});
+viewRegistry.register("kanban", {
+  el: viewEls.kanban,
+  breadcrumb: () => breadcrumbForView("kanban"),
+  navLinks: ["#nav-kanban", "#bn-kanban"],
+  onEnter: refreshBoard,
+});
+viewRegistry.register("settings", {
+  el: viewEls.settings,
+  breadcrumb: () => breadcrumbForView("settings"),
+});
+viewRegistry.register("learnings", {
+  el: viewEls.learnings,
+  breadcrumb: () => breadcrumbForView("learnings"),
+  onEnter: renderLearningsView,
+});
+viewRegistry.register("help", {
+  el: viewEls.help,
+  breadcrumb: () => breadcrumbForView("help"),
+  onEnter: () => renderHelp(viewEls.help),
+});
+
+const routeView = createViewRouter(viewRegistry, {
+  viewArea,
+  htmlToggle,
+  syncPanelColumn,
+  renderBreadcrumb: paintBreadcrumb,
+  teardownText: teardownActiveText,
+  teardownImage: teardownActiveImage,
+  refreshSourceSend,
+  persist: (v) => void host.vault.set("ui", "last-view", v),
+  afterNavigate: () => {
+    if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
+  },
+});
+viewStore.subscribe(routeView);
 
 // Route the initial view from the startup preference.
 if (settings.startup === "last") {
