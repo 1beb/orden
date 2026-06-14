@@ -428,6 +428,23 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     mountActive();
   }
 
+  // Sync the scratch affordance with its setting on an already-rendered header,
+  // for the refresh paths that keep the live mount instead of re-rendering. The
+  // button sits rightmost in the header, so append lands it in the right spot.
+  function syncScratchButton(): void {
+    const head = deps.container.querySelector<HTMLElement>("header.sess-head");
+    if (!head) return;
+    const existing = head.querySelector<HTMLElement>(".sess-scratch-btn");
+    if (loadSettings().showScratchTerminal) {
+      if (!existing) {
+        const b = scratchButton();
+        if (b) head.append(b);
+      }
+    } else {
+      existing?.remove();
+    }
+  }
+
   // The surface a session's detail would currently show, so a refresh can tell
   // whether the live mount is still correct without re-rendering. For moded
   // sessions the surface is fixed by `mode` (GUI w/o a chat backend degrades to
@@ -452,7 +469,10 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     if (s) {
       // keep the active surface's mount alive across refreshes (don't tear down
       // the live pty/agent) when it's already showing this session's surface.
-      if (disposeTab && mountedSessionId === s.id && mountedTab === expectedSurface(s)) return;
+      if (disposeTab && mountedSessionId === s.id && mountedTab === expectedSurface(s)) {
+        syncScratchButton();
+        return;
+      }
       renderDetail(s);
     } else {
       // A restored id whose session is gone (deleted/cleaned) — fall back to the

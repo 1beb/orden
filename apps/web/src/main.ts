@@ -1672,8 +1672,8 @@ sizeInput.addEventListener("input", () => {
 });
 
 // Completed-card fade dwell time: how long a card sits in Complete before it
-// drops off the board/lists. Persist on change, then re-render the board so the
-// new threshold takes effect immediately.
+// drops off the board/lists. Persist on change, then re-render the board and
+// the project page (both read the TTL) so the new threshold takes effect at once.
 for (const radio of settingsView.querySelectorAll<HTMLInputElement>(
   'input[name="complete-fade"]',
 )) {
@@ -1682,6 +1682,7 @@ for (const radio of settingsView.querySelectorAll<HTMLInputElement>(
     if (!radio.checked) return;
     void saveSettings({ completeFadeHours: Number(radio.value) });
     refreshBoard();
+    refreshProject();
   });
 }
 
@@ -2145,12 +2146,13 @@ if (htmlRenderCb) {
 }
 
 // Scratch terminal: show (or hide) the plain-shell scratch button in the
-// session pane. A per-user preference; no other view depends on it live.
+// session pane. Refresh the panel so the button appears/disappears at once.
 const scratchTermCb = document.querySelector<HTMLInputElement>("#show-scratch-terminal");
 if (scratchTermCb) {
   scratchTermCb.checked = loadSettings().showScratchTerminal;
   scratchTermCb.addEventListener("change", () => {
     void saveSettings({ showScratchTerminal: scratchTermCb.checked });
+    sessionsPanel.refresh();
   });
 }
 
@@ -2327,6 +2329,17 @@ if (searchForm && searchInput && paletteMount) {
   });
 }
 
+// Apply every setting with a global visual effect (CSS vars, terminal fonts).
+// The per-control popover handlers apply these individually on direct edits;
+// this catches settings that changed out from under us (another tab, reconnect).
+function applyVisualSettings(): void {
+  const s = loadSettings();
+  applyAccent(s.accent);
+  applyFont(s.fontFamily, s.fontSize);
+  applyPanelWidth(s.sessionPanelPct);
+  updateTerminalFonts();
+}
+
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
@@ -2396,9 +2409,9 @@ onVaultChange((ns, key, projectId) => {
         await hydrateSettings(host);
         await hydrateKeybindings(host);
         if (v === "help") renderHelp(viewEls.help);
-        const s = loadSettings();
-        applyAccent(s.accent);
-        applyFont(s.fontFamily, s.fontSize);
+        applyVisualSettings();
+        refreshBoard(); // kanbanView + completeFadeHours feed the board
+        refreshProject();
         sessionsPanel.refresh();
         break;
       }
@@ -2456,9 +2469,7 @@ onVaultChange((ns, key, projectId) => {
 onReconnect(() => {
   void (async () => {
     await hydrateAll();
-    const s = loadSettings();
-    applyAccent(s.accent);
-    applyFont(s.fontFamily, s.fontSize);
+    applyVisualSettings();
     renderProjects();
     refreshBoard();
     sessionsPanel.refresh();
