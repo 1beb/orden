@@ -115,6 +115,7 @@ import {
 } from "./keybindings";
 import { renderHelp } from "./helpView";
 import { getHost, onVaultChange, onReconnect } from "./host";
+import { createVaultChangeRouter } from "./vaultChangeRouter";
 import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
 import { openCardModal } from "./cardModal";
 import { applyFont, FONT_OPTIONS } from "./fonts";
@@ -2287,124 +2288,134 @@ function applyVisualSettings(): void {
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
-// No-op on BrowserHost (single writer).
-onVaultChange((ns, key, projectId) => {
-  void (async () => {
-    const v = viewStore.get();
-    switch (ns) {
-      case "files": {
-        // A repo file changed on disk. If it's the one we're showing (same project
-        // AND path), re-read and re-render so external edits (by an agent, git, or
-        // a collaborator) appear live. Non-prose viewers always re-render; the
-        // markdown editor reload is guarded so it never clobbers active typing.
-        if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
-          const kind = viewerFor(key, effectiveHtmlRender(key));
-          if (kind === "image") {
-            await showImageFile(projectId, key, currentDocTitle);
-          } else if (kind === "html") {
-            const content = await host.files.read(projectId, key);
-            await showHtmlFile(key, currentDocTitle, content);
-          } else if (kind === "code") {
-            const content = await host.files.read(projectId, key);
-            await showCodeFile(key, currentDocTitle, content);
-          } else if (!view.hasFocus()) {
-            const markdown = await host.files.read(projectId, key);
-            loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
-          }
-        }
-        break;
-      }
-      case "pages":
-        await hydratePages(host);
-        if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
-        else if (v === "journal") journal.refresh();
-        else if (v === "project") refreshProject(); // notes page may have changed
-        break;
-      case "cards":
-        await hydrateCards(host);
-        refreshBoard(); // kanban board + badge count
-        notifyBlockedTransitions(); // toast when a session starts waiting on you
-        refreshProject();
-        break;
-      case "learnings":
-        await hydrateLearnings(host);
-        refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
-        // Refresh the stepper on external changes (e.g. the agent's revision flips
-        // revising→pending) — but NOT while the user is mid-typing a comment, since
-        // re-rendering would rebuild the DOM and lose their text + focus. The next
-        // user interaction (or view switch) will refresh it.
-        if (v === "learnings" && !learningsCommentFocused()) renderLearningsView();
-        break;
-      case "projects":
-        await hydrateProjects(host);
-        renderProjects();
-        if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
-        refreshProject();
-        break;
-      case "docs": {
-        await hydrateDocs(host);
-        const saved = loadState(currentDocKey);
-        if (v === "review" && saved && !view.hasFocus()) {
-          loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
-        }
-        break;
-      }
-      case "settings": {
-        await hydrateSettings(host);
-        await hydrateKeybindings(host);
-        if (v === "help") renderHelp(viewEls.help);
-        applyVisualSettings();
-        refreshBoard(); // kanbanView + completeFadeHours feed the board
-        refreshProject();
-        sessionsPanel.refresh();
-        break;
-      }
-      case "sessions":
-        await hydrateSessions(host);
-        sessionsPanel.refresh();
-        refreshProject(); // the project page's active-sessions widget
-        break;
-      case "feedback":
-        await hydrateOutbox(host);
-        break;
-      case "ui": {
-        // An agent asked (via the MCP panel_open tool) to steer the main panel.
-        if (key !== "panel-intent") break;
-        // Don't yank the panel out from under someone who's actively typing.
-        if (view.hasFocus()) break;
-        const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
-        if (!intent) break;
-        dispatchPanelIntent(intent, {
-          // The MCP panel_open intent carries a bare path; resolve it against the
-          // host filesRoot alias ("repo"). Per-project panel intents are future work.
-          openRepoFile: (path, pid) => void openRepoFile(pid ?? "repo", path),
-          openPage,
-          openKanban: () => {
-            viewStore.set("kanban");
-            refreshBoard();
-          },
-          resolveCardId: (target) => {
-            // Match by id first, then by case-insensitive title.
-            if (getItem(target)) return target;
-            const lower = target.trim().toLowerCase();
-            return listItems().find((i) => i.title.trim().toLowerCase() === lower)?.id;
-          },
-          openCard: (id) => {
-            if (!getItem(id)) return false;
-            viewStore.set("kanban");
-            refreshBoard();
-            openCardModal(id, {
-              onStartSession: startSessionForItem,
-              onOpenSession: openSessionInPanel,
-              onChange: refreshBoard,
-            });
-            return true;
-          },
-        });
-        break;
-      }
+// No-op on BrowserHost (single writer). Each namespace registers ONE handler on
+// the vault-change router (a second registration throws); the single
+// onVaultChange subscriber just dispatches. Future shared-state namespaces
+// (presence, locks, org) are new registrations, not edits to a switch. Some
+// namespaces (e.g. chat:<id>) have their own dedicated subscribers and are
+// deliberately absent here.
+const vaultChanges = createVaultChangeRouter();
+
+vaultChanges.register("files", async (key, projectId) => {
+  // A repo file changed on disk. If it's the one we're showing (same project
+  // AND path), re-read and re-render so external edits (by an agent, git, or
+  // a collaborator) appear live. Non-prose viewers always re-render; the
+  // markdown editor reload is guarded so it never clobbers active typing.
+  if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
+    const kind = viewerFor(key, effectiveHtmlRender(key));
+    if (kind === "image") {
+      await showImageFile(projectId, key, currentDocTitle);
+    } else if (kind === "html") {
+      const content = await host.files.read(projectId, key);
+      await showHtmlFile(key, currentDocTitle, content);
+    } else if (kind === "code") {
+      const content = await host.files.read(projectId, key);
+      await showCodeFile(key, currentDocTitle, content);
+    } else if (!view.hasFocus()) {
+      const markdown = await host.files.read(projectId, key);
+      loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
     }
-  })();
+  }
+});
+
+vaultChanges.register("pages", async () => {
+  await hydratePages(host);
+  const v = viewStore.get();
+  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  else if (v === "journal") journal.refresh();
+  else if (v === "project") refreshProject(); // notes page may have changed
+});
+
+vaultChanges.register("cards", async () => {
+  await hydrateCards(host);
+  refreshBoard(); // kanban board + badge count
+  notifyBlockedTransitions(); // toast when a session starts waiting on you
+  refreshProject();
+});
+
+vaultChanges.register("learnings", async () => {
+  await hydrateLearnings(host);
+  refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
+  // Refresh the stepper on external changes (e.g. the agent's revision flips
+  // revising→pending) — but NOT while the user is mid-typing a comment, since
+  // re-rendering would rebuild the DOM and lose their text + focus. The next
+  // user interaction (or view switch) will refresh it.
+  if (viewStore.get() === "learnings" && !learningsCommentFocused()) renderLearningsView();
+});
+
+vaultChanges.register("projects", async () => {
+  await hydrateProjects(host);
+  renderProjects();
+  if (viewStore.get() === "projects") renderProjectsIndex(viewEls.projects, openProject);
+  refreshProject();
+});
+
+vaultChanges.register("docs", async () => {
+  await hydrateDocs(host);
+  const saved = loadState(currentDocKey);
+  if (viewStore.get() === "review" && saved && !view.hasFocus()) {
+    loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
+  }
+});
+
+vaultChanges.register("settings", async () => {
+  await hydrateSettings(host);
+  await hydrateKeybindings(host);
+  if (viewStore.get() === "help") renderHelp(viewEls.help);
+  applyVisualSettings();
+  refreshBoard(); // kanbanView + completeFadeHours feed the board
+  refreshProject();
+  sessionsPanel.refresh();
+});
+
+vaultChanges.register("sessions", async () => {
+  await hydrateSessions(host);
+  sessionsPanel.refresh();
+  refreshProject(); // the project page's active-sessions widget
+});
+
+vaultChanges.register("feedback", async () => {
+  await hydrateOutbox(host);
+});
+
+vaultChanges.register("ui", async (key) => {
+  // An agent asked (via the MCP panel_open tool) to steer the main panel.
+  if (key !== "panel-intent") return;
+  // Don't yank the panel out from under someone who's actively typing.
+  if (view.hasFocus()) return;
+  const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
+  if (!intent) return;
+  dispatchPanelIntent(intent, {
+    // The MCP panel_open intent carries a bare path; resolve it against the
+    // host filesRoot alias ("repo"). Per-project panel intents are future work.
+    openRepoFile: (path, pid) => void openRepoFile(pid ?? "repo", path),
+    openPage,
+    openKanban: () => {
+      viewStore.set("kanban");
+      refreshBoard();
+    },
+    resolveCardId: (target) => {
+      // Match by id first, then by case-insensitive title.
+      if (getItem(target)) return target;
+      const lower = target.trim().toLowerCase();
+      return listItems().find((i) => i.title.trim().toLowerCase() === lower)?.id;
+    },
+    openCard: (id) => {
+      if (!getItem(id)) return false;
+      viewStore.set("kanban");
+      refreshBoard();
+      openCardModal(id, {
+        onStartSession: startSessionForItem,
+        onOpenSession: openSessionInPanel,
+        onChange: refreshBoard,
+      });
+      return true;
+    },
+  });
+});
+
+onVaultChange((ns, key, projectId) => {
+  void vaultChanges.dispatch(ns, key, projectId);
 });
 
 // Connection recovered (host restarted / network blip): the socket auto-reopens,
