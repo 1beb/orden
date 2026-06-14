@@ -26,6 +26,7 @@ import {
   discoverOpencodeSession,
   existingOpencodeSessions,
   readOpencodeTitle,
+  opencodeSessionInCwd,
 } from "./opencodeSession";
 import {
   readWorktreeSettings,
@@ -473,7 +474,23 @@ export async function buildCommand(
     // OPENCODE_CONFIG_DIR in the tmux env. The plugin uses fetch() to POST
     // state transitions to /hooks/session-state, mapping through ORDEN_SESSION_ID
     // so the host doesn't need the opencode session id pre-registered.
-    if (rec.conversationId) return `${bin} --session ${rec.conversationId}`;
+    //
+    // Guard: a stale conversationId (e.g. discovered in the shared repo before
+    // worktree isolation was on) can silently resume an unrelated session. Verify
+    // the session still lives in the current cwd; if not, clear the id and fall
+    // through to first-launch behaviour so a fresh id is discovered correctly.
+    if (rec.conversationId) {
+      if (await opencodeSessionInCwd(cwd, rec.conversationId)) {
+        return `${bin} --session ${rec.conversationId}`;
+      }
+      // eslint-disable-next-line no-console
+      console.warn(
+        `orden: opencode conversationId ${rec.conversationId} not found in cwd ${cwd} — ` +
+          `clearing stale id for session ${sessionId}`,
+      );
+      rec.conversationId = undefined;
+      await host.vault.set("sessions", sessionId, rec);
+    }
     // First open: launch the TUI, seeding the card's text as the initial prompt.
     // envPrefix carries inline VAR=val assignments so the plugin's env vars survive
     // even if the shell init files clear inherited environment (see opencodeEnv).

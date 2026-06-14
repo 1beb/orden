@@ -72,6 +72,15 @@ export async function existingOpencodeSessions(cwd: string): Promise<Set<string>
   return new Set(sessions.filter((s) => s.directory === cwd && s.id).map((s) => s.id));
 }
 
+// Check that an opencode session ID still lives in the given cwd — the directory
+// field must match. Used as a guard before resuming, so a stale conversationId
+// (e.g. discovered in the shared repo before worktree isolation was on) doesn't
+// silently resume an unrelated session.
+export async function opencodeSessionInCwd(cwd: string, sessionId: string): Promise<boolean> {
+  const sessions = await listSessions(cwd);
+  return sessions.some((s) => s.id === sessionId && s.directory === cwd);
+}
+
 // Read the real (non-placeholder) title for a known opencode session id. Returns
 // null if the session is gone, still has its placeholder "New session - ..." title,
 // or the title is empty — i.e. "no usable title yet".

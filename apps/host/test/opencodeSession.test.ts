@@ -3,6 +3,7 @@ import {
   discoverOpencodeSession,
   existingOpencodeSessions,
   readOpencodeTitle,
+  opencodeSessionInCwd,
 } from "../src/opencodeSession";
 
 // These call the real `opencode` CLI under the hood. The contract we assert is the
@@ -24,5 +25,9 @@ describe("opencodeSession", () => {
 
   test("readOpencodeTitle returns null for an unknown session id (never throws)", async () => {
     expect(await readOpencodeTitle(cwd, "ses_does_not_exist")).toBeNull();
+  });
+
+  test("opencodeSessionInCwd returns false for an unknown session id (never throws)", async () => {
+    expect(await opencodeSessionInCwd(cwd, "ses_does_not_exist")).toBe(false);
   });
 });
