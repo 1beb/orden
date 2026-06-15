@@ -159,7 +159,7 @@ describe("applyCapture", () => {
     const { deps, vault } = makeDeps();
     const b = bundle();
     await applyCapture(deps, b);
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     expect(page).not.toBeNull();
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines.length).toBe(1);
@@ -170,10 +170,10 @@ describe("applyCapture", () => {
 
   it("preserves existing journal content and adds the new bullet on its own line", async () => {
     const { deps, vault } = makeDeps();
-    await vault.set("pages", "2026-06-08", "- existing todo");
+    await vault.set("journal", "2026-06-08", "- existing todo");
     const b = bundle();
     await applyCapture(deps, b);
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     expect(page).toContain("- existing todo");
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines.length).toBe(2);
@@ -243,7 +243,7 @@ describe("applyCapture", () => {
     const { deps, vault } = makeDeps();
     const b = bundle({ title: "Evil\nTitle [[evil]] more" });
     await applyCapture(deps, b);
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     expect(page).not.toBeNull();
     expect(page!.split("\n").length).toBe(1);
     expect(page).not.toContain("[[");
@@ -268,7 +268,7 @@ describe("applyCapture", () => {
     expect(res.annotationCount).toBe(0);
 
     // journal bullet still appended, reads "0 highlights"
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines.length).toBe(1);
     expect(lines[0].startsWith("- ")).toBe(true);
@@ -284,7 +284,7 @@ describe("applyCapture", () => {
       ],
     });
     await applyCapture(deps, b);
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines[0]).toContain("2 highlights");
   });
@@ -315,7 +315,7 @@ describe("applyCapture", () => {
     expect(r2.firstCapture).toBe(false);
 
     // Journal: exactly one bullet (not two).
-    const page = await vault.get<string>("pages", "2026-06-08");
+    const page = await vault.get<string>("journal", "2026-06-08");
     const lines = page!.split("\n").filter((l) => l.trim().length > 0);
     expect(lines.length).toBe(1);
 

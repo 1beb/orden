@@ -4,12 +4,12 @@ import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
 import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
-import { sendFeedback, assignBlockIds } from "@orden/annotation-core";
+import { assignBlockIds } from "@orden/annotation-core";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState, hydrateDocs } from "./persist";
-import { VaultSink, hydrateOutbox } from "./sink-local";
+import { hydrateOutbox } from "./sink-local";
 import {
   listProjects,
   getProject,
@@ -18,7 +18,7 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages, getPageMarkdown, pagesIndex } from "./pages";
+import { hydratePages, getPageMarkdown, pagesIndex, journalIndex } from "./pages";
 import { listFiles } from "./files";
 import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
@@ -64,6 +64,7 @@ import { renderPagesIndex } from "./pagesIndex";
 import { renderProjectsIndex } from "./projectsIndex";
 import { renderKanban } from "./kanban";
 import { renderProjectPage, projectPageHasFocus, focusProjectAddItem } from "./projectPage";
+import { renderProjectSettings } from "./projectSettingsView";
 import { renderCodeView, assignCodeBlockIds } from "./codeView";
 import { AnnotationStore } from "./annotationStore";
 import { fileSource } from "./viewerSource";
@@ -73,7 +74,8 @@ import { toAnnotationSendInput } from "./annotationDeliveryMap";
 import { buildTextAnnotation } from "./textAnnotation";
 import { mountDomAnnotator } from "./domAnnotator";
 import { buildNoteComposer } from "./noteComposer";
-import type { Source } from "@orden/annotation-core";
+import type { Source, Annotation } from "@orden/annotation-core";
+import type { AnnotationSendInput } from "@orden/host-api";
 import { viewerFor } from "./codeHighlight";
 import { renderImageView, renderHtmlView } from "./richView";
 import { normalizeRect, renderRegionBoxes, buildRegionAnnotation } from "./regionOverlay";
@@ -87,7 +89,6 @@ import { AnnotationLog } from "./store";
 import { addAnnotation, scanAnnotations } from "./annotations";
 import { mountAnnotator } from "./annotator-ui";
 import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
-import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
 import { makeViewToggler } from "./viewToggler";
 import { mountJournal } from "./journal";
@@ -197,7 +198,6 @@ function notifyBlockedTransitions(): void {
 
 const DOC_TITLE = "Review";
 const log = new AnnotationLog();
-const sink = new VaultSink();
 let feedbackTarget: "agent" | "human" = "agent";
 let currentDocKey = "review:default";
 let currentDocProjectId = "repo";
@@ -535,35 +535,76 @@ function feedbackItems(): FeedbackItem[] {
   });
 }
 
-function previewFeedback(): void {
-  const items = feedbackItems();
-  if (items.length === 0) return;
-  const payload = buildFeedbackPayload({ title: DOC_TITLE, target: feedbackTarget, items });
-  openPreview(`Feedback → ${feedbackTarget}`, payload);
+// The review doc's path doubles as its planDoc — the agent parked it with the
+// same docs/plans/*.md path the card records, so the host matches on it.
+function reviewPlanDoc(): string {
+  return currentDocKey.startsWith("review:")
+    ? currentDocKey.slice("review:".length)
+    : currentDocKey;
+}
+
+// Deliver the review doc's OPEN annotations straight to the session that parked
+// it, mirroring sendSourceAnnotations for the code/html/image viewers: push via
+// the host, toast, mark them sent. A not-linked result is a normal outcome (no
+// session backs the plan) — surface a toast and leave the annotations open.
+async function sendReviewAnnotations(): Promise<void> {
+  const planDoc = reviewPlanDoc();
+  const open = scanAnnotations(view.state.doc)
+    .map((p) => log.get(p.id))
+    .filter((r): r is Annotation => !!r && r.status === "open");
+  if (open.length === 0) return;
+  const input: AnnotationSendInput = {
+    planDoc,
+    annotations: open.map((r) => ({
+      id: r.id,
+      planDoc,
+      quote: r.anchor.quote?.exact,
+      note: r.body,
+      blockId: r.anchor.blockId,
+    })),
+  };
+  primaryBtn.disabled = true;
+  try {
+    const result = await host.sessions.annotationSend(input);
+    if (result.ok) {
+      open.forEach((r) => log.setStatus(r.id, "sent"));
+      persistReview();
+      renderPanel();
+      showToast(`Sent ${open.length} annotation${open.length === 1 ? "" : "s"} to ${result.target}`);
+    } else {
+      showToast(`No agent session linked to ${planDoc} — annotations saved`);
+    }
+  } catch {
+    showToast("Couldn't deliver — saved locally");
+  } finally {
+    primaryBtn.disabled = false;
+    updateActionBar();
+  }
 }
 
 primaryBtn.addEventListener("click", () => {
   if (primaryBtn.dataset.kind === "send") {
-    // Send the open annotations through the annotation-core sink seam (the
-    // LocalStorageSink stands in for an MCP sink later), then mark them sent.
-    const openItems = scanAnnotations(view.state.doc)
-      .map((p) => log.get(p.id))
-      .filter((r): r is NonNullable<typeof r> => !!r && r.status === "open")
-      .map((r) => ({ ...r, target: feedbackTarget }));
-    previewFeedback();
-    void sendFeedback(sink, openItems).then((sent) => {
-      sent.forEach((a) => log.add(a));
-      persistReview();
-      renderPanel();
-      updateActionBar();
-    });
+    void sendReviewAnnotations();
   } else {
     primaryBtn.textContent = "Approved ✓";
     window.setTimeout(updateActionBar, 1200);
   }
 });
 
-copyBtn.addEventListener("click", previewFeedback);
+// Copy the rendered feedback payload to the clipboard — no modal; the icon
+// flips to a checkmark briefly so the action registers in place.
+copyBtn.addEventListener("click", async () => {
+  const items = feedbackItems();
+  if (items.length === 0) return;
+  const payload = buildFeedbackPayload({ title: DOC_TITLE, target: feedbackTarget, items });
+  try {
+    await navigator.clipboard.writeText(payload);
+  } catch {
+    // Clipboard may be unavailable (insecure context / denied) — fail quietly.
+  }
+  copyBtn.classList.add("copied");
+  window.setTimeout(() => copyBtn.classList.remove("copied"), 1200);
+});
 
 function selectRange(from: number, to: number): void {
   const tr = view.state.tr
@@ -1192,6 +1233,14 @@ function breadcrumbForView(v: View): Crumb[] {
       return [{ label: "Projects" }];
     case "project":
       return [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
+    case "project-settings":
+      return [
+        { label: "Projects", go: () => viewStore.set("projects") },
+        ...(currentProjectId
+          ? [{ label: projectTitle, go: () => openProject(currentProjectId!) }]
+          : []),
+        { label: "Settings" },
+      ];
     case "kanban":
       return [{ label: "Kanban" }];
     case "settings":
@@ -1228,6 +1277,7 @@ const viewEls: Record<View, HTMLElement> = {
   pages: document.querySelector<HTMLElement>("#view-pages")!,
   projects: document.querySelector<HTMLElement>("#view-projects")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
+  "project-settings": document.querySelector<HTMLElement>("#view-project-settings")!,
   kanban: document.querySelector<HTMLElement>("#view-kanban")!,
   settings: document.querySelector<HTMLElement>("#view-settings")!,
   learnings: document.querySelector<HTMLElement>("#view-learnings")!,
@@ -1463,9 +1513,17 @@ function renderProject(projectId: string): void {
     startProjectSession,
     (path) => void openRepoFile(projectId, path),
     (id) => host.files.list(id),
-    onProjectChanged,
-    removeProjectWithItems,
+    () => openProjectSettings(projectId),
   );
+}
+
+// Open the project-settings overlay for a project. Sets it as the current
+// project (so the view's onEnter / breadcrumb resolve it) and toggles the
+// overlay open. The toggler is defined with the other overlays below.
+function openProjectSettings(projectId: string): void {
+  currentProjectId = projectId;
+  projectTitle = getProject(projectId)?.name ?? "Project";
+  projectSettingsToggler.toggle();
 }
 
 // A project was renamed / re-pathed in place: refresh the sidebar list and the
@@ -1688,11 +1746,20 @@ viewEls.help.addEventListener("click", (e) => {
   if ((e.target as HTMLElement).id === "help-close") helpToggler.close();
 });
 
+// Project settings: the per-project overlay opened from the project page's cog
+// (openProjectSettings toggles it). Same overlay seam as Settings/Help; the ✕ is
+// re-created on every render, so its close is delegated from the view section.
+const projectSettingsToggler = makeViewToggler(viewStore, "project-settings");
+viewEls["project-settings"].addEventListener("click", (e) => {
+  if ((e.target as HTMLElement).id === "project-settings-close") projectSettingsToggler.close();
+});
+
 // Escape closes whichever overlay is open; close() is a no-op on the others.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   settingsToggler.close();
   helpToggler.close();
+  projectSettingsToggler.close();
 });
 
 // On a project page, a bare "c" (create) jumps focus to the add-item box — the
@@ -1929,6 +1996,21 @@ viewRegistry.register("projects", {
 viewRegistry.register("project", {
   el: viewEls.project,
   breadcrumb: () => breadcrumbForView("project"),
+});
+viewRegistry.register("project-settings", {
+  el: viewEls["project-settings"],
+  breadcrumb: () => breadcrumbForView("project-settings"),
+  onEnter: () => {
+    if (!currentProjectId) return;
+    renderProjectSettings(viewEls["project-settings"], currentProjectId, {
+      onSaved: () => {
+        onProjectChanged();
+        refreshProject();
+      },
+      onRemoveProject: removeProjectWithItems,
+      close: () => projectSettingsToggler.close(),
+    });
+  },
 });
 viewRegistry.register("kanban", {
   el: viewEls.kanban,
@@ -2247,13 +2329,30 @@ const searchSources: SearchSource[] = [
     id: "pages",
     label: "Pages",
     search: (q) => {
-      const pages = pagesIndex(); // all vault pages, including journal day-pages
+      const pages = pagesIndex(); // knowledge pages only — journal is its own source
       const byName = fuzzyRank(q, pages, (p) => p.name).map((r) => r.item);
       const extra = q === ""
         ? []
         : pages.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
       return [...byName, ...extra].map((p) => ({
         id: `page:${p.name}`,
+        title: p.name,
+        subtitle: snippet(getPageMarkdown(p.name), q),
+        open: () => openPage(p.name),
+      }));
+    },
+  },
+  {
+    id: "journal",
+    label: "Journal",
+    search: (q) => {
+      const days = journalIndex(); // personal journal day-pages, kept out of Pages
+      const byName = fuzzyRank(q, days, (p) => p.name).map((r) => r.item);
+      const extra = q === ""
+        ? []
+        : days.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
+      return [...byName, ...extra].map((p) => ({
+        id: `journal:${p.name}`,
         title: p.name,
         subtitle: snippet(getPageMarkdown(p.name), q),
         open: () => openPage(p.name),
@@ -2375,6 +2474,13 @@ vaultChanges.register("pages", async () => {
   if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
   else if (v === "journal") journal.refresh();
   else if (v === "project") refreshProject(); // notes page may have changed
+});
+
+// Journal day-pages live in their own ns; a remote write (e.g. card-completion
+// logging) re-hydrates the store and refreshes the feed if it's open.
+vaultChanges.register("journal", async () => {
+  await hydratePages(host);
+  if (viewStore.get() === "journal") journal.refresh();
 });
 
 vaultChanges.register("cards", async () => {

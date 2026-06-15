@@ -1,7 +1,7 @@
 import { EditorView } from "prosemirror-view";
 import { journalKey } from "@orden/outliner";
 import { makeOutlineEditor } from "./outlineEditor";
-import { backlinksTo, pageNames } from "./pages";
+import { backlinksTo, journalDates } from "./pages";
 import { effectiveTimeZone } from "./settings";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -80,8 +80,7 @@ export function mountJournal(
   // Days to show: today (always) + existing date pages, newest first.
   function feedDates(): string[] {
     const today = todayKey();
-    const dated = pageNames().filter((n) => DATE_RE.test(n));
-    return [...new Set([today, ...dated])].sort().reverse();
+    return [...new Set([today, ...journalDates()])].sort().reverse();
   }
 
   function showJournal(): void {

@@ -50,7 +50,7 @@ describe("journalCompletedCard", () => {
     ns.projects.set("p", { id: "p", name: "Alpha" });
     ns.cards.set("c1", { id: "c1", title: "Fix login", state: "complete", completedAt: AT, projectId: "p" });
     await journalCompletedCard(host, "c1", journaled);
-    const journal = (await host.vault.get<string>("pages", journalKey(new Date(AT)))) ?? "";
+    const journal = (await host.vault.get<string>("journal", journalKey(new Date(AT)))) ?? "";
     expect(journal).toContain('Completed "Fix login"');
     expect(journal).toContain("[[Project: Alpha]]");
   });
@@ -60,7 +60,7 @@ describe("journalCompletedCard", () => {
     ns.cards.set("c1", { id: "c1", title: "Fix login", state: "complete", completedAt: AT });
     await journalCompletedCard(host, "c1", journaled);
     await journalCompletedCard(host, "c1", journaled); // second change event for the same completion
-    const journal = (await host.vault.get<string>("pages", journalKey(new Date(AT)))) ?? "";
+    const journal = (await host.vault.get<string>("journal", journalKey(new Date(AT)))) ?? "";
     expect((journal.match(/Completed "Fix login"/g) ?? []).length).toBe(1);
   });
 
@@ -68,11 +68,11 @@ describe("journalCompletedCard", () => {
     const { host, ns } = makeHost();
     ns.cards.set("c1", { id: "c1", title: "Fix login", state: "in-progress" });
     await journalCompletedCard(host, "c1", journaled);
-    expect(await host.vault.get<string>("pages", journalKey(new Date(AT)))).toBeNull();
+    expect(await host.vault.get<string>("journal", journalKey(new Date(AT)))).toBeNull();
     // Now it completes — the journaler must act.
     ns.cards.set("c1", { id: "c1", title: "Fix login", state: "complete", completedAt: AT });
     await journalCompletedCard(host, "c1", journaled);
-    const journal = (await host.vault.get<string>("pages", journalKey(new Date(AT)))) ?? "";
+    const journal = (await host.vault.get<string>("journal", journalKey(new Date(AT)))) ?? "";
     expect(journal).toContain('Completed "Fix login"');
   });
 });

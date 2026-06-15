@@ -111,9 +111,9 @@ export async function applyCapture(
     const safeTitle = oneLine(bundle.title).replace(/\[\[|\]\]/g, "");
     const safeUrl = oneLine(bundle.url);
     const bullet = `- Clipped: ${safeTitle} — ${safeUrl} (${n} highlight${n === 1 ? "" : "s"})`;
-    const prev = (await vault.get<string>("pages", journalKey)) ?? "";
+    const prev = (await vault.get<string>("journal", journalKey)) ?? "";
     const next = prev.length > 0 ? `${prev}\n${bullet}` : bullet;
-    await vault.set("pages", journalKey, next);
+    await vault.set("journal", journalKey, next);
   }
 
   // 7. On the FIRST capture only, optionally spawn a session scoped to the routed
