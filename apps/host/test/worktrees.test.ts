@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -223,18 +223,25 @@ describe("ensureSessionWorktree", () => {
     expect(calls.find((c) => c[1] === "worktree")?.at(-1)).toBe("origin/dev");
   });
 
-  it("falls back to the shared checkout (null) when worktree add fails", async () => {
+  it("falls back to the shared checkout (null) and warns loudly when worktree add fails", async () => {
     const dir = base();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const exec: GitExec = (_cwd, args) => {
       if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
       if (args[0] === "worktree") return Promise.resolve({ stdout: "", code: 128 });
       return Promise.resolve({ stdout: "", code: 1 });
     };
-    const r = await ensureSessionWorktree(
-      { repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: "s", baseRefSetting: "" },
-      exec,
-    );
-    expect(r).toBeNull();
+    try {
+      const r = await ensureSessionWorktree(
+        { repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: "s", baseRefSetting: "" },
+        exec,
+      );
+      expect(r).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("worktree add failed");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

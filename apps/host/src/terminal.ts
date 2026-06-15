@@ -345,7 +345,13 @@ export async function resolveSessionCwd(
   const settings = await readWorktreeSettings(host.vault);
   if (!isolationEnabled(settings.isolation, project)) return path;
   const vaultRoot = host.capabilities().vaultRoot;
-  if (!vaultRoot) return path; // no persistent vault → nowhere to root worktrees
+  if (!vaultRoot) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: worktree isolation is ON but no vault root is configured; session ${sessionId} falls back to the shared checkout ${path}`,
+    );
+    return path; // no persistent vault → nowhere to root worktrees
+  }
   const wt = await ensureSessionWorktree(
     {
       repo: path,

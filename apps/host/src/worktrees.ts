@@ -142,7 +142,14 @@ export async function ensureSessionWorktree(
   const base = input.baseRefSetting || (await defaultBaseRef(input.repo, exec));
   mkdirSync(dirname(workdir), { recursive: true });
   const r = await exec(input.repo, ["worktree", "add", workdir, "-b", branch, base]);
-  if (r.code !== 0) return null;
+  if (r.code !== 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: worktree add failed for session ${input.sessionId} (repo ${input.repo}, branch ${branch}); ` +
+        `falling back to the SHARED checkout`,
+    );
+    return null;
+  }
   // Build a fresh codegraph index in the worktree so MCP codegraph tools work
   // inside the isolated session. Fire-and-forget: the index isn't needed for
   // the agent to start, and the agent can re-sync it after making changes.
