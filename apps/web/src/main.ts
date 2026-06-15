@@ -92,6 +92,7 @@ import { createViewStore, type View } from "./viewState";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
+import { bindCheckbox, bindSelect, bindRadios } from "./settingsBindings";
 import {
   hydrateSettings,
   loadSettings,
@@ -114,6 +115,8 @@ import {
 } from "./keybindings";
 import { renderHelp } from "./helpView";
 import { getHost, onVaultChange, onReconnect } from "./host";
+import { createVaultChangeRouter } from "./vaultChangeRouter";
+import { createViewRegistry, createViewRouter, type Crumb } from "./viewRegistry";
 import { dispatchPanelIntent, type PanelIntent } from "./panelIntent";
 import { openCardModal } from "./cardModal";
 import { applyFont, FONT_OPTIONS } from "./fonts";
@@ -1134,11 +1137,6 @@ async function showImageFile(projectId: string, path: string, title: string): Pr
 // --- Center views: review (the locked annotation core) / journal / kanban ---
 const breadcrumbEl = document.querySelector<HTMLElement>("#breadcrumb")!;
 
-interface Crumb {
-  label: string;
-  go?: () => void;
-}
-
 // Render the location breadcrumb at the inner top of the main panel. Segments
 // are light/muted; the last is the current location, and any with a `go` handler
 // is a clickable link (e.g. the project root).
@@ -1174,50 +1172,50 @@ function fileCrumbs(): Crumb[] {
   return crumbs;
 }
 
-// Recompute the breadcrumb for whatever view is currently active.
-function updateBreadcrumb(): void {
-  const v = viewStore.get();
-  let crumbs: Crumb[];
+// The breadcrumb segments for a given view. Each ViewSpec.breadcrumb closes over
+// this so the router can paint the crumb on every transition.
+function breadcrumbForView(v: View): Crumb[] {
   switch (v) {
     case "review":
     case "code":
     case "image":
     case "html":
-      crumbs = fileCrumbs();
-      break;
+      return fileCrumbs();
     case "journal":
-      crumbs = journalTitle && journalTitle !== "Journal"
+      return journalTitle && journalTitle !== "Journal"
         ? [{ label: "Journal", go: () => { journal.showJournal(); viewStore.set("journal"); } }, { label: journalTitle }]
         : [{ label: "Journal" }];
-      break;
     case "pages":
-      crumbs = [{ label: "Pages" }];
-      break;
+      return [{ label: "Pages" }];
     case "projects":
-      crumbs = [{ label: "Projects" }];
-      break;
+      return [{ label: "Projects" }];
     case "project":
-      crumbs = [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
-      break;
+      return [{ label: "Projects", go: () => viewStore.set("projects") }, { label: projectTitle }];
     case "kanban":
-      crumbs = [{ label: "Kanban" }];
-      break;
+      return [{ label: "Kanban" }];
     case "settings":
-      crumbs = [{ label: "Settings" }];
-      break;
+      return [{ label: "Settings" }];
     case "learnings":
-      crumbs = [{ label: "Learnings" }];
-      break;
+      return [{ label: "Learnings" }];
     case "help":
-      crumbs = [{ label: "Keyboard shortcuts" }];
-      break;
+      return [{ label: "Keyboard shortcuts" }];
   }
+}
+
+// Paint a breadcrumb: a single segment (a top-level view) hides the bar; a path
+// (a file or a project page) shows it.
+function paintBreadcrumb(crumbs: Crumb[]): void {
   if (crumbs.length <= 1) {
     breadcrumbEl.hidden = true;
   } else {
     breadcrumbEl.hidden = false;
     renderBreadcrumb(crumbs);
   }
+}
+
+// Recompute the breadcrumb for whatever view is currently active.
+function updateBreadcrumb(): void {
+  paintBreadcrumb(breadcrumbForView(viewStore.get()));
 }
 
 const viewEls: Record<View, HTMLElement> = {
@@ -1445,55 +1443,9 @@ const ANNOTATABLE_VIEWS = new Set<View>(["review", "code", "image", "html"]);
 const lastView = (await host.vault.get<string>("ui", "last-view")) as View | null;
 
 const viewStore = createViewStore("review");
-viewStore.subscribe((v) => {
-  for (const name of Object.keys(viewEls) as View[]) {
-    viewEls[name].classList.toggle("active", name === v);
-  }
-  viewArea.classList.toggle("no-panel", !ANNOTATABLE_VIEWS.has(v));
-  // The review Approve/Copy buttons act on the ProseMirror review doc; hide them
-  // on the other annotatable viewers (code/image/html) so they can't deliver the
-  // wrong (stale review) annotations. The source-view Send button is gated
-  // separately by refreshSourceSend().
-  viewArea.classList.toggle("source-view", ANNOTATABLE_VIEWS.has(v) && v !== "review");
-  // Only the HTML viewer carries its own extracted outline; clear the flag on
-  // every transition so a stale one can't leak onto code/image. showHtmlFile
-  // re-sets it once the iframe loads and headings are found.
-  if (v !== "html") viewArea.classList.remove("has-outline");
-  syncPanelColumn();
-  updateBreadcrumb();
-  document.querySelector("#nav-journal")?.classList.toggle("active", v === "journal");
-  document.querySelector("#nav-pages")?.classList.toggle("active", v === "pages");
-  document.querySelector("#nav-kanban")?.classList.toggle("active", v === "kanban");
-  document.querySelector("#nav-projects")?.classList.toggle("active", v === "projects");
-  document.querySelector("#bn-journal")?.classList.toggle("active", v === "journal");
-  document.querySelector("#bn-kanban")?.classList.toggle("active", v === "kanban");
-  document.querySelector("#bn-pages")?.classList.toggle("active", v === "pages");
-  document.querySelector("#bn-projects")?.classList.toggle("active", v === "projects");
-  // The Rendered/Source toggle only belongs to HTML file viewers; hide it when
-  // we navigate to a default element (kanban/journal/pages/project).
-  if (v !== "html" && v !== "code") htmlToggle.hidden = true;
-  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
-  if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
-  if (v === "kanban") refreshBoard();
-  if (v === "learnings") renderLearningsView();
-  if (v === "help") renderHelp(viewEls.help);
-  // Text-annotation lifecycle: the code, html, and review views share the single
-  // `#annotation-list`. Leaving a text viewer (code or owned-html) tears down its
-  // annotator + highlights — clearing the SAME realm it painted into (parent for
-  // code, the iframe for html). Entering review re-renders the review panel into
-  // the shared list. (A text view's own panel is rendered by openAnnotatableText
-  // via showCodeFile/showHtmlFile on open.)
-  if (v !== "code" && v !== "html") teardownActiveText();
-  if (v !== "image") teardownActiveImage();
-  if (v === "review") renderPanel();
-  // Hide the source Send button outside source views (and show it when a source
-  // view with open annotations is active); never touches the review buttons.
-  refreshSourceSend();
-  if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
-});
-viewStore.subscribe((v) => {
-  void host.vault.set("ui", "last-view", v);
-});
+// The single view router is built and subscribed below, once its cross-cutting
+// dependencies (htmlToggle, the openers) exist — see `registerCenterViews`. No
+// boot-time viewStore.set() runs before then; the startup view is set last.
 
 function openPage(name: string): void {
   journal.showPage(name);
@@ -1608,12 +1560,7 @@ document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
 const settingsView = document.querySelector<HTMLElement>("#view-settings")!;
 const settings = loadSettings();
-for (const radio of settingsView.querySelectorAll<HTMLInputElement>('input[name="startup"]')) {
-  radio.checked = radio.value === settings.startup;
-  radio.addEventListener("change", () => {
-    if (radio.checked) saveSettings({ startup: radio.value as StartupView });
-  });
-}
+bindRadios(settingsView, "startup", "startup", (v) => v as StartupView);
 
 // Accent color: drive the --accent CSS var (--accent-soft, selection, hovers
 // all derive from it). Apply the saved choice now, then wire the picker.
@@ -1691,17 +1638,10 @@ sizeInput.addEventListener("input", () => {
 // Completed-card fade dwell time: how long a card sits in Complete before it
 // drops off the board/lists. Persist on change, then re-render the board and
 // the project page (both read the TTL) so the new threshold takes effect at once.
-for (const radio of settingsView.querySelectorAll<HTMLInputElement>(
-  'input[name="complete-fade"]',
-)) {
-  radio.checked = Number(radio.value) === settings.completeFadeHours;
-  radio.addEventListener("change", () => {
-    if (!radio.checked) return;
-    void saveSettings({ completeFadeHours: Number(radio.value) });
-    refreshBoard();
-    refreshProject();
-  });
-}
+bindRadios(settingsView, "complete-fade", "completeFadeHours", Number, () => {
+  refreshBoard();
+  refreshProject();
+});
 
 // Journal time zone: which calendar day a journal entry files under. "" inherits
 // the host's zone (shown in the default option's label); an explicit choice
@@ -1947,6 +1887,98 @@ loadReviewDoc({
 onUpdate();
 applyLayout(mobile.matches);
 
+// --- View registry + router -------------------------------------------------
+// Each center view registers ONE self-describing spec (DOM section, breadcrumb,
+// annotation surfaces, nav links, onEnter); the single router subscriber below
+// applies every cross-cutting rule per transition (section/nav .active toggles,
+// panel flags, breadcrumb, html-toggle visibility, annotator teardown, persist,
+// drawer close). Adding a view (a future team dashboard, org-admin panel) is one
+// registration here — no edits to a switch. Registered late so the router's
+// deps (htmlToggle, the openers) already exist; no boot-time set ran before now.
+const viewRegistry = createViewRegistry();
+viewRegistry.register("review", {
+  el: viewEls.review,
+  breadcrumb: () => breadcrumbForView("review"),
+  annotatable: true,
+  onEnter: renderPanel,
+});
+viewRegistry.register("code", {
+  el: viewEls.code,
+  breadcrumb: () => breadcrumbForView("code"),
+  annotatable: true,
+  textRealm: true,
+  keepsHtmlToggle: true,
+});
+viewRegistry.register("image", {
+  el: viewEls.image,
+  breadcrumb: () => breadcrumbForView("image"),
+  annotatable: true,
+  imageRealm: true,
+});
+viewRegistry.register("html", {
+  el: viewEls.html,
+  breadcrumb: () => breadcrumbForView("html"),
+  annotatable: true,
+  textRealm: true,
+  keepsHtmlToggle: true,
+});
+viewRegistry.register("journal", {
+  el: viewEls.journal,
+  breadcrumb: () => breadcrumbForView("journal"),
+  navLinks: ["#nav-journal", "#bn-journal"],
+});
+viewRegistry.register("pages", {
+  el: viewEls.pages,
+  breadcrumb: () => breadcrumbForView("pages"),
+  navLinks: ["#nav-pages", "#bn-pages"],
+  onEnter: () => renderPagesIndex(viewEls.pages, openPage),
+});
+viewRegistry.register("projects", {
+  el: viewEls.projects,
+  breadcrumb: () => breadcrumbForView("projects"),
+  navLinks: ["#nav-projects", "#bn-projects"],
+  onEnter: () => renderProjectsIndex(viewEls.projects, openProject),
+});
+viewRegistry.register("project", {
+  el: viewEls.project,
+  breadcrumb: () => breadcrumbForView("project"),
+});
+viewRegistry.register("kanban", {
+  el: viewEls.kanban,
+  breadcrumb: () => breadcrumbForView("kanban"),
+  navLinks: ["#nav-kanban", "#bn-kanban"],
+  onEnter: refreshBoard,
+});
+viewRegistry.register("settings", {
+  el: viewEls.settings,
+  breadcrumb: () => breadcrumbForView("settings"),
+});
+viewRegistry.register("learnings", {
+  el: viewEls.learnings,
+  breadcrumb: () => breadcrumbForView("learnings"),
+  onEnter: renderLearningsView,
+});
+viewRegistry.register("help", {
+  el: viewEls.help,
+  breadcrumb: () => breadcrumbForView("help"),
+  onEnter: () => renderHelp(viewEls.help),
+});
+
+const routeView = createViewRouter(viewRegistry, {
+  viewArea,
+  htmlToggle,
+  syncPanelColumn,
+  renderBreadcrumb: paintBreadcrumb,
+  teardownText: teardownActiveText,
+  teardownImage: teardownActiveImage,
+  refreshSourceSend,
+  persist: (v) => void host.vault.set("ui", "last-view", v),
+  afterNavigate: () => {
+    if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
+  },
+});
+viewStore.subscribe(routeView);
+
 // Route the initial view from the startup preference.
 if (settings.startup === "last") {
   if (lastView === "project") {
@@ -2095,88 +2127,43 @@ const sessionsPanel = mountSessionsPanel({
 openSessionFromJournal = (id) => sessionsPanel.open(id);
 
 // Show archived (Done) sessions in the list.
-const showArchivedCb = document.querySelector<HTMLInputElement>("#show-archived");
-if (showArchivedCb) {
-  showArchivedCb.checked = loadSettings().showArchived;
-  showArchivedCb.addEventListener("change", () => {
-    void saveSettings({ showArchived: showArchivedCb.checked });
-    sessionsPanel.refresh();
-  });
-}
+bindCheckbox("show-archived", "showArchived", () => sessionsPanel.refresh());
 
 // When on, the MCP session_create tool launches the agent immediately; when
 // off, it only drops a planning card on the board.
-const autoLaunchCb = document.querySelector<HTMLInputElement>("#session-autolaunch");
-if (autoLaunchCb) {
-  autoLaunchCb.checked = loadSettings().sessionAutoLaunch;
-  autoLaunchCb.addEventListener("change", () => {
-    void saveSettings({ sessionAutoLaunch: autoLaunchCb.checked });
-  });
-}
+bindCheckbox("session-autolaunch", "sessionAutoLaunch");
 
 // Worktree isolation: when on (the default), each new session of a local git
 // project launches in its own git worktree on an orden/<slug> branch. Read at
 // launch time by the host; flipping it affects the NEXT launch only.
-const worktreeCb = document.querySelector<HTMLInputElement>("#worktree-isolation");
-if (worktreeCb) {
-  worktreeCb.checked = loadSettings().worktreeIsolation;
-  worktreeCb.addEventListener("change", () => {
-    void saveSettings({ worktreeIsolation: worktreeCb.checked });
-  });
-}
+bindCheckbox("worktree-isolation", "worktreeIsolation");
 
 // Worktree auto-trust: pre-accept claude's "do you trust this workspace?" dialog
 // for new worktrees of an already-trusted repo. Read at launch time by the host.
-const autoTrustCb = document.querySelector<HTMLInputElement>("#worktree-auto-trust");
-if (autoTrustCb) {
-  autoTrustCb.checked = loadSettings().worktreeAutoTrust;
-  autoTrustCb.addEventListener("change", () => {
-    void saveSettings({ worktreeAutoTrust: autoTrustCb.checked });
-  });
-}
+bindCheckbox("worktree-auto-trust", "worktreeAutoTrust");
 
 // PR forge: how card completion publishes a session branch — auto-infer the
 // forge CLI from the remote URL, force one, or push without opening a PR.
-const prForgeSel = document.querySelector<HTMLSelectElement>("#pr-forge");
-if (prForgeSel) {
-  prForgeSel.value = loadSettings().prForge;
-  prForgeSel.addEventListener("change", () => {
-    const v = prForgeSel.value;
-    if (v === "auto" || v === "gh" || v === "glab" || v === "none") {
-      void saveSettings({ prForge: v });
-    }
-  });
-}
+bindSelect("pr-forge", "prForge", ["auto", "gh", "glab", "none"]);
 
 // HTML render default: when on, .html files open rendered; off shows source.
 // This is the default only — a per-file topbar toggle can override it for the
 // session. Changing it re-opens the current file if it's HTML, so the change is
-// visible immediately.
-const htmlRenderCb = document.querySelector<HTMLInputElement>("#html-render");
-if (htmlRenderCb) {
-  htmlRenderCb.checked = loadSettings().htmlRender;
-  htmlRenderCb.addEventListener("change", async () => {
-    await saveSettings({ htmlRender: htmlRenderCb.checked });
-    const path = currentDocKey.startsWith("review:")
-      ? currentDocKey.slice("review:".length)
-      : null;
-    const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
-    if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
-      void openRepoFile(currentDocProjectId, path);
-    }
-  });
-}
+// visible immediately. (saveSettings updates the cache synchronously, so the
+// onChange reopen reads the new value.)
+bindCheckbox("html-render", "htmlRender", () => {
+  const path = currentDocKey.startsWith("review:")
+    ? currentDocKey.slice("review:".length)
+    : null;
+  const ext = path ? (path.split(".").pop() ?? "").toLowerCase() : "";
+  if (path && (ext === "html" || ext === "htm") && !htmlRenderOverride.has(path)) {
+    void openRepoFile(currentDocProjectId, path);
+  }
+});
 
 // Scratch terminal: show (or hide) the plain-shell scratch button in the
 // session pane. Refresh the panel so the button appears/disappears at once.
-const scratchTermCb = document.querySelector<HTMLInputElement>("#show-scratch-terminal");
-if (scratchTermCb) {
-  scratchTermCb.checked = loadSettings().showScratchTerminal;
-  scratchTermCb.addEventListener("change", () => {
-    void saveSettings({ showScratchTerminal: scratchTermCb.checked });
-    sessionsPanel.refresh();
-  });
-}
+bindCheckbox("show-scratch-terminal", "showScratchTerminal", () => sessionsPanel.refresh());
 
 // Default session mode: one TUI/GUI segmented row per tool (Claude Code,
 // opencode) picking which surface a newly spawned session opens in. Selecting
@@ -2365,124 +2352,134 @@ function applyVisualSettings(): void {
 // Live updates: when the vault changes (e.g. an agent writes over the MCP bus),
 // re-load the affected store and re-render only the views that depend on it.
 // Editor re-renders are focus-guarded so we never clobber what you're typing.
-// No-op on BrowserHost (single writer).
-onVaultChange((ns, key, projectId) => {
-  void (async () => {
-    const v = viewStore.get();
-    switch (ns) {
-      case "files": {
-        // A repo file changed on disk. If it's the one we're showing (same project
-        // AND path), re-read and re-render so external edits (by an agent, git, or
-        // a collaborator) appear live. Non-prose viewers always re-render; the
-        // markdown editor reload is guarded so it never clobbers active typing.
-        if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
-          const kind = viewerFor(key, effectiveHtmlRender(key));
-          if (kind === "image") {
-            await showImageFile(projectId, key, currentDocTitle);
-          } else if (kind === "html") {
-            const content = await host.files.read(projectId, key);
-            await showHtmlFile(key, currentDocTitle, content);
-          } else if (kind === "code") {
-            const content = await host.files.read(projectId, key);
-            await showCodeFile(key, currentDocTitle, content);
-          } else if (!view.hasFocus()) {
-            const markdown = await host.files.read(projectId, key);
-            loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
-          }
-        }
-        break;
-      }
-      case "pages":
-        await hydratePages(host);
-        if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
-        else if (v === "journal") journal.refresh();
-        else if (v === "project") refreshProject(); // notes page may have changed
-        break;
-      case "cards":
-        await hydrateCards(host);
-        refreshBoard(); // kanban board + badge count
-        notifyBlockedTransitions(); // toast when a session starts waiting on you
-        refreshProject();
-        break;
-      case "learnings":
-        await hydrateLearnings(host);
-        refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
-        // Refresh the stepper on external changes (e.g. the agent's revision flips
-        // revising→pending) — but NOT while the user is mid-typing a comment, since
-        // re-rendering would rebuild the DOM and lose their text + focus. The next
-        // user interaction (or view switch) will refresh it.
-        if (v === "learnings" && !learningsCommentFocused()) renderLearningsView();
-        break;
-      case "projects":
-        await hydrateProjects(host);
-        renderProjects();
-        if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
-        refreshProject();
-        break;
-      case "docs": {
-        await hydrateDocs(host);
-        const saved = loadState(currentDocKey);
-        if (v === "review" && saved && !view.hasFocus()) {
-          loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
-        }
-        break;
-      }
-      case "settings": {
-        await hydrateSettings(host);
-        await hydrateKeybindings(host);
-        if (v === "help") renderHelp(viewEls.help);
-        applyVisualSettings();
-        refreshBoard(); // kanbanView + completeFadeHours feed the board
-        refreshProject();
-        sessionsPanel.refresh();
-        break;
-      }
-      case "sessions":
-        await hydrateSessions(host);
-        sessionsPanel.refresh();
-        refreshProject(); // the project page's active-sessions widget
-        break;
-      case "feedback":
-        await hydrateOutbox(host);
-        break;
-      case "ui": {
-        // An agent asked (via the MCP panel_open tool) to steer the main panel.
-        if (key !== "panel-intent") break;
-        // Don't yank the panel out from under someone who's actively typing.
-        if (view.hasFocus()) break;
-        const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
-        if (!intent) break;
-        dispatchPanelIntent(intent, {
-          // The MCP panel_open intent carries a bare path; resolve it against the
-          // host filesRoot alias ("repo"). Per-project panel intents are future work.
-          openRepoFile: (path, pid) => void openRepoFile(pid ?? "repo", path),
-          openPage,
-          openKanban: () => {
-            viewStore.set("kanban");
-            refreshBoard();
-          },
-          resolveCardId: (target) => {
-            // Match by id first, then by case-insensitive title.
-            if (getItem(target)) return target;
-            const lower = target.trim().toLowerCase();
-            return listItems().find((i) => i.title.trim().toLowerCase() === lower)?.id;
-          },
-          openCard: (id) => {
-            if (!getItem(id)) return false;
-            viewStore.set("kanban");
-            refreshBoard();
-            openCardModal(id, {
-              onStartSession: startSessionForItem,
-              onOpenSession: openSessionInPanel,
-              onChange: refreshBoard,
-            });
-            return true;
-          },
-        });
-        break;
-      }
+// No-op on BrowserHost (single writer). Each namespace registers ONE handler on
+// the vault-change router (a second registration throws); the single
+// onVaultChange subscriber just dispatches. Future shared-state namespaces
+// (presence, locks, org) are new registrations, not edits to a switch. Some
+// namespaces (e.g. chat:<id>) have their own dedicated subscribers and are
+// deliberately absent here.
+const vaultChanges = createVaultChangeRouter();
+
+vaultChanges.register("files", async (key, projectId) => {
+  // A repo file changed on disk. If it's the one we're showing (same project
+  // AND path), re-read and re-render so external edits (by an agent, git, or
+  // a collaborator) appear live. Non-prose viewers always re-render; the
+  // markdown editor reload is guarded so it never clobbers active typing.
+  if (currentDocProjectId === projectId && currentDocKey === `review:${key}`) {
+    const kind = viewerFor(key, effectiveHtmlRender(key));
+    if (kind === "image") {
+      await showImageFile(projectId, key, currentDocTitle);
+    } else if (kind === "html") {
+      const content = await host.files.read(projectId, key);
+      await showHtmlFile(key, currentDocTitle, content);
+    } else if (kind === "code") {
+      const content = await host.files.read(projectId, key);
+      await showCodeFile(key, currentDocTitle, content);
+    } else if (!view.hasFocus()) {
+      const markdown = await host.files.read(projectId, key);
+      loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown, forceMarkdown: true });
     }
-  })();
+  }
+});
+
+vaultChanges.register("pages", async () => {
+  await hydratePages(host);
+  const v = viewStore.get();
+  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  else if (v === "journal") journal.refresh();
+  else if (v === "project") refreshProject(); // notes page may have changed
+});
+
+vaultChanges.register("cards", async () => {
+  await hydrateCards(host);
+  refreshBoard(); // kanban board + badge count
+  notifyBlockedTransitions(); // toast when a session starts waiting on you
+  refreshProject();
+});
+
+vaultChanges.register("learnings", async () => {
+  await hydrateLearnings(host);
+  refreshBoard(); // the derived Learnings column reads openForCard (pending|revising)
+  // Refresh the stepper on external changes (e.g. the agent's revision flips
+  // revising→pending) — but NOT while the user is mid-typing a comment, since
+  // re-rendering would rebuild the DOM and lose their text + focus. The next
+  // user interaction (or view switch) will refresh it.
+  if (viewStore.get() === "learnings" && !learningsCommentFocused()) renderLearningsView();
+});
+
+vaultChanges.register("projects", async () => {
+  await hydrateProjects(host);
+  renderProjects();
+  if (viewStore.get() === "projects") renderProjectsIndex(viewEls.projects, openProject);
+  refreshProject();
+});
+
+vaultChanges.register("docs", async () => {
+  await hydrateDocs(host);
+  const saved = loadState(currentDocKey);
+  if (viewStore.get() === "review" && saved && !view.hasFocus()) {
+    loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
+  }
+});
+
+vaultChanges.register("settings", async () => {
+  await hydrateSettings(host);
+  await hydrateKeybindings(host);
+  if (viewStore.get() === "help") renderHelp(viewEls.help);
+  applyVisualSettings();
+  refreshBoard(); // kanbanView + completeFadeHours feed the board
+  refreshProject();
+  sessionsPanel.refresh();
+});
+
+vaultChanges.register("sessions", async () => {
+  await hydrateSessions(host);
+  sessionsPanel.refresh();
+  refreshProject(); // the project page's active-sessions widget
+});
+
+vaultChanges.register("feedback", async () => {
+  await hydrateOutbox(host);
+});
+
+vaultChanges.register("ui", async (key) => {
+  // An agent asked (via the MCP panel_open tool) to steer the main panel.
+  if (key !== "panel-intent") return;
+  // Don't yank the panel out from under someone who's actively typing.
+  if (view.hasFocus()) return;
+  const intent = await host.vault.get<PanelIntent>("ui", "panel-intent");
+  if (!intent) return;
+  dispatchPanelIntent(intent, {
+    // The MCP panel_open intent carries a bare path; resolve it against the
+    // host filesRoot alias ("repo"). Per-project panel intents are future work.
+    openRepoFile: (path, pid) => void openRepoFile(pid ?? "repo", path),
+    openPage,
+    openKanban: () => {
+      viewStore.set("kanban");
+      refreshBoard();
+    },
+    resolveCardId: (target) => {
+      // Match by id first, then by case-insensitive title.
+      if (getItem(target)) return target;
+      const lower = target.trim().toLowerCase();
+      return listItems().find((i) => i.title.trim().toLowerCase() === lower)?.id;
+    },
+    openCard: (id) => {
+      if (!getItem(id)) return false;
+      viewStore.set("kanban");
+      refreshBoard();
+      openCardModal(id, {
+        onStartSession: startSessionForItem,
+        onOpenSession: openSessionInPanel,
+        onChange: refreshBoard,
+      });
+      return true;
+    },
+  });
+});
+
+onVaultChange((ns, key, projectId) => {
+  void vaultChanges.dispatch(ns, key, projectId);
 });
 
 // Connection recovered (host restarted / network blip): the socket auto-reopens,

@@ -188,7 +188,9 @@ describe("sessionLaunchEnv worktree flag + plugin guard", () => {
       );
       expect(plugin).toContain("tool.execute.before");
       expect(plugin).toContain('process.env.ORDEN_WORKTREE === "1"');
-      expect(plugin).toContain("reset\\s+");
+      // Patterns are embedded from destructiveGit.ts via new RegExp(JSON.stringify(...)).
+      expect(plugin).toContain("new RegExp");
+      expect(plugin).toContain("reset\\\\s+");
       expect(plugin).toContain("destructive git is blocked");
     } finally {
       osHome.dir = "";
