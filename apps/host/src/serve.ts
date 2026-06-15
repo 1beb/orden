@@ -22,6 +22,7 @@ import { reconcileUntitledSessions } from "./sessionTitles";
 import { reapCompletedCard } from "./cardReaper";
 import { publishCompletedCard } from "./publishReactor";
 import { journalCompletedCard } from "./cardJournal";
+import { registerMergeCoordinator } from "./integrationReactor";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleAgentRequest } from "./agentRoute";
 import { handleHookRequest } from "./hooks";
@@ -134,6 +135,13 @@ host.onChange((change) => {
     console.warn(`orden: journalCompletedCard failed for ${change.key}:`, err);
   });
 });
+
+// Merge-coordinator reactor: on completion, enqueue the card's branch and drain
+// the project's integration queue — order branches, resolve conflicts with intent
+// context, gate the combined state, and (per integrationMode) merge to local main
+// + rebuild, or push + open a PR. Supersedes per-session eager publish (NodeHost
+// .publish is now checkOnly). Drains are single-flight per project.
+registerMergeCoordinator(host);
 
 // Idle reconciler: the hook cycle's safety net. A periodic sweep moves any
 // "in-progress" card whose agent has stopped producing output (stale transcript

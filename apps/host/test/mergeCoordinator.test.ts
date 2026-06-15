@@ -83,7 +83,14 @@ describe("enqueueOnComplete", () => {
     const e = await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a");
     expect(e).toMatchObject({ cardId: "a", projectId: "P", branch: "orden/a", enqueuedAt: 5, status: "queued" });
   });
-  it("skips a card with no published branch", async () => {
+  it("falls back to the linked session's branch when the card has no stamp", async () => {
+    const v = makeVault();
+    await seedCard(v, "a", { branch: undefined, sessionIds: ["s1"] });
+    await v.set("sessions", "s1", { id: "s1", branch: "orden/from-session" });
+    await enqueueOnComplete(v, "a");
+    expect((await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a"))!.branch).toBe("orden/from-session");
+  });
+  it("skips a card with no branch anywhere", async () => {
     const v = makeVault();
     await seedCard(v, "a", { branch: undefined });
     await enqueueOnComplete(v, "a");

@@ -241,9 +241,11 @@ export interface RenderResult {
  * - "pushed": branch pushed; compareUrl set when the forge is recognized.
  * - "pr-opened": branch pushed and a PR created (prUrl).
  * - "push-failed": the push errored (auth/network); branch stays local.
+ * - "clean": tree verified clean, branch reported, NOT pushed — the merge
+ *   coordinator owns the ordered push/merge (checkOnly mode).
  */
 export interface PublishResult {
-  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed";
+  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed" | "clean";
   branch?: string;
   prUrl?: string;
   compareUrl?: string;

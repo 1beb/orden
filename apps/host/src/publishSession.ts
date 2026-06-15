@@ -60,6 +60,8 @@ export interface PublishInput {
   summary?: string;
   /** The prForge setting: "auto" | "gh" | "glab" | "none". */
   prForge: string;
+  /** Verify the tree is clean and report the branch WITHOUT pushing or opening a PR. */
+  checkOnly?: boolean;
 }
 
 export async function publishWorktree(
@@ -74,6 +76,11 @@ export async function publishWorktree(
     return { state: "push-failed", branch, error: `git status failed: ${status.stdout.trim()}` };
   }
   if (status.stdout.trim() !== "") return { state: "dirty", branch };
+
+  // checkOnly: the merge coordinator owns the actual push/PR (ordered, combined),
+  // so completion only VERIFIES the tree is clean and reports the branch. No
+  // per-session push happens; the branch is integrated later by the coordinator.
+  if (input.checkOnly) return { state: "clean", branch };
 
   const remote = await exec(workdir, ["remote", "get-url", "origin"]);
   if (remote.code !== 0 || !remote.stdout.trim()) return { state: "no-remote", branch };

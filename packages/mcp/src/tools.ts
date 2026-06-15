@@ -342,6 +342,7 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
 // Ranking for picking the card-level publish stamp when a card has several
 // sessions: surface the most "published" outcome.
 const PUBLISH_RANK: Record<PublishResult["state"], number> = {
+  clean: 6, // verified clean, awaiting coordinator integration — the success state
   "pr-opened": 5,
   pushed: 4,
   "push-failed": 3,

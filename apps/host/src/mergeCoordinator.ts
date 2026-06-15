@@ -10,7 +10,7 @@
 // docs/plans/2026-06-15-merge-coordinator-design.md.
 
 import type { VaultStore, Project } from "@orden/host-api";
-import type { CardRec } from "@orden/mcp";
+import { type CardRec, cardSessionIds } from "@orden/mcp";
 import {
   MERGE_QUEUE_NS,
   type MergeQueueEntry,
@@ -99,17 +99,31 @@ const intentOf = (card: CardRec | null, branch: string, cardId: string): IntentR
   description: card?.description,
 });
 
+// The card's integration branch: the publish-gate stamp if present, else the
+// branch on the first linked session record (HOST_OWNED). Decouples enqueue from
+// whether the publish gate stamped a branch.
+async function resolveCardBranch(vault: VaultStore, card: CardRec): Promise<string | undefined> {
+  if (typeof card.branch === "string" && card.branch) return card.branch;
+  for (const sid of cardSessionIds(card)) {
+    const s = await vault.get<{ branch?: string }>("sessions", sid);
+    if (typeof s?.branch === "string" && s.branch) return s.branch;
+  }
+  return undefined;
+}
+
 // Enqueue a completed card for integration. Idempotent (one entry per card) and
-// a no-op for a card with nothing to integrate (no branch published).
+// a no-op for a card with nothing to integrate (no isolated branch).
 export async function enqueueOnComplete(vault: VaultStore, cardId: string): Promise<void> {
   const card = await vault.get<CardRec>("cards", cardId);
-  if (!card || card.state !== "complete" || !card.branch) return;
+  if (!card || card.state !== "complete") return;
+  const branch = await resolveCardBranch(vault, card);
+  if (!branch) return;
   const existing = await vault.get<MergeQueueEntry>(MERGE_QUEUE_NS, cardId);
   if (existing) return;
   const entry: MergeQueueEntry = {
     cardId,
     projectId: card.projectId ?? "",
-    branch: card.branch,
+    branch,
     enqueuedAt: card.completedAt ?? 0,
     status: "queued",
   };
