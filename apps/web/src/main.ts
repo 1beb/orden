@@ -2108,6 +2108,7 @@ const sessionsPanel = mountSessionsPanel({
     app.classList.add("right-closed");
     syncBottomNavSessions();
   },
+  isMobile: () => mobile.matches,
 });
 
 // Wire [[Session: <id>]] wiki links from the journal to open sessions here.

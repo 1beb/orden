@@ -28,6 +28,8 @@ function deps(over: Partial<Parameters<typeof mountSessionsPanel>[0]> = {}) {
     archive: () => {},
     remove: () => {},
     cleanup: () => {},
+    close: () => {},
+    isMobile: () => false,
   };
   return { created, deps: { ...base, ...over } };
 }
@@ -102,6 +104,51 @@ describe("sessionsPanel new-session agent buttons", () => {
     // Back to the list: the session row is shown, not the terminal detail.
     expect(d.container.querySelector(".sess-terminal")).toBeNull();
     expect(d.container.querySelector(".sess-list")).not.toBeNull();
+  });
+
+  it("desktop back arrow returns to the list without closing the pane", () => {
+    const s = makeSession({ id: "s1", title: "Real session" });
+    let closed = false;
+    const { deps: d } = deps({
+      get: (id) => (id === "s1" ? s : undefined),
+      list: () => [s],
+      isComplete: () => false,
+      initialOpenId: "s1",
+      isMobile: () => false,
+      close: () => {
+        closed = true;
+      },
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    const back = d.container.querySelector<HTMLButtonElement>(".sess-head .sess-icon");
+    back!.click();
+
+    expect(closed).toBe(false);
+    expect(d.container.querySelector(".sess-list")).not.toBeNull();
+  });
+
+  it("mobile back arrow dismisses the pane to reveal the page behind it", () => {
+    const s = makeSession({ id: "s1", title: "Real session" });
+    let closed = false;
+    const { deps: d } = deps({
+      get: (id) => (id === "s1" ? s : undefined),
+      list: () => [s],
+      isComplete: () => false,
+      initialOpenId: "s1",
+      isMobile: () => true,
+      close: () => {
+        closed = true;
+      },
+    });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    const back = d.container.querySelector<HTMLButtonElement>(".sess-head .sess-icon");
+    back!.click();
+
+    expect(closed).toBe(true);
   });
 });
 
