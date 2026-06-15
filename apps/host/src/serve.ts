@@ -17,6 +17,7 @@ import { NodeTerminalChat } from "./chat/nodeTerminalChat";
 import { createHostWss } from "./wsServer";
 import { createTerminalWss, launchDetached } from "./terminal";
 import { startIdleReconciler } from "./idleReconciler";
+import { killPlaywrightMcp } from "./killPlaywrightMcp";
 import { reconcileUntitledSessions } from "./sessionTitles";
 import { reapCompletedCard } from "./cardReaper";
 import { publishCompletedCard } from "./publishReactor";
@@ -51,6 +52,12 @@ const snapshotStore = new DiskSnapshotStore(vaultRoot);
 // Resolve a projectId to its files root for the /repo-file/ byte route ("repo"
 // aliases filesRoot for back-compat; local projects use their source.path).
 const resolveRoot = makeProjectRootResolver(host, filesRoot);
+
+// Kill any Playwright MCP browser/service left over from a prior run: a stale
+// orden tab in such a browser reconnects in a re-hydrate loop and floods this
+// host's WS RPC. An agent that still needs Playwright is relaunched by the
+// operator. Opt out with ORDEN_KEEP_PLAYWRIGHT=1.
+killPlaywrightMcp();
 
 // Eagerly mirror every claude session that has a transcript, so a pending
 // AskUserQuestion (or any turn) shows up in the Chat tab without the user first
