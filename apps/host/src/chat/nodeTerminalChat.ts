@@ -111,9 +111,15 @@ export class NodeTerminalChat implements TerminalChat {
     return false;
   }
 
-  // Start mirroring every mirrorable session (claude + a conversation id). Called
-  // once at boot so a pending AskUserQuestion — or any turn — surfaces in the Chat
-  // tab without the user first opening that session. Best-effort per session.
+  // Start mirroring every LIVE mirrorable session at boot, so a pending
+  // AskUserQuestion — or any in-flight turn — surfaces in the Chat tab without the
+  // user first opening that session. We mirror only sessions with a live agent
+  // pane: a dead session's transcript never changes again, so a mirror for it is
+  // pure waste — it still reads + fully re-parses the whole JSONL and writes up to
+  // WINDOW vault entries. At scale (100+ historical sessions) that boot fan-out of
+  // re-parses + vault writes saturates the CPU (one core pegged, multi-GB RSS).
+  // Dead sessions mirror lazily when opened (chatMount), which is the only time
+  // their tail actually needs to render. Best-effort per session.
   async mirrorAll(): Promise<void> {
     let ids: string[];
     try {
@@ -123,9 +129,10 @@ export class NodeTerminalChat implements TerminalChat {
     }
     for (const id of ids) {
       try {
+        if (!(await this.paneOps.isLive(id))) continue;
         await this.mirror(id);
       } catch {
-        // One unmirrorable session shouldn't stop the rest.
+        // One unmirrorable (or unprobeable) session shouldn't stop the rest.
       }
     }
   }
