@@ -3,6 +3,7 @@ import {
   enqueueOnComplete,
   readReadyQueue,
   drain,
+  resumeOnResolve,
   type CoordinatorGit,
   type CoordinatorDeps,
   type DrainPlan,
@@ -202,5 +203,48 @@ describe("drain — gate red is unverifiable", () => {
     expect((await v.get<Record<string, unknown>>("cards", "a"))!.mergeStatus).toBe("blocked-unverifiable");
     expect(calls.reset.length).toBe(1);
     expect(term).toBe(false); // nothing merged → no terminal step
+  });
+});
+
+describe("resumeOnResolve — intent decision", () => {
+  it("finalizes the losers, re-enqueues the winner, and re-drains", async () => {
+    const v = makeVault();
+    // a is already merged; b is blocked, asking a-vs-b; user picks b as winner.
+    await seedCard(v, "a", { completedAt: 1, mergeStatus: "merged" });
+    await seedCard(v, "b", {
+      completedAt: 2,
+      state: "blocked",
+      mergeStatus: "blocked-intent",
+      integrationBlock: { kind: "intent", question: "?", options: ["a", "b"], otherCardIds: ["a"], chosen: "b" },
+    });
+    const { git } = makeGit();
+    let drained = false;
+    await resumeOnResolve(
+      baseDeps(v, git, {
+        // detect the re-drain via the terminal step firing for the re-enqueued winner
+        terminalStep: async () => void (drained = true),
+      }),
+      "b",
+    );
+
+    // loser a is finalized with a note and its queue entry dropped
+    const a = await v.get<Record<string, unknown>>("cards", "a");
+    expect(a!.integrationNote).toContain("superseded by card b");
+    expect(await v.get(MERGE_QUEUE_NS, "a")).toBeNull();
+    // winner b is re-queued (block cleared) and the drain ran
+    const be = await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "b");
+    expect(be).toMatchObject({ cardId: "b", status: "merged" }); // re-drain merged it clean
+    expect(drained).toBe(true);
+  });
+
+  it("ignores a blocked card with no chosen winner yet", async () => {
+    const v = makeVault();
+    await seedCard(v, "b", {
+      state: "blocked",
+      integrationBlock: { kind: "intent", question: "?", options: ["a", "b"], otherCardIds: ["a"] },
+    });
+    const { git, calls } = makeGit();
+    await resumeOnResolve(baseDeps(v, git), "b");
+    expect(calls.applied).toEqual([]); // no drain
   });
 });

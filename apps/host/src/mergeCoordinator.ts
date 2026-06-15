@@ -269,3 +269,58 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
     await deps.terminalStep({ handle, projectId, mode: plan.mode, mergedCardIds: merged, plan });
   }
 }
+
+// Resume after the user answers an escalation. Triggered when a blocked card's
+// integrationBlock gains a `chosen` winner (a chip click) — see the web resolve
+// path. For an intent decision: every non-winner participant is finalized as
+// "goal lost" (its queue entry dropped) and the winner is re-enqueued for
+// another drain pass. For unverifiable: the agent presumably updated the branch,
+// so just clear the block and re-drain.
+//
+// LIMITATION (fast mode): if a loser was already fast-forwarded onto main in a
+// prior drain, the re-drain will re-conflict and re-escalate rather than auto-
+// revert it — safe (never a silent wrong merge), but the revert of already-
+// merged work is a deliberate follow-up, not done here.
+export async function resumeOnResolve(deps: CoordinatorDeps, cardId: string): Promise<void> {
+  const card = await deps.vault.get<CardRec>("cards", cardId);
+  const block = card?.integrationBlock as IntegrationBlock | undefined;
+  if (!card || card.state !== "blocked" || !block?.chosen) return;
+  const projectId = card.projectId ?? "";
+
+  const reenqueue = async (c: CardRec): Promise<void> => {
+    const { integrationBlock: _b, ...rest } = c;
+    await deps.vault.set("cards", c.id, { ...rest, mergeStatus: "queued" });
+    await deps.vault.set(MERGE_QUEUE_NS, c.id, {
+      cardId: c.id,
+      projectId: c.projectId ?? "",
+      branch: c.branch ?? "",
+      enqueuedAt: c.completedAt ?? 0,
+      status: "queued",
+    });
+  };
+
+  if (block.kind === "unverifiable") {
+    await reenqueue(card);
+    await drain(deps, projectId);
+    return;
+  }
+
+  const winner = block.chosen;
+  const participants = uniq([cardId, ...(block.otherCardIds ?? [])]);
+  for (const loserId of participants.filter((p) => p !== winner)) {
+    const lc = await deps.vault.get<CardRec>("cards", loserId);
+    if (lc) {
+      const { integrationBlock: _b, ...rest } = lc;
+      await deps.vault.set("cards", loserId, {
+        ...rest,
+        state: "blocked",
+        mergeStatus: "blocked-intent",
+        integrationNote: `Goal superseded by card ${winner} in an integration decision.`,
+      });
+    }
+    await deps.vault.delete(MERGE_QUEUE_NS, loserId);
+  }
+  const wc = await deps.vault.get<CardRec>("cards", winner);
+  if (wc) await reenqueue(wc);
+  await drain(deps, wc?.projectId ?? projectId);
+}
