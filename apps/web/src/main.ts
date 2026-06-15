@@ -94,6 +94,7 @@ import { makeViewToggler } from "./viewToggler";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
+import { confirmDialog } from "./modal";
 import { bindCheckbox, bindSelect, bindRadios } from "./settingsBindings";
 import {
   hydrateSettings,
@@ -106,6 +107,7 @@ import {
   TIME_ZONE_OPTIONS,
   DEFAULT_LEARNING_PROMPT,
   type StartupView,
+  type Settings,
 } from "./settings";
 import {
   hydrateKeybindings,
@@ -2240,11 +2242,45 @@ bindCheckbox("show-scratch-terminal", "showScratchTerminal", () => sessionsPanel
 // a segment merges that tool's choice into the stored map.
 const modeGridMount = document.querySelector<HTMLElement>("#mode-grid");
 if (modeGridMount) {
-  modeGridMount.append(
-    buildModeGrid(loadSettings().defaultMode, (next) => {
-      void saveSettings({ defaultMode: next });
-    }),
-  );
+  // Re-seed the grid from the stored settings. Called on cancel to snap the
+  // radios back, since the native radio `change` already flipped the UI before
+  // our onChange ran.
+  const renderModeGrid = (): void => {
+    modeGridMount.replaceChildren(
+      buildModeGrid(loadSettings().defaultMode, (next) => void onModeChange(next)),
+    );
+  };
+  // Selecting GUI for Claude makes new sessions open the native Chat tab, which
+  // drives Claude through the Anthropic Agent SDK rather than the interactive
+  // `claude` binary the Terminal (TUI) uses — a billing difference the operator
+  // should opt into knowingly. Warn on the tui→gui transition for Claude only
+  // (opencode GUI uses opencode's own API, not the Anthropic SDK).
+  const onModeChange = async (next: Settings["defaultMode"]): Promise<void> => {
+    const prev = loadSettings().defaultMode;
+    if (next.claude === "gui" && prev.claude !== "gui") {
+      const ok = await confirmDialog({
+        title: "GUI Chat for Claude uses the Agent SDK (API-metered)",
+        message:
+          "GUI sessions for Claude Code open the native Chat tab, which drives Claude " +
+          "through the Anthropic Agent SDK. As of June 15, 2026, subscription-authenticated " +
+          "Agent SDK usage no longer draws from your normal subscription pool — it meters " +
+          "against the separate capped monthly Agent SDK credit at standard API list rates " +
+          "($20 Pro / $100 Max 5x / $200 Max 20x), and requests stop once that credit is " +
+          "exhausted unless you configure an API key or overflow billing. Anthropic appears " +
+          "to be walking this change back, but the terms keep shifting — treat GUI/SDK " +
+          "billing as unsettled and subject to change. The default Terminal (TUI) sessions " +
+          "run the interactive Claude Code binary and are not affected.",
+        confirmLabel: "Use GUI for Claude",
+        danger: false,
+      });
+      if (!ok) {
+        renderModeGrid(); // revert the radios; leave settings untouched
+        return;
+      }
+    }
+    await saveSettings({ defaultMode: next });
+  };
+  renderModeGrid();
 }
 
 // Vault location: a read-only path so the user knows where their data lives.
