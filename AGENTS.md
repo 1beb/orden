@@ -77,15 +77,17 @@ with the TUI.
 **Web extension seams** (same contract style as keybindings — extend the table, don't
 add a switch): center views register ONCE in the **view registry**
 (`apps/web/src/viewRegistry.ts` — section el, breadcrumb, annotatable/realm flags,
-nav link, `onEnter`); a single router subscriber applies the cross-cutting rules, so
+`navLinks` (left-nav + bottom-nav selectors), `keepsHtmlToggle`, `onEnter`); a
+single router subscriber (`createViewRouter`) applies the cross-cutting rules, so
 never add a second `viewStore.subscribe` or a per-view `switch` in `main.ts`.
 Vault-change reactions register per namespace on the **vault-change router**
 (`apps/web/src/vaultChangeRouter.ts`) — one handler per ns, future shared-state
 namespaces (presence, locks, org) are new registrations. Settings controls wire
 through the binders in `apps/web/src/settingsBindings.ts`
 (`bindCheckbox`/`bindSelect`/`bindRadios`), not hand-rolled query+listener blocks.
-Overlay views that return to the prior view (settings, help) come from
-`makeViewToggler` in `main.ts`.
+Overlay views that return to the prior view (settings, help) remember the view
+they came from (`preSettingsView` / `preHelpView` in `main.ts`) and restore it on
+close — not yet a registered seam.
 
 Entity terms: **project** (a working dir, owns sessions), **session** (one agent run,
 has a lifecycle state, hosted by a tmux/pty process), **card** (a session's projection
