@@ -30,6 +30,8 @@ export interface SessionsPanelDeps {
   cleanup: (id: string) => void;
   /** Collapse the panel (mobile: dismiss the full-width slide-over). */
   close: () => void;
+  /** True on a narrow (mobile) viewport, where the pane is a slide-over. */
+  isMobile: () => boolean;
   /** The session that was open last run, to reopen on boot (null = the list). */
   initialOpenId?: string | null;
   /** Persist which session is open so a reload reopens it. */
@@ -337,7 +339,11 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
       const left = currentId;
       setCurrent(null);
       if (left) deps.cleanup(left); // drop it if it was never touched
-      render();
+      render(); // reset to the list, ready for the next open
+      // Mobile: the pane is a slide-over on top of the document. Leaving the
+      // session should return to the page behind it, not strand the user on the
+      // session list — so dismiss the pane entirely.
+      if (deps.isMobile()) deps.close();
     });
 
     const chatAvailable = !!deps.mountChat;
