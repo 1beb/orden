@@ -26,7 +26,7 @@ export interface MergeStatusRec {
   prUrl?: string;
 }
 
-export type RebuildRunner = (repo: string) => Promise<{ code: number; output: string }>;
+export type RebuildRunner = (repo: string, command: string) => Promise<{ code: number; output: string }>;
 // Push + open a PR for the integration branch (wired to publishWorktree in serve.ts).
 export type MeasuredPublish = (ctx: TerminalContext) => Promise<{ prUrl?: string }>;
 
@@ -58,7 +58,9 @@ export function makeTerminalStep(deps: TerminalDeps): (ctx: TerminalContext) => 
       // integration branch was built off main + merges, so it is strictly ahead
       // → --ff-only succeeds (and refuses, rather than diverging, if it can't).
       await exec(ctx.plan.repo, ["merge", "--ff-only", INTEGRATION_BRANCH]);
-      await deps.rebuild(ctx.plan.repo);
+      // Optional, project-configured post-merge build (e.g. orden's web dist).
+      // Most projects need none — skip when unset, no toolchain assumption.
+      if (ctx.plan.rebuild) await deps.rebuild(ctx.plan.repo, ctx.plan.rebuild);
       const pendingPush = await countPendingPush(ctx.plan.repo, ctx.plan.base, exec);
       const rec: MergeStatusRec = {
         base: ctx.plan.base,

@@ -99,8 +99,8 @@ card → state:"complete" (clean tree, gate already passed by card_complete)
   │              ├─ reconciled  → apply resolution onto integration                   │
   │              ├─ goals collide (cannot coexist) → ESCALATE intent → card:blocked   │
   │              └─ reconciled but unverifiable     → ESCALATE unverifiable → blocked │
-  │     run the GATE on integration:  per-project verify cmd (default                 │
-  │       `pnpm -r typecheck && pnpm -r test`) + `--filter @orden/web build`          │
+  │     run the GATE on integration:  per-project verify cmd (any shell; e.g.         │
+  │       pnpm/pytest/cargo/go/make). Empty cmd → no gate (textual merge only)        │
   │       ├─ green → keep on integration, advance to next card                        │
   │       └─ red & resolver can't fix → ESCALATE unverifiable; RESET integration to   │
   │                prior tip; SKIP this card (stays blocked); continue the queue      │
@@ -166,12 +166,21 @@ integrationBlock?: {        // present only when escalated; rendered on the bloc
 mergedAt?: number;
 ```
 
-New per-project field on **`Project`** (host-api):
+New per-project fields on **`Project`** (host-api):
 
 ```ts
 integrationMode?: "fast" | "measured";   // absent = inherit global default
-integrationVerify?: string;              // override gate cmd; absent = default pnpm -r typecheck && test
+integrationVerify?: string;              // gate command (ANY shell); absent = inherit; "" = no gate
+integrationRebuild?: string;             // post-merge command for fast mode; absent = inherit; "" = none
 ```
+
+**Toolchain-agnostic by design.** The coordinator runs whatever shell command a
+project configures — `pnpm -r test`, `pytest -q`, `cargo test`, `go test ./...`,
+`make check` — and bakes in **no** language assumption. Both command defaults are
+**empty**: an empty verify means no semantic gate (textual `merge-tree` only —
+surfaced, not pretended); an empty rebuild means no post-merge build. The rebuild
+exists only because some projects serve a built bundle (orden rebuilds its web
+dist); most need nothing. Commands are editable per project in the project modal.
 
 Global defaults live in `vault/settings/app` beside `prForge`/`isolation`/`baseRef`,
 read through the existing `readWorktreeSettings`-style helper and wired in the web via the
@@ -242,7 +251,9 @@ coverage.
   run in. Reset = `git merge --abort` + `git reset --hard <prior tip>` in that worktree —
   safe host-owned territory, never a session worktree.
 - Reuse `publishWorktree()` (`publishSession.ts`) as the `measured` terminal step.
-- Extend `Project` (`host-api/src/index.ts:64`) with `integrationMode` / `integrationVerify`.
+- Extend `Project` (`host-api/src/index.ts:64`) with `integrationMode` /
+  `integrationVerify` / `integrationRebuild` (the latter two are toolchain-agnostic
+  shell commands, empty by default — no pnpm/TS assumption).
 - Settings: `vault/settings/app` + `settingsBindings.ts` `bindSelect`; per-project
   override UI beside the existing worktree-isolation toggle (`projectModal.ts`).
 - `cardReaper.ts`: add `merged` to reap-eligible states.

@@ -55,9 +55,11 @@ const realGit: CoordinatorGit = {
 };
 
 export function buildCoordinatorDeps(host: Host): CoordinatorDeps {
-  const rebuild = async (repo: string) => {
+  // Run the project's configured post-merge command in a login shell — generic,
+  // no toolchain assumption (the command is whatever the project sets).
+  const rebuild = async (repo: string, command: string) => {
     try {
-      const { stdout, stderr } = await execFileAsync("pnpm", ["--filter", "@orden/web", "build"], {
+      const { stdout, stderr } = await execFileAsync("bash", ["-lc", command], {
         cwd: repo,
         timeout: 10 * 60_000,
         maxBuffer: 64 * 1024 * 1024,
@@ -98,7 +100,15 @@ export function buildCoordinatorDeps(host: Host): CoordinatorDeps {
       const ws = await readWorktreeSettings(host.vault);
       const base = ws.baseRef || (repo ? await defaultBaseRef(repo) : "main");
       const integ = integrationFor(await readIntegrationSettings(host.vault), project);
-      return { repo, integrationRoot, base, verify: integ.verify, mode: integ.mode, project: project ?? null };
+      return {
+        repo,
+        integrationRoot,
+        base,
+        verify: integ.verify,
+        rebuild: integ.rebuild,
+        mode: integ.mode,
+        project: project ?? null,
+      };
     },
     terminalStep,
   };

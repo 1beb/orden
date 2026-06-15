@@ -63,7 +63,10 @@ export interface DrainPlan {
   repo: string;
   integrationRoot: string;
   base: string;
+  /** Gate command (any shell); "" = no semantic gate, textual merge only. */
   verify: string;
+  /** Post-merge command for `fast` mode; "" = none. */
+  rebuild: string;
   mode: "fast" | "measured";
   project: Project | null;
 }
@@ -246,7 +249,9 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
     }
 
     // Gate the combined state after each apply so the culprit is identifiable.
-    const gate = await deps.gate(handle.workdir, plan.verify);
+    // No verify command configured => no semantic gate (textual merge only):
+    // the project hasn't told us how to test it, so we don't pretend to.
+    const gate = plan.verify ? await deps.gate(handle.workdir, plan.verify) : { green: true, output: "" };
     if (!gate.green) {
       await escalate(
         deps.vault,

@@ -15,12 +15,12 @@ function makeVault(): VaultStore {
   };
 }
 
-const ctx = (mode: "fast" | "measured"): TerminalContext => ({
+const ctx = (mode: "fast" | "measured", rebuild = "make dist"): TerminalContext => ({
   handle: { workdir: "/wt", branch: INTEGRATION_BRANCH, tip: "tipN" },
   projectId: "P",
   mode,
   mergedCardIds: ["a", "b"],
-  plan: { repo: "/repo", integrationRoot: "/wt", base: "main", verify: "test", mode, project: null },
+  plan: { repo: "/repo", integrationRoot: "/wt", base: "main", verify: "test", rebuild, mode, project: null },
 });
 
 describe("terminal step — fast", () => {
@@ -32,21 +32,36 @@ describe("terminal step — fast", () => {
       if (args[0] === "rev-list") return { stdout: "3\n", code: 0 };
       return { stdout: "", code: 0 };
     };
-    let rebuilt = false;
+    let rebuiltWith: string | null = null;
     let published = false;
     const step = makeTerminalStep({
       vault: v,
       exec,
-      rebuild: async () => ((rebuilt = true), { code: 0, output: "" }),
+      rebuild: async (_repo, command) => ((rebuiltWith = command), { code: 0, output: "" }),
       publish: async () => ((published = true), {}),
     });
     await step(ctx("fast"));
 
     expect(gitCalls).toContainEqual(["merge", "--ff-only", INTEGRATION_BRANCH]);
-    expect(rebuilt).toBe(true);
+    expect(rebuiltWith).toBe("make dist"); // ran the project's configured command
     expect(published).toBe(false);
     const rec = await v.get<MergeStatusRec>(MERGE_STATUS_NS, "P");
     expect(rec).toMatchObject({ base: "main", pendingPush: 3, lastMode: "fast", lastMergedCardIds: ["a", "b"] });
+  });
+
+  it("skips the rebuild when no command is configured", async () => {
+    const v = makeVault();
+    const exec: GitExec = async (_c, args) =>
+      args[0] === "rev-list" ? { stdout: "0\n", code: 0 } : { stdout: "", code: 0 };
+    let rebuilt = false;
+    const step = makeTerminalStep({
+      vault: v,
+      exec,
+      rebuild: async () => ((rebuilt = true), { code: 0, output: "" }),
+      publish: async () => ({}),
+    });
+    await step(ctx("fast", "")); // empty rebuild command
+    expect(rebuilt).toBe(false);
   });
 });
 

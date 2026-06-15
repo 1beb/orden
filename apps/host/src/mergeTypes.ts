@@ -42,6 +42,12 @@ export interface MergeQueueEntry {
   error?: string;
 }
 
-// Defaults for the integration boundary, resolved project-over-global.
+// Defaults for the integration boundary, resolved project-over-global. The
+// verify (gate) and rebuild commands are LANGUAGE-AGNOSTIC and default EMPTY —
+// the coordinator runs whatever shell command a project configures (pnpm,
+// pytest, cargo test, go test, make, …) and bakes in no toolchain assumption.
+// Empty verify => no semantic gate (textual merge-tree only); empty rebuild =>
+// no post-merge build.
 export const DEFAULT_INTEGRATION_MODE: "fast" | "measured" = "fast";
-export const DEFAULT_INTEGRATION_VERIFY = "pnpm -r typecheck && pnpm -r test";
+export const DEFAULT_INTEGRATION_VERIFY = "";
+export const DEFAULT_INTEGRATION_REBUILD = "";

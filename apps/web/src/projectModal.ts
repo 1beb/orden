@@ -213,6 +213,32 @@ export function openProjectModal(opts: ProjectModalOptions): void {
       "How completed sessions of this project are integrated onto trunk.",
     ),
   );
+
+  // The gate + post-merge commands are plain shell — no toolchain assumed. Empty
+  // verify = no semantic gate (textual merge only); empty rebuild = none.
+  const verifyInput = document.createElement("input");
+  verifyInput.className = "project-modal__input";
+  verifyInput.value = editing?.integrationVerify ?? "";
+  verifyInput.placeholder = "e.g. pnpm -r test · pytest -q · cargo test · make check";
+  advanced.append(
+    field(
+      "Integration verify command",
+      verifyInput,
+      "Shell command that tests the combined state before integrating. Empty = no gate.",
+    ),
+  );
+
+  const rebuildInput = document.createElement("input");
+  rebuildInput.className = "project-modal__input";
+  rebuildInput.value = editing?.integrationRebuild ?? "";
+  rebuildInput.placeholder = "e.g. pnpm --filter @orden/web build (optional)";
+  advanced.append(
+    field(
+      "Post-merge rebuild command",
+      rebuildInput,
+      "Run after a fast merge to main (e.g. rebuild a served bundle). Empty = none.",
+    ),
+  );
   form.append(advanced);
 
   // --- Validation message ---
@@ -260,6 +286,8 @@ export function openProjectModal(opts: ProjectModalOptions): void {
     const worktreeIsolation = isoSel.value === "" ? null : isoSel.value === "on";
     const integrationMode =
       intSel.value === "" ? null : (intSel.value as "fast" | "measured");
+    const integrationVerify = verifyInput.value.trim() || null;
+    const integrationRebuild = rebuildInput.value.trim() || null;
 
     let saved: Project;
     if (opts.mode === "create") {
@@ -270,6 +298,8 @@ export function openProjectModal(opts: ProjectModalOptions): void {
       );
       if (worktreeIsolation !== null) updateProject(saved.id, { worktreeIsolation });
       if (integrationMode !== null) updateProject(saved.id, { integrationMode });
+      if (integrationVerify !== null) updateProject(saved.id, { integrationVerify });
+      if (integrationRebuild !== null) updateProject(saved.id, { integrationRebuild });
     } else {
       const id = editing!.id;
       updateProject(id, {
@@ -279,6 +309,8 @@ export function openProjectModal(opts: ProjectModalOptions): void {
         workingDir,
         worktreeIsolation,
         integrationMode,
+        integrationVerify,
+        integrationRebuild,
       });
       saved = editing!;
     }

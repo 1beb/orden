@@ -53,8 +53,11 @@ function makeGit(opts: GitOpts = {}) {
   return { git, calls };
 }
 
-const plan = (mode: "fast" | "measured" = "fast"): ((p: string) => Promise<DrainPlan>) =>
-  async () => ({ repo: "/repo", integrationRoot: "/wt", base: "main", verify: "test", mode, project: null });
+const plan = (
+  mode: "fast" | "measured" = "fast",
+  verify = "test",
+): ((p: string) => Promise<DrainPlan>) =>
+  async () => ({ repo: "/repo", integrationRoot: "/wt", base: "main", verify, rebuild: "", mode, project: null });
 
 async function seedCard(
   vault: VaultStore,
@@ -142,6 +145,25 @@ describe("drain — all clean", () => {
     expect(term!.mode).toBe("fast");
     expect((await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a"))!.status).toBe("merged");
     expect((await v.get<Record<string, unknown>>("cards", "b"))!.mergeStatus).toBe("merged");
+  });
+});
+
+describe("drain — no verify command", () => {
+  it("merges on a clean textual merge without running any gate (toolchain-agnostic)", async () => {
+    const v = makeVault();
+    await seedCard(v, "a");
+    await enqueueOnComplete(v, "a");
+    const { git } = makeGit();
+    let gateCalls = 0;
+    await drain(
+      baseDeps(v, git, {
+        plan: plan("fast", ""), // no verify command configured
+        gate: async () => (gateCalls++, { green: true, output: "" }),
+      }),
+      "P",
+    );
+    expect(gateCalls).toBe(0); // gate skipped — we don't know how to test this project
+    expect((await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a"))!.status).toBe("merged");
   });
 });
 

@@ -80,6 +80,12 @@ export interface Project {
   integrationMode?: "fast" | "measured";
   /** Per-project gate command. Absent = the global default verify command. */
   integrationVerify?: string;
+  /**
+   * Per-project command run after a `fast` merge to main (e.g. rebuild a served
+   * bundle). Absent/empty = no post-merge build. Project-specific by nature —
+   * orden sets it to rebuild its web dist; most projects need nothing.
+   */
+  integrationRebuild?: string;
 }
 
 export interface ProjectRegistry {

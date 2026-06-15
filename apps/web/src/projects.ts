@@ -38,6 +38,13 @@ export interface Project {
   // integrationMode: per-project override of the global merge-coordinator mode.
   // Absent = inherit; "fast"/"measured" force it for this project.
   integrationMode?: "fast" | "measured";
+  // integrationVerify: the gate command the coordinator runs to test the combined
+  // state (any shell command — pnpm/pytest/cargo/go/make…). Absent = inherit;
+  // "" = no semantic gate. Language-agnostic; no toolchain assumed.
+  integrationVerify?: string;
+  // integrationRebuild: command run after a fast merge to main (e.g. rebuild a
+  // served bundle). Absent = inherit; "" = none.
+  integrationRebuild?: string;
 }
 
 let host: Host | null = null;
@@ -124,6 +131,9 @@ export function updateProject(
     worktreeIsolation?: boolean | null;
     // "fast"/"measured" force the override; null clears it back to inherit.
     integrationMode?: "fast" | "measured" | null;
+    // command string sets the override; null clears it back to inherit.
+    integrationVerify?: string | null;
+    integrationRebuild?: string | null;
   },
 ): void {
   const project = cache.find((p) => p.id === id);
@@ -148,6 +158,14 @@ export function updateProject(
   if (patch.integrationMode !== undefined) {
     if (patch.integrationMode === null) delete project.integrationMode;
     else project.integrationMode = patch.integrationMode;
+  }
+  if (patch.integrationVerify !== undefined) {
+    if (patch.integrationVerify === null) delete project.integrationVerify;
+    else project.integrationVerify = patch.integrationVerify;
+  }
+  if (patch.integrationRebuild !== undefined) {
+    if (patch.integrationRebuild === null) delete project.integrationRebuild;
+    else project.integrationRebuild = patch.integrationRebuild;
   }
   if (patch.showCompleted !== undefined) {
     // Default is false, so store only the truthy case and drop the field
