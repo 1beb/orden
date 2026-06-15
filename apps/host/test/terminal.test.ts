@@ -21,6 +21,9 @@ import {
   resolveAgentBin,
   buildCommand,
   killSessionTmux,
+  tmuxSessionPath,
+  shouldRelocateSession,
+  relocateIfPinned,
 } from "../src/terminal";
 import { encodeCwd } from "../src/transcriptTitle";
 import type { Host, Project } from "@orden/host-api";
@@ -697,6 +700,56 @@ describe("killSessionTmux", () => {
         graceMs: 0,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("tmuxSessionPath", () => {
+  test("returns the session_path tmux reports, trimmed", async () => {
+    const run = () => Promise.resolve({ stdout: "/home/b/projects/orden\n", stderr: "" });
+    expect(await tmuxSessionPath("orden-s1", run)).toBe("/home/b/projects/orden");
+  });
+
+  test("returns null when tmux exits non-zero / throws", async () => {
+    const run = () => Promise.reject(new Error("no server"));
+    expect(await tmuxSessionPath("orden-s1", run)).toBeNull();
+  });
+});
+
+describe("shouldRelocateSession", () => {
+  test("live path differs from resolved cwd → true", () => {
+    expect(shouldRelocateSession("/a", "/b")).toBe(true);
+  });
+  test("paths match → false", () => {
+    expect(shouldRelocateSession("/a", "/a")).toBe(false);
+  });
+  test("null live path → false", () => {
+    expect(shouldRelocateSession(null, "/a")).toBe(false);
+  });
+});
+
+describe("relocateIfPinned", () => {
+  test("kills the session when the live path differs from the resolved cwd", async () => {
+    const killed: string[] = [];
+    await relocateIfPinned("orden-s1", "/resolved/cwd", {
+      sessionPath: () => Promise.resolve("/other/dir"),
+      kill: (n) => {
+        killed.push(n);
+        return Promise.resolve();
+      },
+    });
+    expect(killed).toEqual(["orden-s1"]);
+  });
+
+  test("does not kill when the live path matches the resolved cwd", async () => {
+    const killed: string[] = [];
+    await relocateIfPinned("orden-s1", "/resolved/cwd", {
+      sessionPath: () => Promise.resolve("/resolved/cwd"),
+      kill: (n) => {
+        killed.push(n);
+        return Promise.resolve();
+      },
+    });
+    expect(killed).toEqual([]);
   });
 });
 
