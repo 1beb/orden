@@ -89,6 +89,7 @@ import { mountAnnotator } from "./annotator-ui";
 import { buildFeedbackPayload, type FeedbackItem } from "./feedback";
 import { openPreview } from "./preview";
 import { createViewStore, type View } from "./viewState";
+import { makeViewToggler } from "./viewToggler";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
@@ -1663,49 +1664,35 @@ tzSelect.addEventListener("change", () => {
   void saveSettings({ timeZone: tzSelect.value });
   journal.refresh();
 });
-// Settings now lives as a main-panel view. The cog toggles it: opening it
-// remembers the view you came from so the ✕ (and Escape) return you there.
-let preSettingsView: View = viewStore.get();
-function toggleSettings(): void {
-  if (viewStore.get() === "settings") {
-    viewStore.set(preSettingsView);
-  } else {
-    preSettingsView = viewStore.get();
-    viewStore.set("settings");
-  }
-}
+// Settings and Help are overlay views: opening remembers where you came from so
+// the ✕ (and Escape) return you there. The makeViewToggler seam owns that
+// remember-then-restore state machine (apps/web/src/viewToggler.ts); the wiring
+// below differs per overlay, so it stays here.
+const settingsToggler = makeViewToggler(viewStore, "settings");
 settingsCog.addEventListener("click", (e) => {
   e.stopPropagation();
-  toggleSettings();
+  settingsToggler.toggle();
 });
-onAction("settings.toggle", toggleSettings);
+onAction("settings.toggle", () => settingsToggler.toggle());
 document.querySelector<HTMLElement>("#settings-close")?.addEventListener("click", () => {
-  viewStore.set(preSettingsView);
+  settingsToggler.close();
 });
 
-// Help (?): the keyboard-shortcuts view. Same open/close shape as settings —
-// the footer button and chord toggle it, ✕ and Escape return to the prior view.
+// Help (?): the keyboard-shortcuts view. The footer button and chord toggle it.
 const helpBtn = document.querySelector<HTMLElement>("#help-btn")!;
-let preHelpView: View = viewStore.get();
-function toggleHelp(): void {
-  if (viewStore.get() === "help") {
-    viewStore.set(preHelpView);
-  } else {
-    preHelpView = viewStore.get();
-    viewStore.set("help");
-  }
-}
-helpBtn.addEventListener("click", toggleHelp);
-onAction("help.toggle", toggleHelp);
+const helpToggler = makeViewToggler(viewStore, "help");
+helpBtn.addEventListener("click", () => helpToggler.toggle());
+onAction("help.toggle", () => helpToggler.toggle());
 // The ✕ is re-created on every renderHelp, so delegate from the view section.
 viewEls.help.addEventListener("click", (e) => {
-  if ((e.target as HTMLElement).id === "help-close") viewStore.set(preHelpView);
+  if ((e.target as HTMLElement).id === "help-close") helpToggler.close();
 });
 
+// Escape closes whichever overlay is open; close() is a no-op on the others.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (viewStore.get() === "settings") viewStore.set(preSettingsView);
-  else if (viewStore.get() === "help") viewStore.set(preHelpView);
+  settingsToggler.close();
+  helpToggler.close();
 });
 
 // On a project page, a bare "c" (create) jumps focus to the add-item box — the
@@ -2304,7 +2291,7 @@ const paletteCommands: Command[] = [
   { id: "toggle-nav", title: "Toggle navigation pane", run: () => toggleLeft() },
   { id: "toggle-session", title: "Toggle session pane", run: () => toggleRight() },
   { id: "focus-mode", title: "Focus mode", run: () => toggleFocusMode() },
-  { id: "open-help", title: "Keyboard shortcuts", run: () => toggleHelp() },
+  { id: "open-help", title: "Keyboard shortcuts", run: () => helpToggler.toggle() },
   { id: "view-journal", title: "Go to Journal", run: () => { journal.showJournal(); viewStore.set("journal"); } },
   { id: "view-pages", title: "Go to Pages", run: () => viewStore.set("pages") },
   { id: "view-kanban", title: "Go to Kanban", run: () => viewStore.set("kanban") },

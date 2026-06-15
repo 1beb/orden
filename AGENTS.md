@@ -85,9 +85,12 @@ Vault-change reactions register per namespace on the **vault-change router**
 namespaces (presence, locks, org) are new registrations. Settings controls wire
 through the binders in `apps/web/src/settingsBindings.ts`
 (`bindCheckbox`/`bindSelect`/`bindRadios`), not hand-rolled query+listener blocks.
-Overlay views that return to the prior view (settings, help) remember the view
-they came from (`preSettingsView` / `preHelpView` in `main.ts`) and restore it on
-close — not yet a registered seam.
+Overlay views that return to the prior view (settings, help) are built on
+`makeViewToggler` (`apps/web/src/viewToggler.ts`) — one call per overlay owns the
+remember-prior-view → open and close → restore state machine; Escape closes
+whichever is open (`close()` no-ops on the rest). The per-overlay DOM wiring
+(the cog's `stopPropagation`, Help's delegated re-rendered ✕) stays at the call
+site, so a new overlay is one `makeViewToggler` call plus its button wiring.
 
 Entity terms: **project** (a working dir, owns sessions), **session** (one agent run,
 has a lifecycle state, hosted by a tmux/pty process), **card** (a session's projection

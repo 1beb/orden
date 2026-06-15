@@ -100,7 +100,8 @@ code in line with it.
 
 ## Follow-ups
 
-- `AGENTS.md` still references a `makeViewToggler` for overlay views (settings,
-  help) that does not exist — the return-to-prior-view logic is inline
-  (`preSettingsView` / `preHelpView`) in `main.ts`. Either extract it as a fourth
-  overlay-view seam or correct the doc; tracked separately from this ADR.
+- DONE: `makeViewToggler` is now the fourth overlay-view seam
+  (`apps/web/src/viewToggler.ts`, tested in `viewToggler.test.ts`). It owns the
+  remember-prior-view → open and close → restore state machine; Settings and Help
+  are rebuilt on it and the inline `preSettingsView` / `preHelpView` blocks are
+  gone. `AGENTS.md`'s overlay-views sentence now describes the real helper.
