@@ -2556,11 +2556,45 @@ li.sess-done-head {
   cursor: default;
 }
 
+/* Icon-only Copy: a compact square that swaps the copy glyph for a checkmark
+   while the .copied class is set (see the click handler in main.ts). */
+.panel-copy.icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px;
+  color: var(--muted);
+}
+.panel-copy.icon-only .i-check {
+  display: none;
+}
+.panel-copy.icon-only.copied {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.panel-copy.icon-only.copied .i-copy {
+  display: none;
+}
+.panel-copy.icon-only.copied .i-check {
+  display: inline;
+}
+
 #annotation-list {
   list-style: none;
   margin: 0;
   padding: 8px;
   overflow-y: auto;
+}
+
+/* Desktop side rail: the list fills the space under its header and scrolls on its
+   own once the annotations outgrow it — without min-height:0 a flex child keeps
+   min-height:auto, refuses to shrink below its content, and spills past the panel
+   (clipped by #center) instead of scrolling. The outline above keeps its capped
+   height, so a long annotation list never pushes it off-screen. The bottom-sheet
+   layout scrolls outline + annotations together, so it's deliberately excluded. */
+#view-area:not(.panel-sheet) #annotation-list {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 #annotation-list li {
@@ -2935,6 +2969,18 @@ li.sess-done-head {
 /* Keep the end of the document reachable above the pinned sheet header. */
 #view-area.panel-sheet #editor {
   padding-bottom: 72px;
+}
+/* On desktop the sheet only triggers when the session pane squeezes the center
+   below the threshold. The base rule pins it left:0/right:0 (correct for a phone
+   where the document IS the whole width), but on desktop that would stretch the
+   sheet across the full window — under the nav and *behind* the session pane that
+   caused it. Confine it to the document column via the grid edge vars instead, so
+   it stays a panel beside the session pane rather than a full-window takeover. */
+@media (min-width: 861px) {
+  #view-area.panel-sheet #panel {
+    left: var(--left);
+    right: var(--right);
+  }
 }
 
 /* ============================================================
