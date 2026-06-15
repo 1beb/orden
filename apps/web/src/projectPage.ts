@@ -876,6 +876,10 @@ function itemsWidget(
       },
       onStartSession,
       onOpenSession,
+      // State is conveyed by the group headers and the project is fixed on a
+      // project page, so the inline pickers are dropped — both stay editable on
+      // the card (its title opens the card modal).
+      showMeta: false,
     });
   };
 

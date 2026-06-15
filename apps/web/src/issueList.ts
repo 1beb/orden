@@ -1,7 +1,10 @@
 // The grouped issue-list view: items bucketed by state into furl-able groups,
-// each row a leading session control + title + state/project pickers. Shared by
-// the project page's "Items by state" widget and the kanban board's list view so
-// the two stay visually and behaviorally identical (same markup, same classes).
+// each row a leading session control + title, and (kanban list view only)
+// inline state/project pickers. Shared by the project page's "Items by state"
+// widget and the kanban board's list view so the two stay visually and
+// behaviorally aligned (same markup, same classes); the project page opts out
+// of the inline pickers via showMeta:false (state lives in the headers, the
+// project is fixed, and both are editable on the card modal).
 
 import type { CardState } from "@orden/outliner";
 import { setItemState, setItemProject, cardSessionIds, type Item } from "./cards";
@@ -30,6 +33,11 @@ export interface IssueGroupDeps {
   onMutate: () => void;
   onStartSession?: (item: Item, agent: Agent) => void;
   onOpenSession?: (id: string) => void;
+  // Show the per-row inline state + project pickers. Default true (the kanban
+  // list view). The project page passes false: state is already conveyed by the
+  // group headers and every row shares the page's project, so changing either
+  // belongs on the card (the title opens the card modal, which owns both).
+  showMeta?: boolean;
 }
 
 // A leading control for an item row. If the item has linked session(s), render
@@ -102,43 +110,49 @@ export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueG
           onChange: deps.onMutate,
         });
       });
-      const select = document.createElement("select");
-      select.className = "issue-state";
-      for (const s of deps.states) {
-        const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = STATE_LABELS[s];
-        opt.selected = s === item.state;
-        select.append(opt);
+      row.append(lead, title);
+      // Inline state + project pickers — kanban list view only. The project page
+      // (showMeta === false) drops them: state shows in the group headers, the
+      // project is fixed, and both are editable on the card via its modal.
+      if (deps.showMeta !== false) {
+        const select = document.createElement("select");
+        select.className = "issue-state";
+        for (const s of deps.states) {
+          const opt = document.createElement("option");
+          opt.value = s;
+          opt.textContent = STATE_LABELS[s];
+          opt.selected = s === item.state;
+          select.append(opt);
+        }
+        select.addEventListener("change", () => {
+          setItemState(item.id, select.value as CardState);
+          deps.onMutate();
+        });
+        // Move the card to another project (it then leaves this list).
+        const projSel = document.createElement("select");
+        projSel.className = "issue-project";
+        projSel.title = "Project";
+        for (const p of listProjects()) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          opt.selected = p.id === item.projectId;
+          projSel.append(opt);
+        }
+        projSel.addEventListener("change", () => {
+          setItemProject(item.id, projSel.value);
+          // Move the linked sessions too, so they follow the card instead of
+          // stranding under its old project.
+          for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
+          deps.onMutate();
+        });
+        // Status + project pickers ride in their own cluster so they sit at the
+        // row's right on desktop but drop onto a line under the title on mobile.
+        const meta = document.createElement("div");
+        meta.className = "issue-row-meta";
+        meta.append(select, projSel);
+        row.append(meta);
       }
-      select.addEventListener("change", () => {
-        setItemState(item.id, select.value as CardState);
-        deps.onMutate();
-      });
-      // Move the card to another project (it then leaves this list).
-      const projSel = document.createElement("select");
-      projSel.className = "issue-project";
-      projSel.title = "Project";
-      for (const p of listProjects()) {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        opt.textContent = p.name;
-        opt.selected = p.id === item.projectId;
-        projSel.append(opt);
-      }
-      projSel.addEventListener("change", () => {
-        setItemProject(item.id, projSel.value);
-        // Move the linked sessions too, so they follow the card instead of
-        // stranding under its old project.
-        for (const sid of cardSessionIds(item)) setSessionProject(sid, projSel.value);
-        deps.onMutate();
-      });
-      // Status + project pickers ride in their own cluster so they sit at the
-      // row's right on desktop but drop onto a line under the title on mobile.
-      const meta = document.createElement("div");
-      meta.className = "issue-row-meta";
-      meta.append(select, projSel);
-      row.append(lead, title, meta);
       details.append(row);
     }
     list.append(details);
