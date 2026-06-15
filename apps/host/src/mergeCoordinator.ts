@@ -1,0 +1,270 @@
+// The merge coordinator: a host-side, autonomous integration loop. Completed
+// session branches enqueue into the `merge-queue` vault namespace; drain() pulls
+// them serially onto ONE integration worktree (Bors / Not-Rocket-Science Rule),
+// resolving implementation conflicts with intent context and escalating only
+// genuine intent collisions or unverifiable resolutions.
+//
+// Everything that touches a repo, a build, or an agent is injected (CoordinatorGit
+// / ResolverRunner / gate / plan / terminalStep) so the loop is fully unit-tested
+// without real git, agents, or builds. See
+// docs/plans/2026-06-15-merge-coordinator-design.md.
+
+import type { VaultStore, Project } from "@orden/host-api";
+import type { CardRec } from "@orden/mcp";
+import {
+  MERGE_QUEUE_NS,
+  type MergeQueueEntry,
+  type IntegrationBlock,
+} from "./mergeTypes";
+import {
+  INTEGRATION_BRANCH,
+  type IntegrationHandle,
+  type IntegrationInput,
+  type MergePreview,
+} from "./integrationBranch";
+
+// --- Resolver seam -----------------------------------------------------------
+
+export interface IntentRef {
+  cardId: string;
+  branch: string;
+  title?: string;
+  planDoc?: string;
+  description?: string;
+}
+
+export interface ResolverInput {
+  integrationWorkdir: string;
+  incoming: IntentRef;
+  /** Already-integrated siblings whose hunks the incoming branch collides with (1..N). */
+  contributors: IntentRef[];
+  conflictFiles: string[];
+}
+
+export type ResolverOutcome =
+  | { kind: "resolved" } // committed a reconciliation in the integration worktree
+  | { kind: "intent-conflict"; question: string; options: string[] }
+  | { kind: "unverifiable"; question: string };
+
+export type ResolverRunner = (input: ResolverInput) => Promise<ResolverOutcome>;
+
+// --- Injected surfaces -------------------------------------------------------
+
+export interface CoordinatorGit {
+  ensureIntegrationWorktree(input: IntegrationInput): Promise<IntegrationHandle>;
+  previewMerge(cwd: string, into: string, incoming: string): Promise<MergePreview>;
+  applyClean(cwd: string, incoming: string, message: string): Promise<string>;
+  resetIntegration(cwd: string, priorTip: string): Promise<void>;
+  currentTip(cwd: string): Promise<string>;
+  changedFiles(cwd: string, base: string, branch: string): Promise<string[]>;
+}
+
+export interface DrainPlan {
+  repo: string;
+  integrationRoot: string;
+  base: string;
+  verify: string;
+  mode: "fast" | "measured";
+  project: Project | null;
+}
+
+export interface TerminalContext {
+  handle: IntegrationHandle;
+  projectId: string;
+  mode: "fast" | "measured";
+  mergedCardIds: string[];
+}
+
+export interface CoordinatorDeps {
+  vault: VaultStore;
+  git: CoordinatorGit;
+  resolver: ResolverRunner;
+  gate: (cwd: string, command: string) => Promise<{ green: boolean; output: string }>;
+  /** Resolve per-project paths + integration settings. */
+  plan: (projectId: string) => Promise<DrainPlan>;
+  /** The mode-specific terminal step (ff-merge+rebuild / push+PR). Stubbed in tests. */
+  terminalStep: (ctx: TerminalContext) => Promise<void>;
+}
+
+// --- Queue read/write --------------------------------------------------------
+
+const uniq = (xs: string[]): string[] => [...new Set(xs)];
+
+const intentOf = (card: CardRec | null, branch: string, cardId: string): IntentRef => ({
+  cardId,
+  branch,
+  title: card?.title,
+  planDoc: card?.planDoc,
+  description: card?.description,
+});
+
+// Enqueue a completed card for integration. Idempotent (one entry per card) and
+// a no-op for a card with nothing to integrate (no branch published).
+export async function enqueueOnComplete(vault: VaultStore, cardId: string): Promise<void> {
+  const card = await vault.get<CardRec>("cards", cardId);
+  if (!card || card.state !== "complete" || !card.branch) return;
+  const existing = await vault.get<MergeQueueEntry>(MERGE_QUEUE_NS, cardId);
+  if (existing) return;
+  const entry: MergeQueueEntry = {
+    cardId,
+    projectId: card.projectId ?? "",
+    branch: card.branch,
+    enqueuedAt: card.completedAt ?? 0,
+    status: "queued",
+  };
+  await vault.set(MERGE_QUEUE_NS, cardId, entry);
+}
+
+// All still-queued entries for a project, FIFO by enqueuedAt (completion order).
+export async function readReadyQueue(
+  vault: VaultStore,
+  projectId: string,
+): Promise<MergeQueueEntry[]> {
+  const keys = await vault.list(MERGE_QUEUE_NS);
+  const entries = await Promise.all(keys.map((k) => vault.get<MergeQueueEntry>(MERGE_QUEUE_NS, k)));
+  return entries
+    .filter((e): e is MergeQueueEntry => !!e && e.status === "queued" && e.projectId === projectId)
+    .sort((a, b) => a.enqueuedAt - b.enqueuedAt);
+}
+
+async function setEntry(
+  vault: VaultStore,
+  entry: MergeQueueEntry,
+  patch: Partial<MergeQueueEntry>,
+): Promise<void> {
+  await vault.set(MERGE_QUEUE_NS, entry.cardId, { ...entry, ...patch });
+}
+
+async function loadIntents(vault: VaultStore, byBranch: Map<string, string>): Promise<IntentRef[]> {
+  const out: IntentRef[] = [];
+  for (const [cardId, branch] of byBranch) {
+    const card = await vault.get<CardRec>("cards", cardId);
+    out.push(intentOf(card, branch, cardId));
+  }
+  return out;
+}
+
+// --- Escalation --------------------------------------------------------------
+
+async function escalate(
+  vault: VaultStore,
+  cardId: string,
+  block: IntegrationBlock,
+  mergeStatus: "blocked-intent" | "blocked-unverifiable",
+): Promise<void> {
+  const card = await vault.get<CardRec>("cards", cardId);
+  if (!card) return;
+  await vault.set("cards", cardId, {
+    ...card,
+    state: "blocked",
+    mergeStatus,
+    integrationBlock: block,
+  });
+}
+
+// --- The drain loop ----------------------------------------------------------
+
+export async function drain(deps: CoordinatorDeps, projectId: string): Promise<void> {
+  const plan = await deps.plan(projectId);
+  const handle = await deps.git.ensureIntegrationWorktree({
+    repo: plan.repo,
+    integrationRoot: plan.integrationRoot,
+    base: plan.base,
+  });
+
+  let tip = handle.tip;
+  // file path -> [cardId,...] for every branch already applied this drain, so a
+  // later conflict can be attributed to the sibling(s) that own the hunks.
+  const fileOwners = new Map<string, string[]>();
+  const branchOf = new Map<string, string>(); // cardId -> branch, for contributor intent
+  const merged: string[] = [];
+
+  for (const entry of await readReadyQueue(deps.vault, projectId)) {
+    await setEntry(deps.vault, entry, { status: "merging" });
+    const priorTip = tip;
+    const card = await deps.vault.get<CardRec>("cards", entry.cardId);
+    const preview = await deps.git.previewMerge(handle.workdir, INTEGRATION_BRANCH, entry.branch);
+
+    if (preview.clean) {
+      tip = await deps.git.applyClean(handle.workdir, entry.branch, `merge ${entry.cardId}`);
+    } else {
+      const contributorIds = uniq(preview.conflictFiles.flatMap((f) => fileOwners.get(f) ?? []));
+      const contributors = await loadIntents(
+        deps.vault,
+        new Map(contributorIds.map((id) => [id, branchOf.get(id) ?? ""])),
+      );
+      const outcome = await deps.resolver({
+        integrationWorkdir: handle.workdir,
+        incoming: intentOf(card, entry.branch, entry.cardId),
+        contributors,
+        conflictFiles: preview.conflictFiles,
+      });
+      if (outcome.kind === "intent-conflict") {
+        await escalate(
+          deps.vault,
+          entry.cardId,
+          {
+            kind: "intent",
+            question: outcome.question,
+            options: outcome.options,
+            otherCardIds: contributorIds,
+          },
+          "blocked-intent",
+        );
+        await setEntry(deps.vault, entry, { status: "escalated", result: "intent-conflict" });
+        await deps.git.resetIntegration(handle.workdir, priorTip);
+        continue;
+      }
+      if (outcome.kind === "unverifiable") {
+        await escalate(
+          deps.vault,
+          entry.cardId,
+          { kind: "unverifiable", question: outcome.question },
+          "blocked-unverifiable",
+        );
+        await setEntry(deps.vault, entry, { status: "escalated", result: "unverifiable" });
+        await deps.git.resetIntegration(handle.workdir, priorTip);
+        continue;
+      }
+      // resolved: the resolver agent committed its reconciliation in the worktree
+      tip = await deps.git.currentTip(handle.workdir);
+    }
+
+    // Gate the combined state after each apply so the culprit is identifiable.
+    const gate = await deps.gate(handle.workdir, plan.verify);
+    if (!gate.green) {
+      await escalate(
+        deps.vault,
+        entry.cardId,
+        {
+          kind: "unverifiable",
+          question: "The combined build/test gate failed and could not be auto-fixed.",
+        },
+        "blocked-unverifiable",
+      );
+      await setEntry(deps.vault, entry, { status: "escalated", result: "unverifiable", error: gate.output.slice(0, 2000) });
+      await deps.git.resetIntegration(handle.workdir, priorTip);
+      tip = priorTip;
+      continue;
+    }
+
+    // Green: this branch is in. Record attribution and mark the card merged.
+    for (const f of await deps.git.changedFiles(handle.workdir, plan.base, entry.branch)) {
+      fileOwners.set(f, [...(fileOwners.get(f) ?? []), entry.cardId]);
+    }
+    branchOf.set(entry.cardId, entry.branch);
+    merged.push(entry.cardId);
+    await setEntry(deps.vault, entry, {
+      status: "merged",
+      result: preview.clean ? "clean" : "resolved",
+      integrationTip: tip,
+    });
+    if (card) {
+      await deps.vault.set("cards", entry.cardId, { ...card, mergeStatus: "merged", mergedAt: entry.enqueuedAt });
+    }
+  }
+
+  if (merged.length > 0) {
+    await deps.terminalStep({ handle, projectId, mode: plan.mode, mergedCardIds: merged });
+  }
+}

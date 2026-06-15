@@ -31,6 +31,7 @@ export interface IntegrationBlock {
 // One row per integration attempt for a completed card.
 export interface MergeQueueEntry {
   cardId: string;
+  projectId: string;
   branch: string;
   /** = card.completedAt; the FIFO ordering key. */
   enqueuedAt: number;
