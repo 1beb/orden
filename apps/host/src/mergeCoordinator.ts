@@ -73,6 +73,7 @@ export interface TerminalContext {
   projectId: string;
   mode: "fast" | "measured";
   mergedCardIds: string[];
+  plan: DrainPlan;
 }
 
 export interface CoordinatorDeps {
@@ -265,6 +266,6 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
   }
 
   if (merged.length > 0) {
-    await deps.terminalStep({ handle, projectId, mode: plan.mode, mergedCardIds: merged });
+    await deps.terminalStep({ handle, projectId, mode: plan.mode, mergedCardIds: merged, plan });
   }
 }
