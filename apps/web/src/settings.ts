@@ -29,12 +29,16 @@ export interface Settings {
   worktreeAutoTrust: boolean; // pre-accept claude's workspace-trust dialog for new worktrees (when the repo is trusted)
   worktreeBaseRef: string; // session branch base ref; "" = the repo's default branch (origin/HEAD)
   prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
+  integrationMode: IntegrationMode; // how the merge coordinator integrates a green combined state
   learningPrompt: string; // system prompt given to agents for proposing learnings on completion
 }
+
+export type IntegrationMode = "fast" | "measured";
 
 const STARTUP_VIEWS: readonly StartupView[] = ["journal", "kanban", "last"];
 const KANBAN_VIEWS: readonly KanbanView[] = ["board", "list"];
 const PR_FORGES: readonly PrForge[] = ["auto", "gh", "glab", "none"];
+const INTEGRATION_MODES: readonly IntegrationMode[] = ["fast", "measured"];
 const FONT_IDS = FONT_OPTIONS.map((f) => f.id);
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 24;
@@ -93,6 +97,7 @@ const DEFAULT_SETTINGS: Settings = {
   worktreeAutoTrust: true,
   worktreeBaseRef: "",
   prForge: "auto",
+  integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
 };
 
@@ -173,6 +178,9 @@ export function coerce(stored: unknown): Settings {
     prForge: (PR_FORGES as readonly string[]).includes(s.prForge as string)
       ? (s.prForge as PrForge)
       : DEFAULT_SETTINGS.prForge,
+    integrationMode: (INTEGRATION_MODES as readonly string[]).includes(s.integrationMode as string)
+      ? (s.integrationMode as IntegrationMode)
+      : DEFAULT_SETTINGS.integrationMode,
     learningPrompt:
       typeof s.learningPrompt === "string" && s.learningPrompt.length > 0
         ? s.learningPrompt

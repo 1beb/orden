@@ -35,6 +35,9 @@ export interface Project {
   // worktreeIsolation: per-project override of the global "isolate sessions in
   // git worktrees" setting. Absent = inherit; true/false force it on/off here.
   worktreeIsolation?: boolean;
+  // integrationMode: per-project override of the global merge-coordinator mode.
+  // Absent = inherit; "fast"/"measured" force it for this project.
+  integrationMode?: "fast" | "measured";
 }
 
 let host: Host | null = null;
@@ -119,6 +122,8 @@ export function updateProject(
     showCompleted?: boolean;
     // true/false force the override; null clears it back to inherit.
     worktreeIsolation?: boolean | null;
+    // "fast"/"measured" force the override; null clears it back to inherit.
+    integrationMode?: "fast" | "measured" | null;
   },
 ): void {
   const project = cache.find((p) => p.id === id);
@@ -139,6 +144,10 @@ export function updateProject(
   if (patch.worktreeIsolation !== undefined) {
     if (patch.worktreeIsolation === null) delete project.worktreeIsolation;
     else project.worktreeIsolation = patch.worktreeIsolation;
+  }
+  if (patch.integrationMode !== undefined) {
+    if (patch.integrationMode === null) delete project.integrationMode;
+    else project.integrationMode = patch.integrationMode;
   }
   if (patch.showCompleted !== undefined) {
     // Default is false, so store only the truthy case and drop the field

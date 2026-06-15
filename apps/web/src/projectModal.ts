@@ -191,6 +191,28 @@ export function openProjectModal(opts: ProjectModalOptions): void {
       "Whether sessions of this project run in their own git worktree.",
     ),
   );
+
+  // Per-project override of the global merge-coordinator integration mode.
+  const intSel = document.createElement("select");
+  intSel.className = "project-modal__input";
+  for (const [value, label] of [
+    ["", "Inherit global setting"],
+    ["fast", "Fast — merge to main + rebuild"],
+    ["measured", "Measured — push + open a PR"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    opt.selected = (editing?.integrationMode ?? "") === value;
+    intSel.append(opt);
+  }
+  advanced.append(
+    field(
+      "Integration mode",
+      intSel,
+      "How completed sessions of this project are integrated onto trunk.",
+    ),
+  );
   form.append(advanced);
 
   // --- Validation message ---
@@ -236,6 +258,8 @@ export function openProjectModal(opts: ProjectModalOptions): void {
     const defaultAgent = (agentSel.value || null) as Agent | null;
     const workingDir = wdInput.value.trim() || null;
     const worktreeIsolation = isoSel.value === "" ? null : isoSel.value === "on";
+    const integrationMode =
+      intSel.value === "" ? null : (intSel.value as "fast" | "measured");
 
     let saved: Project;
     if (opts.mode === "create") {
@@ -245,6 +269,7 @@ export function openProjectModal(opts: ProjectModalOptions): void {
         { defaultAgent: defaultAgent ?? undefined, workingDir: workingDir ?? undefined },
       );
       if (worktreeIsolation !== null) updateProject(saved.id, { worktreeIsolation });
+      if (integrationMode !== null) updateProject(saved.id, { integrationMode });
     } else {
       const id = editing!.id;
       updateProject(id, {
@@ -253,6 +278,7 @@ export function openProjectModal(opts: ProjectModalOptions): void {
         defaultAgent,
         workingDir,
         worktreeIsolation,
+        integrationMode,
       });
       saved = editing!;
     }
