@@ -20,8 +20,15 @@ export type ConnectFn = () => Promise<OpencodeConnection>;
 
 // Default connection: spawn an opencode server and return its client. `close`
 // shuts the server down (the client has no separate lifecycle).
+//
+// port: 0 asks the OS for a free ephemeral port instead of the SDK's hardcoded
+// default of 4096. Each mirrored opencode session spawns its OWN server, and the
+// user's own `opencode` already holds 4096 — so the fixed default collided (the
+// second spawn fails to bind and the connect throws). The SDK reads the actual
+// bound URL back from the server's "listening on …" line, so an ephemeral port
+// is transparent to the client.
 export async function defaultConnect(): Promise<OpencodeConnection> {
-  const { client, server } = await createOpencode();
+  const { client, server } = await createOpencode({ port: 0 });
   return { client, close: () => server.close() };
 }
 

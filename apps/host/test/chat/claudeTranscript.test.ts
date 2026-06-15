@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseClaudeTranscript } from "../../src/chat/claudeTranscript";
+import {
+  newTranscriptParseState,
+  parseClaudeTranscript,
+  parseTranscriptInto,
+} from "../../src/chat/claudeTranscript";
 
 // One JSONL line per entry, shaped like a real ~/.claude/projects/<cwd>/<id>.jsonl.
 const jsonl = (...entries: unknown[]) => entries.map((e) => JSON.stringify(e)).join("\n");
@@ -130,5 +134,41 @@ describe("parseClaudeTranscript", () => {
     ].join("\n");
     const msgs = parseClaudeTranscript(raw);
     expect(msgs).toEqual([{ id: "u1", role: "user", parts: [{ type: "text", text: "real prompt" }] }]);
+  });
+});
+
+describe("parseTranscriptInto (incremental)", () => {
+  // The incremental mirror feeds the file in appended chunks; the result must be
+  // byte-for-byte identical to parsing it whole — including a tool_result that
+  // lands in a LATER chunk flipping a tool_use parsed in an earlier one.
+  it("chunked parsing equals whole parsing, across a cross-chunk tool_result", () => {
+    const lines = [
+      { type: "user", uuid: "u1", message: { role: "user", content: "run it" } },
+      {
+        type: "assistant",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }],
+        },
+      },
+      {
+        type: "user",
+        uuid: "u2",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+      },
+      { type: "assistant", message: { id: "a2", role: "assistant", content: [{ type: "text", text: "done" }] } },
+    ].map((e) => `${JSON.stringify(e)}\n`);
+
+    const whole = parseClaudeTranscript(lines.join(""));
+
+    // Feed one line per chunk — the tool_result (line 3) flips t1's state even
+    // though t1 was parsed in an earlier chunk, because toolIndex persists.
+    const state = newTranscriptParseState();
+    for (const line of lines) parseTranscriptInto(state, line);
+
+    expect(state.messages).toEqual(whole);
+    const tool = state.messages[1].parts[0];
+    expect(tool).toMatchObject({ type: "tool", toolId: "t1", state: "done", output: "ok" });
   });
 });

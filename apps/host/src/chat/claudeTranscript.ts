@@ -75,12 +75,35 @@ function stringifyToolContent(content: unknown): string {
   return JSON.stringify(content);
 }
 
-export function parseClaudeTranscript(raw: string): ChatMessage[] {
-  const messages: ChatMessage[] = [];
+// Accumulated parse state, so a transcript can be parsed INCREMENTALLY: feed it
+// the appended chunk each time the file grows (see TranscriptMirror) instead of
+// re-reading + re-parsing the whole JSONL on every change. `toolIndex` persists
+// across chunks so a tool_result arriving in a later chunk still flips the state
+// of a tool_use parsed in an earlier one — chunked parsing yields the exact same
+// `messages` as parsing the file whole.
+export interface TranscriptParseState {
+  messages: ChatMessage[];
   // toolId -> where its tool part lives, so a later tool_result flips its state.
-  const toolIndex = new Map<string, { mi: number; pi: number }>();
+  toolIndex: Map<string, { mi: number; pi: number }>;
+}
 
-  for (const line of raw.split("\n")) {
+export function newTranscriptParseState(): TranscriptParseState {
+  return { messages: [], toolIndex: new Map() };
+}
+
+export function parseClaudeTranscript(raw: string): ChatMessage[] {
+  const state = newTranscriptParseState();
+  parseTranscriptInto(state, raw);
+  return state.messages;
+}
+
+// Parse one or more complete JSONL lines and APPEND the results into `state`.
+// `text` must contain only whole lines (the caller withholds a partial trailing
+// line until its terminating newline arrives).
+export function parseTranscriptInto(state: TranscriptParseState, text: string): void {
+  const { messages, toolIndex } = state;
+
+  for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let e: RawEntry;
@@ -161,5 +184,4 @@ export function parseClaudeTranscript(raw: string): ChatMessage[] {
       }
     }
   }
-  return messages;
 }

@@ -8,13 +8,17 @@
 // `msg:<seq>` key shape the engine uses, so the existing chat store/view render
 // them live via the change feed. We watch the PARENT directory (not the file)
 // because the file may not exist until the session's first turn.
-import { readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { ChatMessage, ChatVault } from "@orden/chat-core";
 import { encodeCwd } from "../transcriptTitle";
-import { parseClaudeTranscript } from "./claudeTranscript";
+import {
+  newTranscriptParseState,
+  parseTranscriptInto,
+  type TranscriptParseState,
+} from "./claudeTranscript";
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
@@ -32,8 +36,16 @@ export class TranscriptMirror {
   // messages that actually changed rather than the whole transcript each tick.
   private written = new Map<string, string>();
   private count = 0;
-  // Prune orphaned vault keys once per process. See refresh().
+  // Prune orphaned vault keys once per process. See flush().
   private pruned = false;
+  // Incremental parse state: claude only APPENDS to the JSONL, so each tick we
+  // read just the bytes past `offset` and feed them to `parseState` rather than
+  // re-reading + re-parsing the whole file (a long live turn fires the watcher
+  // every ~150ms; full re-parse pegged a core). `pending` carries a partial
+  // trailing line — one written mid-append — until its newline arrives.
+  private parseState: TranscriptParseState = newTranscriptParseState();
+  private offset = 0;
+  private pending: Buffer = Buffer.alloc(0);
 
   constructor(
     private readonly vault: ChatVault,
@@ -71,13 +83,53 @@ export class TranscriptMirror {
   }
 
   private async refresh(): Promise<void> {
-    let raw: string;
+    let fd: number;
     try {
-      raw = readFileSync(this.file, "utf8");
+      fd = openSync(this.file, "r");
     } catch {
       return; // file not there yet
     }
-    const messages = parseClaudeTranscript(raw);
+    try {
+      const size = fstatSync(fd).size;
+      if (size < this.offset) {
+        // The file shrank — a rotated/rewritten transcript reusing this path.
+        // Our absolute-seq state is no longer valid; restart from the top.
+        this.resetParse();
+      }
+      if (size === this.offset && this.pending.length === 0) {
+        return; // no new bytes (spurious watch tick) — nothing to parse or write
+      }
+      if (size > this.offset) {
+        const buf = Buffer.allocUnsafe(size - this.offset);
+        const n = readSync(fd, buf, 0, buf.length, this.offset);
+        this.offset += n;
+        this.pending = this.pending.length ? Buffer.concat([this.pending, buf.subarray(0, n)]) : buf.subarray(0, n);
+      }
+    } finally {
+      closeSync(fd);
+    }
+    // Parse only up to the last newline; the remainder is a line claude is still
+    // writing, withheld until its newline lands. A newline byte never appears
+    // inside a UTF-8 multibyte sequence, so slicing on it is character-safe.
+    const lastNl = this.pending.lastIndexOf(0x0a);
+    if (lastNl < 0) return; // no complete line yet
+    const completeText = this.pending.subarray(0, lastNl + 1).toString("utf8");
+    this.pending = this.pending.subarray(lastNl + 1);
+    parseTranscriptInto(this.parseState, completeText);
+    await this.flush();
+  }
+
+  private resetParse(): void {
+    this.parseState = newTranscriptParseState();
+    this.offset = 0;
+    this.pending = Buffer.alloc(0);
+    this.written.clear();
+    this.pruned = false;
+  }
+
+  // Write the WINDOW tail of the accumulated messages, skipping unchanged keys.
+  private async flush(): Promise<void> {
+    const messages = this.parseState.messages;
     // Absolute seq (index in the full transcript) so appended turns get stable,
     // ever-increasing keys; only write the last WINDOW so first load is bounded.
     const start = Math.max(0, messages.length - WINDOW);
