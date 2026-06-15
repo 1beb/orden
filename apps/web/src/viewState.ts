@@ -8,6 +8,7 @@ export type View =
   | "pages"
   | "projects"
   | "project"
+  | "project-settings"
   | "settings"
   | "learnings"
   | "help";

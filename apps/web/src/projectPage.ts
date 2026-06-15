@@ -11,19 +11,13 @@ import {
 import {
   getProject,
   updateProject,
-  DEFAULT_PROJECT_ID,
   type Project,
 } from "./projects";
 import { agentLauncher } from "./agentMarks";
 import { splitThought, type ThoughtSplit } from "./thoughtSplit";
 import { openNewCardModal } from "./newCardModal";
 import { loadSettings } from "./settings";
-import {
-  listSessions,
-  type Agent,
-} from "./sessions";
-import { openDialog } from "./modal";
-import { openProjectModal } from "./projectModal";
+import { type Agent } from "./sessions";
 import { renderIssueGroups } from "./issueList";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
@@ -92,13 +86,10 @@ export function renderProjectPage(
   // receiving one global repo array. Required: the Files widget is its whole
   // reason to exist and the sole caller always passes it.
   listFiles: (projectId: string) => Promise<FileEntry[]>,
-  // Called after an in-place edit (rename / re-path) so the caller can refresh
-  // the sidebar list and the view title to match.
-  onProjectChanged?: () => void,
-  // Remove the project. `mode` decides what happens to its cards/sessions:
-  // "reassign" moves them to the default project; "cascade" deletes them (and
-  // kills their agents). The caller owns the cross-store work and navigation.
-  onRemoveProject?: (id: string, mode: "reassign" | "cascade") => void,
+  // Open the project-settings overlay (edit details + danger-zone removal). The
+  // caller owns the overlay; the page's cog just asks for it. Editing and
+  // removal moved off the page into that overlay, mirroring the app-settings cog.
+  onOpenSettings?: () => void,
 ): void {
   const project = getProject(projectId);
   pageContainer = container;
@@ -111,9 +102,9 @@ export function renderProjectPage(
     return;
   }
 
-  // Title row + a cog menu (Edit / Remove). The header manages its own meta
-  // subtitle and inline edit form; remove is delegated to the caller.
-  const header = projectHeader(project, onProjectChanged, onRemoveProject);
+  // Title row + a settings cog. The cog opens the project-settings overlay
+  // (edit details + danger-zone removal), mirroring the app-settings cog.
+  const header = projectHeader(project, onOpenSettings);
 
   // Items by state now folds the active sessions in: each row carries its
   // linked session(s) as a leading brand-mark button (open directly), so there's
@@ -142,7 +133,7 @@ export function renderProjectPage(
   );
 }
 
-// --- Header: title + cog menu (edit / remove) -----------------------------
+// --- Header: title + settings cog -----------------------------------------
 
 // The source subtitle: the path for local projects, the source kind for remote
 // ones. Ephemeral projects (e.g. Homeroom) show none — "ephemeral" is an
@@ -153,11 +144,7 @@ function projectMetaText(project: Project): string {
   return project.source.kind;
 }
 
-function projectHeader(
-  project: Project,
-  onProjectChanged?: () => void,
-  onRemoveProject?: (id: string, mode: "reassign" | "cascade") => void,
-): HTMLElement {
+function projectHeader(project: Project, onOpenSettings?: () => void): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "project-header";
 
@@ -171,125 +158,27 @@ function projectHeader(
   const meta = document.createElement("div");
   meta.className = "project-meta";
   meta.textContent = projectMetaText(project);
-  const syncMeta = (): void => {
-    meta.textContent = projectMetaText(project);
-    meta.hidden = !meta.textContent;
-  };
-  syncMeta();
+  meta.hidden = !meta.textContent;
 
-  // Cog + dropdown menu (Edit / Remove). The menu closes on outside click.
+  // The cog opens the project-settings overlay (edit details + removal),
+  // mirroring how the app-settings cog opens the Settings view.
   const cog = document.createElement("button");
   cog.type = "button";
   cog.className = "project-cog";
   cog.title = "Project settings";
   cog.setAttribute("aria-label", "Project settings");
   cog.textContent = "⚙";
-
-  const menu = document.createElement("div");
-  menu.className = "project-menu";
-  menu.hidden = true;
-
-  const closeMenu = (): void => {
-    menu.hidden = true;
-    document.removeEventListener("click", onDocClick, true);
-  };
-  const onDocClick = (e: MouseEvent): void => {
-    if (!wrap.contains(e.target as Node)) closeMenu();
-  };
   cog.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (menu.hidden) {
-      menu.hidden = false;
-      document.addEventListener("click", onDocClick, true);
-    } else {
-      closeMenu();
-    }
+    onOpenSettings?.();
   });
-
-  const editBtn = document.createElement("button");
-  editBtn.type = "button";
-  editBtn.className = "project-menu__item";
-  editBtn.textContent = "Edit details";
-
-  // "Edit details" opens the shared add/edit modal in edit mode. On save it
-  // refreshes the title/meta in place and notifies the caller (sidebar/title).
-  editBtn.addEventListener("click", () => {
-    closeMenu();
-    openProjectModal({
-      mode: "edit",
-      project,
-      onSaved: (updated) => {
-        heading.textContent = updated.name;
-        syncMeta();
-        onProjectChanged?.();
-      },
-    });
-  });
-  menu.append(editBtn);
-
-  // Homeroom is the catch-all default and can't be removed.
-  if (project.id !== DEFAULT_PROJECT_ID && onRemoveProject) {
-    const removeBtn = document.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.className = "project-menu__item project-menu__item--danger";
-    removeBtn.textContent = "Remove project";
-    removeBtn.addEventListener("click", () => {
-      closeMenu();
-      void confirmRemoveProject(project, onRemoveProject);
-    });
-    menu.append(removeBtn);
-  }
 
   const cogWrap = document.createElement("div");
   cogWrap.className = "project-cog-wrap";
-  cogWrap.append(cog, menu);
+  cogWrap.append(cog);
   titleRow.append(heading, cogWrap);
   wrap.append(titleRow, meta);
   return wrap;
-}
-
-// The remove confirmation flow. Counts the project's cards/sessions, offers
-// "move to Homeroom" vs "delete everything", and double-confirms a cascade
-// before delegating the actual removal to the caller.
-async function confirmRemoveProject(
-  project: Project,
-  onRemoveProject: (id: string, mode: "reassign" | "cascade") => void,
-): Promise<void> {
-  const cardCount = itemsByProject(project.id).length;
-  const sessCount = listSessions(true).filter((s) => s.projectId === project.id).length;
-
-  // Nothing to move or destroy — a single plain confirm is enough.
-  if (cardCount === 0 && sessCount === 0) {
-    const ok = await openDialog({
-      title: `Remove "${project.name}"?`,
-      message: "This project is empty. Remove it?",
-      actions: [{ id: "reassign", label: "Remove project", danger: true }],
-    });
-    if (ok === "reassign") onRemoveProject(project.id, "reassign");
-    return;
-  }
-
-  const counts = `${cardCount} card${cardCount === 1 ? "" : "s"} and ${sessCount} session${sessCount === 1 ? "" : "s"}`;
-  const choice = await openDialog({
-    title: `Remove "${project.name}"`,
-    message: `This project has ${counts}. What should happen to them?`,
-    actions: [
-      { id: "reassign", label: "Move to Homeroom & remove" },
-      { id: "cascade", label: "Delete everything", danger: true },
-    ],
-  });
-  if (!choice) return;
-
-  if (choice === "cascade") {
-    // Double-ask: a cascade is irreversible and kills running agents.
-    const sure = await openDialog({
-      title: "Permanently delete everything?",
-      message: `This deletes ${counts} and stops their running agents. This cannot be undone.`,
-      actions: [{ id: "confirm", label: "Delete everything", danger: true }],
-    });
-    if (sure !== "confirm") return;
-  }
-  onRemoveProject(project.id, choice as "reassign" | "cascade");
 }
 
 // --- Top bar: add an item, or add + start a session on it -----------------
