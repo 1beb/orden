@@ -663,10 +663,11 @@ describe("killSessionTmux", () => {
       graceMs: 0,
     });
     await new Promise((r) => setTimeout(r, 5)); // let the grace timer fire
-    // panes listed BEFORE the session is killed, against the whole session (-s)
-    expect(tmux[0].slice(0, 2)).toEqual(["tmux", "list-panes"]);
-    expect(tmux[0]).toContain("-s");
-    expect(tmux[1].slice(0, 2)).toEqual(["tmux", "kill-session"]);
+    // panes listed BEFORE the session is killed, against the whole session (-s).
+    // The raw id "s1" must yield the SINGLE-prefixed target "orden-s1" — never
+    // "orden-orden-s1" (the relocate double-prefix bug relied on this contract).
+    expect(tmux[0]).toEqual(["tmux", "list-panes", "-s", "-t", "orden-s1", "-F", "#{pane_pid}"]);
+    expect(tmux[1]).toEqual(["tmux", "kill-session", "-t", "orden-s1"]);
     // negative pids = the pane process GROUPS; TERM first, KILL after the grace
     expect(signals).toEqual([
       [-1234, "SIGTERM"],
@@ -728,24 +729,35 @@ describe("shouldRelocateSession", () => {
 });
 
 describe("relocateIfPinned", () => {
-  test("kills the session when the live path differs from the resolved cwd", async () => {
+  // relocateIfPinned takes the RAW session id. It derives the full tmux name
+  // for tmuxSessionPath (which wants "orden-<id>") but hands killSessionTmux the
+  // raw id (which re-derives the name itself). Passing the prefixed name to kill
+  // would double-prefix into "orden-orden-<id>" and silently no-op.
+  test("looks the session up by its derived tmux name and kills by the RAW id", async () => {
+    const lookedUp: string[] = [];
     const killed: string[] = [];
-    await relocateIfPinned("orden-s1", "/resolved/cwd", {
-      sessionPath: () => Promise.resolve("/other/dir"),
-      kill: (n) => {
-        killed.push(n);
+    await relocateIfPinned("s1", "/resolved/cwd", {
+      sessionPath: (name) => {
+        lookedUp.push(name);
+        return Promise.resolve("/home/b/projects/orden"); // a differing path → relocate
+      },
+      kill: (id) => {
+        killed.push(id);
         return Promise.resolve();
       },
     });
-    expect(killed).toEqual(["orden-s1"]);
+    // sessionPath is queried with the full tmux name…
+    expect(lookedUp).toEqual(["orden-s1"]);
+    // …but kill receives the RAW id, so killSessionTmux re-prefixes ONCE.
+    expect(killed).toEqual(["s1"]);
   });
 
   test("does not kill when the live path matches the resolved cwd", async () => {
     const killed: string[] = [];
-    await relocateIfPinned("orden-s1", "/resolved/cwd", {
+    await relocateIfPinned("s1", "/resolved/cwd", {
       sessionPath: () => Promise.resolve("/resolved/cwd"),
-      kill: (n) => {
-        killed.push(n);
+      kill: (id) => {
+        killed.push(id);
         return Promise.resolve();
       },
     });

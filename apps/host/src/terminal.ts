@@ -74,22 +74,27 @@ export function shouldRelocateSession(livePath: string | null, resolvedCwd: stri
 // otherwise. Killing is safe: the conversation resumes via --resume (buildCommand)
 // and worktrees/commits are untouched.
 export async function relocateIfPinned(
-  tmuxName: string,
+  sessionId: string,
   resolvedCwd: string,
   ops: {
     sessionPath?: (name: string) => Promise<string | null>;
-    kill?: (name: string) => Promise<void>;
+    kill?: (id: string) => Promise<void>;
   } = {},
 ): Promise<void> {
+  // tmuxSessionPath wants the full tmux name; killSessionTmux wants the RAW
+  // session id and re-derives the name itself. Derive the name once here and
+  // pass the raw id to kill — otherwise the name gets prefixed twice
+  // (orden-orden-<id>) and the kill silently no-ops, defeating the relocate.
+  const tmuxName = tmuxNameFor(sessionId);
   const sessionPath = ops.sessionPath ?? ((n: string) => tmuxSessionPath(n));
-  const kill = ops.kill ?? ((n: string) => killSessionTmux(n));
+  const kill = ops.kill ?? ((id: string) => killSessionTmux(id));
   const live = await sessionPath(tmuxName);
   if (shouldRelocateSession(live, resolvedCwd)) {
     // eslint-disable-next-line no-console
     console.warn(
       `orden: relocating session ${tmuxName} from ${live} to ${resolvedCwd} (was pinned to the wrong checkout)`,
     );
-    await kill(tmuxName);
+    await kill(sessionId);
   }
 }
 
@@ -728,7 +733,7 @@ async function handle(
   // classic case: first launched in the shared checkout before its worktree
   // existed, now relaunching into the worktree), kill it so `new-session -A -c`
   // recreates it in the right place. The conversation resumes via --resume.
-  await relocateIfPinned(tmuxNameFor(sessionId), cwd);
+  await relocateIfPinned(sessionId, cwd);
 
   // For a first-open opencode session (no id yet) snapshot the session ids that
   // already exist in this cwd BEFORE launching, so post-launch discovery only picks
