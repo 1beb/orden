@@ -44,6 +44,60 @@ export function tmuxNameFor(sessionId: string): string {
   return `orden-${sessionId}`;
 }
 
+// The cwd a live tmux session was CREATED with. tmux fixes this at create time;
+// `new-session -A -c` cannot change it on reattach — so a mismatch against the
+// resolved worktree means the agent is pinned to the wrong directory.
+export async function tmuxSessionPath(
+  name: string,
+  run: (cmd: string, args: string[]) => Promise<{ stdout: string }> = exec,
+): Promise<string | null> {
+  try {
+    const r = await run("tmux", ["display-message", "-p", "-t", name, "#{session_path}"]);
+    const p = r.stdout.trim();
+    return p || null;
+  } catch {
+    return null; // no session / no server
+  }
+}
+
+// Relocate only when a session is ALREADY live in a different directory than the
+// one we resolved for it. No live session (null) => normal first create, nothing
+// to relocate. Equal paths => already correct.
+export function shouldRelocateSession(livePath: string | null, resolvedCwd: string): boolean {
+  return livePath !== null && livePath !== resolvedCwd;
+}
+
+// Kill a live tmux session that sits in the wrong directory, so the subsequent
+// `new-session -A -c <cwd>` recreates it in the resolved one. tmux honours -c only
+// on CREATE, never on reattach, so a session whose first pane was created in the
+// shared checkout (its worktree didn't exist yet) stays pinned there forever
+// otherwise. Killing is safe: the conversation resumes via --resume (buildCommand)
+// and worktrees/commits are untouched.
+export async function relocateIfPinned(
+  sessionId: string,
+  resolvedCwd: string,
+  ops: {
+    sessionPath?: (name: string) => Promise<string | null>;
+    kill?: (id: string) => Promise<void>;
+  } = {},
+): Promise<void> {
+  // tmuxSessionPath wants the full tmux name; killSessionTmux wants the RAW
+  // session id and re-derives the name itself. Derive the name once here and
+  // pass the raw id to kill — otherwise the name gets prefixed twice
+  // (orden-orden-<id>) and the kill silently no-ops, defeating the relocate.
+  const tmuxName = tmuxNameFor(sessionId);
+  const sessionPath = ops.sessionPath ?? ((n: string) => tmuxSessionPath(n));
+  const kill = ops.kill ?? ((id: string) => killSessionTmux(id));
+  const live = await sessionPath(tmuxName);
+  if (shouldRelocateSession(live, resolvedCwd)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: relocating session ${tmuxName} from ${live} to ${resolvedCwd} (was pinned to the wrong checkout)`,
+    );
+    await kill(sessionId);
+  }
+}
+
 // Injectable process plumbing for killSessionTmux, so tests can observe the
 // escalation without a real tmux server or live processes.
 export interface KillOps {
@@ -291,7 +345,13 @@ export async function resolveSessionCwd(
   const settings = await readWorktreeSettings(host.vault);
   if (!isolationEnabled(settings.isolation, project)) return path;
   const vaultRoot = host.capabilities().vaultRoot;
-  if (!vaultRoot) return path; // no persistent vault → nowhere to root worktrees
+  if (!vaultRoot) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: worktree isolation is ON but no vault root is configured; session ${sessionId} falls back to the shared checkout ${path}`,
+    );
+    return path; // no persistent vault → nowhere to root worktrees
+  }
   const wt = await ensureSessionWorktree(
     {
       repo: path,
@@ -673,6 +733,13 @@ async function handle(
       // can't create — let tmux report the error naturally
     }
   }
+
+  // tmux pins a session's directory at CREATE time and ignores `-c` on reattach.
+  // If a live session sits in a different dir than the one we just resolved (the
+  // classic case: first launched in the shared checkout before its worktree
+  // existed, now relaunching into the worktree), kill it so `new-session -A -c`
+  // recreates it in the right place. The conversation resumes via --resume.
+  await relocateIfPinned(sessionId, cwd);
 
   // For a first-open opencode session (no id yet) snapshot the session ids that
   // already exist in this cwd BEFORE launching, so post-launch discovery only picks
