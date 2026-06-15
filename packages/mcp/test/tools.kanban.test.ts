@@ -201,7 +201,7 @@ describe("cardComplete", () => {
   it("writes a journal entry under Automatic Logging, linking the project", async () => {
     const v = seed();
     await cardComplete(v, "c1", "shipped the fix");
-    const journal = await v.get<string>("pages", todayKey());
+    const journal = await v.get<string>("journal", todayKey());
     expect(journal).toContain("- Automatic Logging\n");
     // The entry is a second-level (indented) child of the section.
     expect(journal).toMatch(/^  - \d\d:\d\d Completed "Fix login" — shipped the fix \[\[Project: Alpha\]\] \[\[Session: s1\]\]$/m);
@@ -211,13 +211,13 @@ describe("cardComplete", () => {
     const card = await v.get<Record<string, unknown>>("cards", "c1");
     await v.set("cards", "c1", { ...card, planDoc: "docs/plans/p.md" });
     await cardComplete(v, "c1", "done");
-    const journal = await v.get<string>("pages", todayKey());
+    const journal = await v.get<string>("journal", todayKey());
     expect(journal).toContain("· plan: docs/plans/p.md");
   });
   it("works with no summary and creates the journal page", async () => {
     const v = seed();
     await cardComplete(v, "c2");
-    const journal = await v.get<string>("pages", todayKey());
+    const journal = await v.get<string>("journal", todayKey());
     expect(journal).toContain('Completed "Write docs"');
     expect(journal).not.toContain("—");
   });
@@ -230,18 +230,18 @@ describe("cardComplete", () => {
     await cardComplete(v, "c1", "shipped");
     const now = new Date();
     const overrideKey = journalKey(now, "Pacific/Kiritimati");
-    const journal = await v.get<string>("pages", overrideKey);
+    const journal = await v.get<string>("journal", overrideKey);
     expect(journal).toContain('Completed "Fix login"');
     // And nothing was written under the host-default day (unless they coincide).
     if (overrideKey !== journalKey(now)) {
-      expect(await v.get("pages", journalKey(now))).toBeNull();
+      expect(await v.get("journal", journalKey(now))).toBeNull();
     }
   });
   it("preserves the user's top-level entries, nesting auto entries below", async () => {
     const v = seed();
-    await v.set("pages", todayKey(), "- earlier entry\n");
+    await v.set("journal", todayKey(), "- earlier entry\n");
     await cardComplete(v, "c1", "later");
-    const journal = await v.get<string>("pages", todayKey());
+    const journal = await v.get<string>("journal", todayKey());
     // User's flush-left line is untouched; the auto entry is a nested child of
     // a new Automatic Logging section appended after it.
     expect(journal).toMatch(
@@ -324,7 +324,7 @@ describe("cardComplete", () => {
     const card = await v.get<Record<string, unknown>>("cards", "c1");
     // Re-log the *same* completion (same completedAt → same timestamp/entry).
     await logCardCompletion(v, card as never);
-    const journal = await v.get<string>("pages", todayKey());
+    const journal = await v.get<string>("journal", todayKey());
     expect((journal!.match(/Completed "Fix login"/g) ?? []).length).toBe(1);
     const log = await v.get<string>("pages", "card:c1");
     expect((log!.match(/Completed/g) ?? []).length).toBe(1);
@@ -345,7 +345,7 @@ describe("logCardCompletion", () => {
     };
     await logCardCompletion(v, card as never);
     const day = journalKey(new Date(AT));
-    const journal = await v.get<string>("pages", day);
+    const journal = await v.get<string>("journal", day);
     expect(journal).toContain('Completed "Fix login" — shipped [[Project: Alpha]] [[Session: s1]]');
   });
   it("logs a card completed without a summary (the web-UI path)", async () => {
@@ -356,7 +356,7 @@ describe("logCardCompletion", () => {
       completedAt: AT,
     };
     await logCardCompletion(v, card as never);
-    const journal = await v.get<string>("pages", journalKey(new Date(AT)));
+    const journal = await v.get<string>("journal", journalKey(new Date(AT)));
     expect(journal).toContain('Completed "Write docs"');
     expect(journal).not.toContain("—");
   });

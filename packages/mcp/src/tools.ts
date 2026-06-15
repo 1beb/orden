@@ -19,18 +19,25 @@ export interface ToolResult {
 
 const text = (s: string): ToolResult => ({ content: [{ type: "text", text: s }] });
 
+// Journal day-pages (ISO-date keys) live in the "journal" ns, separate from the
+// knowledge "pages" ns. page_read/write route by the name so a date-named page
+// resolves to the journal; page_list enumerates the knowledge base only — the
+// personal journal is not an agent-listable surface.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const pageNs = (name: string): string => (ISO_DATE.test(name) ? "journal" : "pages");
+
 export async function pageList(host: Host): Promise<ToolResult> {
   const names = await host.vault.list("pages");
   return text(names.length ? names.sort().join("\n") : "(no pages)");
 }
 
 export async function pageRead(host: Host, name: string): Promise<ToolResult> {
-  const md = await host.vault.get<string>("pages", name);
+  const md = await host.vault.get<string>(pageNs(name), name);
   return text(md ?? `(page not found: ${name})`);
 }
 
 export async function pageWrite(host: Host, name: string, markdown: string): Promise<ToolResult> {
-  await host.vault.set("pages", name, markdown);
+  await host.vault.set(pageNs(name), name, markdown);
   return text(`wrote page "${name}"`);
 }
 
@@ -207,8 +214,13 @@ function mergeAutoSections(cur: string): string {
   return s;
 }
 
-async function appendAutoLog(vault: VaultStore, key: string, entry: string): Promise<void> {
-  const cur = mergeAutoSections((await vault.get<string>("pages", key)) ?? "");
+async function appendAutoLog(
+  vault: VaultStore,
+  key: string,
+  entry: string,
+  ns = "pages",
+): Promise<void> {
+  const cur = mergeAutoSections((await vault.get<string>(ns, key)) ?? "");
   const child = `${INDENT}- ${entry}`;
   const lines = cur.split("\n");
   // Idempotent: a byte-identical entry is already logged. Auto entries carry a
@@ -219,7 +231,7 @@ async function appendAutoLog(vault: VaultStore, key: string, entry: string): Pro
   const head = lines.findIndex((l) => AUTO_SECTION_RE.test(l));
   if (head === -1) {
     const body = cur.trimEnd();
-    await vault.set("pages", key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${child}\n`);
+    await vault.set(ns, key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${child}\n`);
     return;
   }
   // Insert after the section's last existing child (a deeper-indented line),
@@ -234,7 +246,7 @@ async function appendAutoLog(vault: VaultStore, key: string, entry: string): Pro
   lines.splice(at, 0, child);
   let out = lines.join("\n");
   if (!out.endsWith("\n")) out += "\n";
-  await vault.set("pages", key, out);
+  await vault.set(ns, key, out);
 }
 
 // Canonical project link target, resolving the id to its display name.
@@ -324,7 +336,7 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
       .filter(Boolean)
       .join(" ") +
     plan;
-  await appendAutoLog(vault, journalKey(when, tz), entry);
+  await appendAutoLog(vault, journalKey(when, tz), entry, "journal");
 }
 
 // Ranking for picking the card-level publish stamp when a card has several

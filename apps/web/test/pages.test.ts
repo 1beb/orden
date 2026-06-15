@@ -5,6 +5,8 @@ import {
   deletePage,
   getPageMarkdown,
   hydratePages,
+  journalDates,
+  journalIndex,
   pageNames,
   pagesIndex,
   setPageMarkdown,
@@ -67,7 +69,7 @@ describe("pages store (host-backed)", () => {
     expect(pageNames()).not.toContain("doomed");
   });
 
-  it("pagesIndex omits internal card:/notes: pages but keeps wiki + journal pages", () => {
+  it("pagesIndex omits internal card:/notes: pages AND journal day-pages", () => {
     setPageMarkdown("DesignNotes", "- a wiki page");
     setPageMarkdown("2026-05-24", "- a journal page");
     setPageMarkdown("card:item_abc_1", "- a card narrative");
@@ -75,9 +77,50 @@ describe("pages store (host-backed)", () => {
 
     const names = pagesIndex().map((p) => p.name);
     expect(names).toContain("DesignNotes");
-    expect(names).toContain("2026-05-24");
+    expect(names).not.toContain("2026-05-24"); // journal lives in its own store
     expect(names).not.toContain("card:item_abc_1");
     expect(names).not.toContain("notes:proj_x");
+  });
+
+  it("journal day-pages route to the journal store, not pages", () => {
+    setPageMarkdown("DesignNotes", "- a wiki page");
+    setPageMarkdown("2026-05-24", "- a journal page");
+
+    expect(pageNames()).toEqual(["DesignNotes"]);
+    expect(journalDates()).toEqual(["2026-05-24"]);
+    expect(journalIndex().map((p) => p.name)).toEqual(["2026-05-24"]);
+    // Content still round-trips by name through the shared accessor.
+    expect(getPageMarkdown("2026-05-24")).toBe("- a journal page");
+  });
+
+  it("a journal entry persists to the journal ns and survives re-hydrate", async () => {
+    setPageMarkdown("2026-05-24", "- kept journal");
+    await settle();
+    await hydratePages(new BrowserHost());
+    expect(getPageMarkdown("2026-05-24")).toBe("- kept journal");
+    expect(journalDates()).toContain("2026-05-24");
+    expect(pageNames()).not.toContain("2026-05-24");
+  });
+
+  it("backlinks still cross from a journal entry to a knowledge page", () => {
+    setPageMarkdown("AI Suspects", "- a curated page");
+    setPageMarkdown("2026-05-24", "- looked at [[AI Suspects]]");
+    expect(backlinksTo("AI Suspects").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("migrates legacy journal day-pages out of the pages ns on hydrate", async () => {
+    const host = new BrowserHost();
+    // Simulate pre-split data: a date key sitting in the "pages" ns.
+    await host.vault.set("pages", "2026-05-24", "- legacy journal");
+    await host.vault.set("pages", "KnowledgePage", "- stays put");
+    await hydratePages(host);
+
+    expect(journalDates()).toContain("2026-05-24");
+    expect(pageNames()).toEqual(["KnowledgePage"]);
+    expect(getPageMarkdown("2026-05-24")).toBe("- legacy journal");
+    // The legacy key is gone from the pages ns.
+    expect(await host.vault.get<string>("pages", "2026-05-24")).toBeNull();
+    expect(await host.vault.get<string>("journal", "2026-05-24")).toBe("- legacy journal");
   });
 
   it("internal card:/notes: pages stay readable and backlinkable though hidden from the index", () => {
