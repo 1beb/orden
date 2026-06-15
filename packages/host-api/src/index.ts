@@ -71,6 +71,15 @@ export interface Project {
   workingDir?: string;
   /** Per-project worktree isolation override. Absent = inherit the global setting. */
   worktreeIsolation?: boolean;
+  /**
+   * Per-project integration boundary the merge coordinator applies on a green
+   * combined state. "fast" = merge to local main + rebuild (origin push stays a
+   * gated manual step); "measured" = push + open a PR, never touch main. Absent
+   * = inherit the global default.
+   */
+  integrationMode?: "fast" | "measured";
+  /** Per-project gate command. Absent = the global default verify command. */
+  integrationVerify?: string;
 }
 
 export interface ProjectRegistry {

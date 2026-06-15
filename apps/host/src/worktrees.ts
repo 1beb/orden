@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import type { VaultStore, Project } from "@orden/host-api";
+import { DEFAULT_INTEGRATION_MODE, DEFAULT_INTEGRATION_VERIFY } from "./mergeTypes";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,6 +58,37 @@ export async function readWorktreeSettings(vault: VaultStore): Promise<WorktreeS
 export function isolationEnabled(global: boolean, project: Project | null | undefined): boolean {
   if (typeof project?.worktreeIsolation === "boolean") return project.worktreeIsolation;
   return global;
+}
+
+export interface IntegrationSettings {
+  mode: "fast" | "measured";
+  verify: string;
+}
+
+// Host-side read of the global integration defaults from ("settings","app").
+export async function readIntegrationSettings(vault: VaultStore): Promise<IntegrationSettings> {
+  const s = ((await vault.get<Record<string, unknown>>("settings", "app")) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const mode = s.integrationMode === "measured" || s.integrationMode === "fast"
+    ? s.integrationMode
+    : DEFAULT_INTEGRATION_MODE;
+  const verify = typeof s.integrationVerify === "string" && s.integrationVerify.trim()
+    ? s.integrationVerify
+    : DEFAULT_INTEGRATION_VERIFY;
+  return { mode, verify };
+}
+
+// Project override beats the global integration setting; absent inherits it.
+export function integrationFor(
+  global: IntegrationSettings,
+  project: Project | null | undefined,
+): IntegrationSettings {
+  const verify = typeof project?.integrationVerify === "string" && project.integrationVerify.trim()
+    ? project.integrationVerify
+    : global.verify;
+  return { mode: project?.integrationMode ?? global.mode, verify };
 }
 
 // Worktrees live BESIDE the vault (~/.orden/vault -> ~/.orden/worktrees) so the
