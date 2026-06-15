@@ -160,16 +160,56 @@ reapDeadSessions();
 // arrives over the change feed). Seeded from the boot state so pre-existing
 // blocked cards don't fire on load.
 const cardWaitState = new Map<string, string>(listItems().map((i) => [i.id, i.state]));
-function showToast(text: string, duration = 6000): void {
+function showToast(text: string, opts: { duration?: number; onClick?: () => void } = {}): void {
+  const { duration = 6000, onClick } = opts;
   const t = document.createElement("div");
   t.className = "orden-toast";
   t.textContent = text;
+  if (onClick) {
+    t.classList.add("clickable");
+    t.setAttribute("role", "button");
+    t.tabIndex = 0;
+    const activate = () => {
+      onClick();
+      t.classList.remove("show");
+      setTimeout(() => t.remove(), 300);
+    };
+    t.addEventListener("click", activate);
+    t.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activate();
+      }
+    });
+  }
   document.body.append(t);
   requestAnimationFrame(() => t.classList.add("show"));
   setTimeout(() => {
     t.classList.remove("show");
     setTimeout(() => t.remove(), 300);
   }, duration);
+}
+
+// Native OS notifications mirror the in-app toast so a blocked session reaches
+// you even when the orden tab is hidden/unfocused. Permission is requested once
+// at boot; if denied or unsupported we silently fall back to the toast alone.
+function ensureNotificationPermission(): void {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission === "default") void Notification.requestPermission();
+}
+function notifyOS(text: string, onClick: () => void): void {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification("orden", { body: text, tag: "orden-session" });
+    n.addEventListener("click", () => {
+      window.focus();
+      onClick();
+      n.close();
+    });
+  } catch {
+    // Some browsers throw when constructing Notification on non-secure origins;
+    // the toast already covers the in-app case.
+  }
 }
 
 declare const __BUILD_TIME__: number;
@@ -189,8 +229,12 @@ function checkForUpdates(): void {
 function notifyBlockedTransitions(): void {
   for (const it of listItems()) {
     const prev = cardWaitState.get(it.id);
-    if (cardSessionIds(it).length > 0 && it.state === "blocked" && prev !== "blocked") {
-      showToast(`${it.title} is waiting for you`);
+    const sids = cardSessionIds(it);
+    if (sids.length > 0 && it.state === "blocked" && prev !== "blocked") {
+      const text = `${it.title} is waiting for you`;
+      const open = () => openSessionInPanel(sids[sids.length - 1]);
+      showToast(text, { onClick: open });
+      notifyOS(text, open);
     }
     cardWaitState.set(it.id, it.state);
   }
@@ -2128,6 +2172,10 @@ addProjectBtn.addEventListener("click", () =>
   }),
 );
 renderProjects();
+
+// Ask once for OS-notification permission so "session is waiting on you" alerts
+// can surface even when the orden tab isn't focused.
+ensureNotificationPermission();
 
 // Periodically check for a newer build so the user knows to reload after a rebuild.
 setInterval(checkForUpdates, 30_000);

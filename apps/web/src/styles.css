@@ -120,6 +120,16 @@ body {
   opacity: 1;
   transform: none;
 }
+.orden-toast.clickable {
+  cursor: pointer;
+}
+.orden-toast.clickable:hover {
+  filter: brightness(1.08);
+}
+.orden-toast.clickable:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
 
 /* Icon buttons use inline SVGs (font-independent — Unicode glyphs condense in
    fonts that lack them). Center the mark in its already-flex'd button. */
