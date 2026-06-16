@@ -11,6 +11,7 @@ import type { Host, PublishResult } from "@orden/host-api";
 import { type CardRec, cardSessionIds } from "@orden/mcp";
 
 const PUBLISH_RANK: Record<PublishResult["state"], number> = {
+  clean: 6, // verified clean, awaiting coordinator integration — the success state
   "pr-opened": 5,
   pushed: 4,
   "push-failed": 3,

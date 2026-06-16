@@ -2266,6 +2266,11 @@ bindCheckbox("worktree-auto-trust", "worktreeAutoTrust");
 // forge CLI from the remote URL, force one, or push without opening a PR.
 bindSelect("pr-forge", "prForge", ["auto", "gh", "glab", "none"]);
 
+// Integration mode: how the merge coordinator integrates a green combined state —
+// fast (merge to local main + rebuild) or measured (push + open a PR). The
+// per-project override in the project modal beats this global default.
+bindSelect("integration-mode", "integrationMode", ["fast", "measured"]);
+
 // HTML render default: when on, .html files open rendered; off shows source.
 // This is the default only — a per-file topbar toggle can override it for the
 // session. Changing it re-opens the current file if it's HTML, so the change is

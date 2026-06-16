@@ -20,6 +20,7 @@ const DEFAULTS = {
   worktreeAutoTrust: true,
   worktreeBaseRef: "",
   prForge: "auto",
+  integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
 };
 
@@ -78,6 +79,7 @@ describe("settings store (host-backed)", () => {
       worktreeAutoTrust: true,
       worktreeBaseRef: "",
       prForge: "auto",
+      integrationMode: "fast",
       learningPrompt: DEFAULT_LEARNING_PROMPT,
     });
   });
@@ -183,6 +185,8 @@ describe("settings store (host-backed)", () => {
     expect(coerce({ worktreeBaseRef: "origin/develop" }).worktreeBaseRef).toBe("origin/develop");
     expect(coerce({ prForge: "glab" }).prForge).toBe("glab");
     expect(coerce({ prForge: "hg" }).prForge).toBe("auto");
+    expect(coerce({ integrationMode: "measured" }).integrationMode).toBe("measured");
+    expect(coerce({ integrationMode: "yolo" }).integrationMode).toBe("fast");
     expect(coerce({ worktreeBaseRef: 42 }).worktreeBaseRef).toBe("");
   });
 

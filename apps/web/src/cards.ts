@@ -26,8 +26,23 @@ export interface Item {
   compareUrl?: string;
   publishError?: string;
 
+  // Merge-coordinator state, written by the host. Read-only in the web EXCEPT
+  // integrationBlock.chosen, which the decision chips set to resume integration.
+  mergeStatus?: string; // "queued" | "merging" | "merged" | "blocked-intent" | "blocked-unverifiable"
+  integrationBlock?: IntegrationBlock;
+  integrationNote?: string; // e.g. "Goal superseded by card X"
+
   /** @deprecated legacy single-session field; migrated into sessionIds at boot. */
   sessionId?: string;
+}
+
+/** A host-posed integration decision, surfaced on a blocked card (no diffs). */
+export interface IntegrationBlock {
+  kind: "intent" | "unverifiable";
+  question: string;
+  options?: string[]; // one chip per contributing card id (intent only)
+  otherCardIds?: string[];
+  chosen?: string; // the winning card id; set by a chip click to resume
 }
 
 // Map legacy lifecycle states to the current four-state set so cards stored
@@ -191,6 +206,20 @@ export function removeItemSession(id: string, sessionId: string): void {
   cache = cache.map((i) =>
     i.id === id ? { ...i, sessionIds: cardSessionIds(i).filter((s) => s !== sessionId) } : i,
   );
+  persist(id);
+}
+
+/**
+ * Record the user's answer to an integration decision: set the chosen winning
+ * card id on the blocked card. The write-through fires the host's resume reactor
+ * (a blocked card whose integrationBlock gains `chosen`), which drops the losing
+ * branches and re-drains. The spread preserves every host-written field.
+ */
+export function chooseIntegrationWinner(id: string, chosen: string): void {
+  cache = cache.map((i) => {
+    if (i.id !== id || !i.integrationBlock) return i;
+    return { ...i, integrationBlock: { ...i.integrationBlock, chosen } };
+  });
   persist(id);
 }
 

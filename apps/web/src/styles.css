@@ -4218,6 +4218,47 @@ li.sess-done-head {
   flex-wrap: wrap;
   margin-top: 6px;
 }
+/* Merge-coordinator integration decision surfaced on a blocked card. */
+.orden-card__decision {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--accent, #c97);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #c97) 8%, transparent);
+}
+.orden-card__decision-q {
+  font-size: calc(11px * var(--font-scale));
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+.orden-card__decision-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.orden-card__decision-chip {
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #c97);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.orden-card__decision-chip:hover {
+  background: color-mix(in srgb, var(--accent, #c97) 20%, transparent);
+}
+.orden-card__decision-chip.is-chosen {
+  background: var(--accent, #c97);
+  color: #fff;
+}
+.orden-card__integration-note {
+  margin-top: 6px;
+  font-size: calc(10px * var(--font-scale));
+  opacity: 0.75;
+  font-style: italic;
+}
 .orden-card__due,
 .orden-card__sesscount {
   font-size: calc(10px * var(--font-scale));

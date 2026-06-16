@@ -117,6 +117,17 @@ describe("reapCompletedCard worktree cleanup", () => {
     ]);
   });
 
+  test("removes the worktree when the coordinator merged the card (no publishState)", async () => {
+    const { host, gitCalls, exec, repo, workdir } = setup(undefined);
+    const card = (await host.vault.get<Record<string, unknown>>("cards", "c1"))!;
+    card.mergeStatus = "merged";
+    await reapCompletedCard(host, "c1", new Set(), { exec });
+    expect(gitCalls).toEqual([
+      [repo, "worktree", "remove", workdir],
+      [repo, "worktree", "prune"],
+    ]);
+  });
+
   test("keeps the worktree when the branch is not pushed", async () => {
     for (const state of [undefined, "dirty", "no-remote", "push-failed"]) {
       const { host, gitCalls, exec } = setup(state);

@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
-import { hydrateCards, listItems, setItemState, cardSessionIds, type Item } from "../src/cards";
+import {
+  hydrateCards,
+  listItems,
+  setItemState,
+  cardSessionIds,
+  getItem,
+  type Item,
+} from "../src/cards";
 import { hydrateSessions, createSession } from "../src/sessions";
 import { renderKanban } from "../src/kanban";
 
@@ -251,6 +258,58 @@ describe("kanban — derived Learnings column", () => {
     cardEl!.click();
     // Normal cards take the existing modal path, never the learnings path.
     expect(openedLearnings).toEqual([]);
+  });
+
+  it("renders an integration-decision question + a chip per option and records the winner", () => {
+    const s = createSession({ title: "Feature B", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "blocked");
+    Object.assign(getItem(card.id)!, {
+      mergeStatus: "blocked-intent",
+      integrationBlock: {
+        kind: "intent",
+        question: "Feature B conflicts with Feature A — which goal wins?",
+        options: [card.id, "other"],
+        otherCardIds: ["other"],
+      },
+    });
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    expect(container.querySelector(".orden-card__decision-q")?.textContent).toContain("which goal wins");
+    const chips = container.querySelectorAll<HTMLButtonElement>(".orden-card__decision-chip");
+    expect(chips.length).toBe(2);
+    expect(chips[0].textContent).toBe("Feature B"); // option is this card id → its title
+
+    chips[0].click();
+    expect(getItem(card.id)?.integrationBlock?.chosen).toBe(card.id);
+  });
+
+  it("renders an unverifiable block's question with no chips", () => {
+    const s = createSession({ title: "Feature C", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "blocked");
+    Object.assign(getItem(card.id)!, {
+      mergeStatus: "blocked-unverifiable",
+      integrationBlock: { kind: "unverifiable", question: "Combined gate failed." },
+    });
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    expect(container.querySelector(".orden-card__decision-q")?.textContent).toContain("Combined gate failed");
+    expect(container.querySelectorAll(".orden-card__decision-chip").length).toBe(0);
   });
 
   it("rejects a drop onto Learnings — a card can't be parked there via the board", () => {

@@ -3,7 +3,15 @@ import {
   isExpiredComplete,
   type CardState,
 } from "@orden/outliner";
-import { listItems, setItemState, cardSessionIds, type Item } from "./cards";
+import {
+  listItems,
+  setItemState,
+  setItemProject,
+  cardSessionIds,
+  getItem,
+  chooseIntegrationWinner,
+  type Item,
+} from "./cards";
 import { listProjects, getProject } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
 import { getSession, type Agent } from "./sessions";
@@ -350,6 +358,49 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
           }
         }
         card.append(footer);
+      }
+
+      // Integration decision: a card the merge coordinator blocked on an intent
+      // collision (or an unverifiable resolution). Surface the goal-level question
+      // and one chip per contributing card; a chip click records the winner and
+      // resumes integration. No diffs — decisions stay at the intent level.
+      const block = item.integrationBlock;
+      if (
+        (item.mergeStatus === "blocked-intent" || item.mergeStatus === "blocked-unverifiable") &&
+        block
+      ) {
+        const box = document.createElement("div");
+        box.className = "orden-card__decision";
+        const q = document.createElement("div");
+        q.className = "orden-card__decision-q";
+        q.textContent = block.question;
+        box.append(q);
+        if (block.kind === "intent" && block.options && block.options.length > 0) {
+          const chips = document.createElement("div");
+          chips.className = "orden-card__decision-chips";
+          for (const optId of block.options) {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "orden-card__decision-chip";
+            if (block.chosen === optId) chip.classList.add("is-chosen");
+            chip.textContent = getItem(optId)?.title ?? optId;
+            chip.addEventListener("mousedown", (e) => e.stopPropagation());
+            chip.addEventListener("click", (e) => {
+              e.stopPropagation();
+              chooseIntegrationWinner(item.id, optId);
+              rerender();
+            });
+            chips.append(chip);
+          }
+          box.append(chips);
+        }
+        card.append(box);
+      }
+      if (item.integrationNote) {
+        const note = document.createElement("div");
+        note.className = "orden-card__integration-note";
+        note.textContent = item.integrationNote;
+        card.append(note);
       }
 
       // No AI conversation yet → offer to start one (Claude / opencode) right

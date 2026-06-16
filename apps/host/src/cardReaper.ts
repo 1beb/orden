@@ -47,8 +47,11 @@ export async function reapCompletedCard(
     }
   }
 
-  // Cleanup pass: only when the branch left the system (pushed or PR'd).
-  if (typeof card.publishState !== "string" || !PUSHED_STATES.has(card.publishState)) return;
+  // Cleanup pass: only when the branch left the system — pushed/PR'd by the
+  // publish gate, or integrated by the merge coordinator (mergeStatus "merged").
+  const published = typeof card.publishState === "string" && PUSHED_STATES.has(card.publishState);
+  const integrated = card.mergeStatus === "merged";
+  if (!published && !integrated) return;
   const vaultRoot = host.capabilities().vaultRoot;
   if (!vaultRoot) return;
   for (const sessionId of cardSessionIds(card)) {
