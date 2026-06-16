@@ -12,9 +12,9 @@
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Host, Project } from "@orden/host-api";
+import type { Project } from "@orden/host-api";
 import type { NodeHost } from "./nodeHost";
-import type { CardRec } from "@orden/mcp";
+import { type CardRec, MERGE_RESOLUTION_NS } from "@orden/mcp";
 import {
   drain,
   enqueueOnComplete,
@@ -42,9 +42,56 @@ import {
   defaultBaseRef,
 } from "./worktrees";
 import { publishWorktree } from "./publishSession";
-import { conservativeResolver } from "./resolverAgent";
+import { launchDetached, killSessionTmux } from "./terminal";
+import {
+  conservativeResolver,
+  makeNodeResolver,
+  awaitVerdictFromVault,
+  type ResolverSpawn,
+} from "./resolverAgent";
 
 const execFileAsync = promisify(execFile);
+
+// How long to wait for an ephemeral resolver agent to report its verdict before
+// giving up and escalating as unverifiable. Generous — a real reconciliation can
+// take minutes — but bounded so a stuck agent never wedges the drain.
+const RESOLVER_TIMEOUT_MS = 10 * 60_000;
+
+// The real ResolverSpawn: launch a card-less ephemeral resolver session pinned to
+// the integration worktree, await its resolution_report verdict off the change
+// feed, then reap it (kill tmux + drop the session record and verdict). Card-less
+// (no kanban card) so it never appears on the board, per design.
+function makeResolverSpawn(host: NodeHost): ResolverSpawn {
+  return {
+    spawn: async ({ cwd, prompt, projectId }) => {
+      const sessionId = `sess_resolver_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      await host.vault.set("sessions", sessionId, {
+        id: sessionId,
+        projectId,
+        workdir: cwd,
+        fixedWorkdir: true, // run IN the integration worktree, not a new one
+        initialPrompt: prompt,
+        agent: "claude",
+        title: "Merge resolver",
+        ephemeral: true, // not a real session card; reaped on completion
+      });
+      // cwd doubles as defaultCwd — fixedWorkdir makes resolveSessionCwd return it.
+      await launchDetached(host, cwd, sessionId);
+      return sessionId;
+    },
+    awaitVerdict: (sessionId) =>
+      awaitVerdictFromVault(
+        { vault: host.vault, onChange: (cb) => host.onChange(cb) },
+        sessionId,
+        RESOLVER_TIMEOUT_MS,
+      ),
+    reap: async (sessionId) => {
+      await killSessionTmux(sessionId);
+      await host.vault.delete("sessions", sessionId);
+      await host.vault.delete(MERGE_RESOLUTION_NS, sessionId);
+    },
+  };
+}
 
 const realGit: CoordinatorGit = {
   ensureIntegrationWorktree: (i) => ensureIntegrationWorktree(i),
@@ -56,7 +103,7 @@ const realGit: CoordinatorGit = {
   changedFiles: (cwd, base, branch) => changedFiles(cwd, base, branch),
 };
 
-export function buildCoordinatorDeps(host: Host): CoordinatorDeps {
+export function buildCoordinatorDeps(host: NodeHost): CoordinatorDeps {
   // Run the project's configured post-merge command in a login shell — generic,
   // no toolchain assumption (the command is whatever the project sets).
   const rebuild = async (repo: string, command: string) => {
@@ -92,7 +139,9 @@ export function buildCoordinatorDeps(host: Host): CoordinatorDeps {
   return {
     vault: host.vault,
     git: realGit,
-    resolver: conservativeResolver,
+    // Intent-aware D2 resolver: spawn an ephemeral agent with both sides' plans
+    // when intent is available, else fall back to the conservative escalation.
+    resolver: makeNodeResolver(makeResolverSpawn(host), conservativeResolver),
     gate: (cwd, cmd) => runGate(cwd, cmd),
     plan: async (projectId) => {
       const project = await host.vault.get<Project>("projects", projectId);

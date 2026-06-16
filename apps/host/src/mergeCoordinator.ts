@@ -36,6 +36,8 @@ export interface IntentRef {
 
 export interface ResolverInput {
   integrationWorkdir: string;
+  /** Project the integration worktree belongs to (for spawning an ephemeral resolver). */
+  projectId?: string;
   incoming: IntentRef;
   /** Already-integrated siblings whose hunks the incoming branch collides with (1..N). */
   contributors: IntentRef[];
@@ -229,6 +231,7 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
         );
         const outcome = await deps.resolver({
           integrationWorkdir: handle.workdir,
+          projectId,
           incoming: intentOf(card, entry.branch, entry.cardId),
           contributors,
           conflictFiles: preview.conflictFiles,
