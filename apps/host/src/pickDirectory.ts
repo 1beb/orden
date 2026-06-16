@@ -27,9 +27,21 @@ function detectPicker(): Picker | null {
   return null;
 }
 
-/** True when a native directory dialog is available on this host. */
+// A native GUI dialog needs more than the binary: it needs a reachable display.
+// The host is frequently launched headless over SSH (XDG_SESSION_TYPE=tty, no
+// DISPLAY/WAYLAND_DISPLAY), where zenity/kdialog exit non-zero before drawing
+// anything. Without this check the capability reads true, the modal renders a
+// "Browse…" button, and every click silently fails (the error is swallowed as a
+// cancel). Requiring a display keeps the button off headless hosts so the user
+// just types the path. (A remote host's dialog would also pop on the server's
+// screen, not the user's — equally unusable; typing the path is correct there.)
+function displayAvailable(): boolean {
+  return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
+
+/** True when a native directory dialog can actually be shown on this host. */
 export function hasDirectoryPicker(): boolean {
-  return detectPicker() !== null;
+  return displayAvailable() && detectPicker() !== null;
 }
 
 /**
@@ -42,7 +54,9 @@ export function pickDirectory(opts?: {
   startPath?: string;
 }): Promise<string | null> {
   const tool = detectPicker();
-  if (!tool) return Promise.resolve(null);
+  // No display => no dialog can render; bail rather than spawn a doomed process
+  // whose non-zero exit we'd swallow as a cancel (mirrors hasDirectoryPicker).
+  if (!tool || !displayAvailable()) return Promise.resolve(null);
   const title = opts?.title ?? "Choose project folder";
 
   const args =

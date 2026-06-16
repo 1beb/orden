@@ -15,6 +15,13 @@ describe("transcriptTitle", () => {
     expect(encodeCwd("/home/b/projects/orden")).toBe("-home-b-projects-orden");
     // dots are encoded too (e.g. dotfiles / versioned dirs)
     expect(encodeCwd("/home/b/.config/app")).toBe("-home-b--config-app");
+    // underscores are encoded too — every orden worktree path carries them
+    // (proj_<id>/sess_<id>). Missing this made claudeTranscriptExists look in
+    // the wrong dir, so resuming a worktree session minted a NEW conversation
+    // instead of reattaching to the ongoing one.
+    expect(encodeCwd("/home/b/.orden/worktrees/proj_mprhz6zm_1/sess_mqg4mt1g_3")).toBe(
+      "-home-b--orden-worktrees-proj-mprhz6zm-1-sess-mqg4mt1g-3",
+    );
   });
 
   test("readTranscriptTitle returns null when no transcript exists (never throws)", () => {
