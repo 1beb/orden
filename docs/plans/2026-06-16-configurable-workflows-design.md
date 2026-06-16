@@ -130,6 +130,17 @@ Agent settings (in-session behavior for the workflow or a stage):
 
 - `harness` (claude/opencode), `isolate` (worktree on/off), `mode` (tui/gui), `git-guard`
   (destructive-git denial on/off; only bites in a shared checkout).
+- `models` (array). Absent/empty = the harness default; one entry = a single model; more
+  than one = the stage fans out, one parallel attempt per model, reconciled by the
+  stage's aggregation step (below). The fan-out stays inside a stage, so the pipeline
+  remains linear (one entry, one exit).
+
+Aggregation (per stage):
+
+- A stage that runs more than one model declares an explicit `aggregate` step that
+  reconciles the parallel attempts into a single result before the pipeline advances.
+  The validator warns if a multi-model stage lacks one, or if an aggregation step has
+  only one model to reconcile.
 
 Completion output (what "done" produces):
 
@@ -241,6 +252,29 @@ catalog, do not add switches.
   inherit it.
 - `extends` lets a workflow inherit another and override only the differences; a minimal
   workflow can be a few lines.
+
+## Control flow: linear, by decision
+
+The model is a linear stage list, not a graph. This was a deliberate choice when asked
+about subagents, multiple models, and loops:
+
+- Multiple models: supported via the per-stage `models` array plus an aggregation step
+  (above). This keeps the pipeline linear while allowing parallel-model fan-out within a
+  stage.
+- Subagents: the in-session agent can already spawn its own subagents; a workflow
+  leverages that through the stage prose. Workflow-level fan-out/join of separate orden
+  sessions is deliberately out of scope for now (substantial new infrastructure); it
+  would be a future catalog primitive if a real need appears.
+- Loops: not modeled as explicit loop/branch edges, because that turns the stage list
+  into a graph (the node-editor complexity set aside earlier) and does not map onto
+  kanban columns. Iteration is served instead by the `review` gate bouncing a stage back
+  on rejection, and by `verify` raising a card that drives a fix/re-verify cycle.
+
+Execution note: per-stage `models` and `aggregate` are a small addition to the model
+(landed in `packages/workflows`), but running N models in parallel and reconciling them
+is substantial Stage 2 execution work — orden runs one agent per session today, so
+parallel-model fan-out plus a join is new machinery, scoped explicitly rather than
+assumed free.
 
 ## Open questions / follow-ups
 
