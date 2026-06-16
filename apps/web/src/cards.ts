@@ -134,9 +134,44 @@ export function promptForItem(item: Item): string {
   return item.description ? `${item.title}\n\n${item.description}` : item.title;
 }
 
+// Card fields the HOST stamps and the web only reads — they flow
+// host -> vault -> cache via the change feed, never the other way. A web persist
+// writes the WHOLE cached record, so without this guard a stale-cache write
+// (the cache lags the host by one async roundtrip) would clobber the host's
+// values. Mirrors the HOST_OWNED guard in sessions.ts.
+const HOST_OWNED_CARD = [
+  "publishState",
+  "branch",
+  "prUrl",
+  "compareUrl",
+  "publishError",
+] as const satisfies readonly (keyof Item)[];
+
+// A web persist writes the full cached card. Two values can be fresher on disk
+// than in the (one-roundtrip-stale) cache: the host's integration stamps, and
+// `sessionIds` — the host links a session the moment session_create / an MCP
+// tool runs, before our change-feed catch-up. So re-read the disk record and
+// (a) preserve host-owned fields, (b) UNION the linked sessions, never dropping
+// a link the host added. Intentional unlinks go through removeItemSession, which
+// writes its own targeted removal rather than this union path.
 function persist(id: string): void {
+  if (!host) return;
   const updated = cache.find((i) => i.id === id);
-  if (host && updated) void host.vault.set("cards", id, updated);
+  if (!updated) return;
+  const h = host;
+  void (async () => {
+    const cur = await h.vault.get<Item>("cards", id);
+    const merged: Item = { ...updated };
+    if (cur) {
+      merged.sessionIds = [...new Set([...cardSessionIds(updated), ...cardSessionIds(cur)])];
+      const m = merged as unknown as Record<string, unknown>;
+      const c = cur as unknown as Record<string, unknown>;
+      for (const f of HOST_OWNED_CARD) {
+        if (c[f] !== undefined) m[f] = c[f];
+      }
+    }
+    await h.vault.set("cards", id, merged);
+  })();
 }
 
 export function setItemState(id: string, state: CardState): void {
@@ -186,12 +221,26 @@ export function addItemSession(id: string, sessionId: string): void {
   persist(id);
 }
 
-/** Unlink an AI session from a card (the card itself is kept). */
+/**
+ * Unlink an AI session from a card (the card itself is kept). This is the one
+ * intentional `sessionIds` removal, so it writes a TARGETED disk update that
+ * drops exactly this id — it must NOT route through the union `persist`, which
+ * would merge the link straight back from the disk record.
+ */
 export function removeItemSession(id: string, sessionId: string): void {
   cache = cache.map((i) =>
     i.id === id ? { ...i, sessionIds: cardSessionIds(i).filter((s) => s !== sessionId) } : i,
   );
-  persist(id);
+  if (!host) return;
+  const h = host;
+  void (async () => {
+    const cur = await h.vault.get<Item>("cards", id);
+    if (!cur) return;
+    await h.vault.set("cards", id, {
+      ...cur,
+      sessionIds: cardSessionIds(cur).filter((s) => s !== sessionId),
+    });
+  })();
 }
 
 export function removeItem(id: string): void {
