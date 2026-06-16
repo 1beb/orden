@@ -5,6 +5,7 @@ export type {
   Harness,
   SessionMode,
   AgentSettings,
+  Aggregation,
   CompletionOutput,
   DirtyTreePolicy,
   Stage,

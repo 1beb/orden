@@ -58,4 +58,33 @@ describe("validateWorkflow", () => {
     spec.stages = spec.stages.filter((s) => s.role !== "terminal");
     expect(validateWorkflow(spec).errors.some((e) => /terminal/i.test(e))).toBe(true);
   });
+
+  it("warns when a multi-model stage has no aggregation step", () => {
+    const spec = clone();
+    const active = spec.stages.find((s) => s.role === "active")!;
+    active.agent = { models: ["opus", "sonnet"] };
+    expect(
+      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
+    ).toBe(true);
+  });
+
+  it("does not warn when a multi-model stage has an aggregation step", () => {
+    const spec = clone();
+    const active = spec.stages.find((s) => s.role === "active")!;
+    active.agent = { models: ["opus", "sonnet"] };
+    active.aggregate = { model: "opus" };
+    expect(
+      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
+    ).toBe(false);
+  });
+
+  it("warns when an aggregation step has nothing to aggregate", () => {
+    const spec = clone();
+    const active = spec.stages.find((s) => s.role === "active")!;
+    active.agent = { models: ["opus"] };
+    active.aggregate = { model: "opus" };
+    expect(
+      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
+    ).toBe(true);
+  });
 });

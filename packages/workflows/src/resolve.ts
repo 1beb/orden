@@ -32,6 +32,7 @@ function mergeStage(child: StageOverride, base?: Stage): Stage {
     onEnter: child.onEnter ?? base?.onEnter ?? [],
     onExit: child.onExit ?? base?.onExit ?? [],
     agent: mergeAgent(base?.agent, child.agent),
+    aggregate: child.aggregate ?? base?.aggregate,
   };
 }
 

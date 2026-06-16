@@ -66,5 +66,21 @@ export function validateWorkflow(spec: WorkflowSpec): ValidationResult {
     );
   }
 
+  // Multi-model fan-out must declare how its parallel attempts are reconciled, and
+  // an aggregation step is pointless without more than one model to reconcile.
+  for (const stage of spec.stages) {
+    const models = stage.agent?.models ?? spec.agent?.models ?? [];
+    if (models.length > 1 && !stage.aggregate) {
+      warnings.push(
+        `Stage "${stage.label}" runs ${models.length} models but has no aggregation step; their outputs won't be reconciled.`,
+      );
+    }
+    if (stage.aggregate && models.length <= 1) {
+      warnings.push(
+        `Stage "${stage.label}" has an aggregation step but only one model, so there is nothing to aggregate.`,
+      );
+    }
+  }
+
   return { errors, warnings };
 }

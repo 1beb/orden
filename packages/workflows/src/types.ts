@@ -30,6 +30,23 @@ export interface AgentSettings {
   mode?: SessionMode;
   /** The destructive-git denial; only bites in a shared (non-isolated) checkout. */
   gitGuard?: boolean;
+  /**
+   * Models to run the stage with. Absent or empty = the harness default. One entry =
+   * a single model. More than one = the stage fans out, one parallel attempt per model,
+   * and the stage's `aggregate` step reconciles them into a single result. Keeping the
+   * fan-out inside a stage preserves the linear pipeline (one entry, one exit).
+   */
+  models?: string[];
+}
+
+/**
+ * The explicit step that reconciles a multi-model stage's parallel attempts into one
+ * result before the pipeline advances. Only meaningful when the stage runs more than
+ * one model.
+ */
+export interface Aggregation {
+  /** Model that performs the reconciliation; defaults to the harness default. */
+  model?: string;
 }
 
 /** What the terminal stage produces. */
@@ -49,6 +66,8 @@ export interface Stage {
   onExit: Action[];
   /** Per-stage agent override; falls back to the workflow-wide `agent`. */
   agent?: AgentSettings;
+  /** Reconciliation step for a multi-model stage; see `AgentSettings.models`. */
+  aggregate?: Aggregation;
 }
 
 export interface WorkflowSpec {
