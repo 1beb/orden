@@ -36,7 +36,7 @@ export interface MergeQueueEntry {
   /** = card.completedAt; the FIFO ordering key. */
   enqueuedAt: number;
   status: "queued" | "merging" | "merged" | "skipped" | "escalated";
-  result?: "clean" | "resolved" | "intent-conflict" | "unverifiable";
+  result?: "clean" | "stacked" | "resolved" | "intent-conflict" | "unverifiable";
   /** Integration tip after this entry applied (when merged). */
   integrationTip?: string;
   error?: string;

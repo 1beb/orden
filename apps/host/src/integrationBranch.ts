@@ -89,6 +89,34 @@ export async function applyClean(
   return (await exec(cwd, ["rev-parse", "HEAD"])).stdout.trim();
 }
 
+export type StackResult =
+  | { clean: true; tip: string }
+  | { clean: false; conflictFiles: string[] };
+
+// Auto-stack ("waterfall"): replay the incoming branch's own commits (base..incoming)
+// onto the current integration tip via cherry-pick. Patch application is a stricter,
+// more granular test than merge-tree's 3-way merge — it succeeds only when the
+// incoming work sits cleanly ATOP what's already integrated, i.e. the branches were
+// dependent/compatible rather than colliding. On success the integration branch
+// advances to the new tip; on any conflict we abort (leaving the worktree untouched)
+// and report the unmerged files so the caller can fall through to the resolver.
+export async function stackOnto(
+  cwd: string,
+  base: string,
+  incoming: string,
+  exec: GitExec = defaultGitExec,
+): Promise<StackResult> {
+  const { code } = await exec(cwd, ["cherry-pick", `${base}..${incoming}`]);
+  if (code === 0) {
+    const tip = (await exec(cwd, ["rev-parse", "HEAD"])).stdout.trim();
+    return { clean: true, tip };
+  }
+  const { stdout } = await exec(cwd, ["diff", "--name-only", "--diff-filter=U"]);
+  const conflictFiles = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  await exec(cwd, ["cherry-pick", "--abort"]);
+  return { clean: false, conflictFiles };
+}
+
 // Discard whatever is on the integration worktree and return it to `priorTip`.
 // `merge --abort` is best-effort (it errors when no merge is in progress); the
 // caller has already decided to discard.

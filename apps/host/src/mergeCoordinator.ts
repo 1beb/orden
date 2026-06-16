@@ -21,6 +21,7 @@ import {
   type IntegrationHandle,
   type IntegrationInput,
   type MergePreview,
+  type StackResult,
 } from "./integrationBranch";
 
 // --- Resolver seam -----------------------------------------------------------
@@ -54,6 +55,8 @@ export interface CoordinatorGit {
   ensureIntegrationWorktree(input: IntegrationInput): Promise<IntegrationHandle>;
   previewMerge(cwd: string, into: string, incoming: string): Promise<MergePreview>;
   applyClean(cwd: string, incoming: string, message: string): Promise<string>;
+  /** Try to replay incoming's commits (base..incoming) atop the integration tip. */
+  stackOnto(cwd: string, base: string, incoming: string): Promise<StackResult>;
   resetIntegration(cwd: string, priorTip: string): Promise<void>;
   currentTip(cwd: string): Promise<string>;
   changedFiles(cwd: string, base: string, branch: string): Promise<string[]>;
@@ -203,49 +206,64 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
     const card = await deps.vault.get<CardRec>("cards", entry.cardId);
     const preview = await deps.git.previewMerge(handle.workdir, INTEGRATION_BRANCH, entry.branch);
 
+    let mergeKind: "clean" | "stacked" | "resolved";
     if (preview.clean) {
       tip = await deps.git.applyClean(handle.workdir, entry.branch, `merge ${entry.cardId}`);
+      mergeKind = "clean";
     } else {
-      const contributorIds = uniq(preview.conflictFiles.flatMap((f) => fileOwners.get(f) ?? []));
-      const contributors = await loadIntents(
-        deps.vault,
-        new Map(contributorIds.map((id) => [id, branchOf.get(id) ?? ""])),
-      );
-      const outcome = await deps.resolver({
-        integrationWorkdir: handle.workdir,
-        incoming: intentOf(card, entry.branch, entry.cardId),
-        contributors,
-        conflictFiles: preview.conflictFiles,
-      });
-      if (outcome.kind === "intent-conflict") {
-        await escalate(
+      // Textual conflict. Before treating it as a collision, try to STACK
+      // (waterfall): replay this branch's commits atop the already-integrated
+      // siblings. A clean patch series means the work was dependent/compatible —
+      // it sits on top, not against. The gate below still verifies the result.
+      const stack = await deps.git.stackOnto(handle.workdir, plan.base, entry.branch);
+      if (stack.clean) {
+        tip = stack.tip;
+        mergeKind = "stacked";
+      } else {
+        // Genuine independent overlap — hand to the intent-aware resolver, with the
+        // already-integrated siblings that own the conflicted hunks as context.
+        const contributorIds = uniq(preview.conflictFiles.flatMap((f) => fileOwners.get(f) ?? []));
+        const contributors = await loadIntents(
           deps.vault,
-          entry.cardId,
-          {
-            kind: "intent",
-            question: outcome.question,
-            options: outcome.options,
-            otherCardIds: contributorIds,
-          },
-          "blocked-intent",
+          new Map(contributorIds.map((id) => [id, branchOf.get(id) ?? ""])),
         );
-        await setEntry(deps.vault, entry, { status: "escalated", result: "intent-conflict" });
-        await deps.git.resetIntegration(handle.workdir, priorTip);
-        continue;
+        const outcome = await deps.resolver({
+          integrationWorkdir: handle.workdir,
+          incoming: intentOf(card, entry.branch, entry.cardId),
+          contributors,
+          conflictFiles: preview.conflictFiles,
+        });
+        if (outcome.kind === "intent-conflict") {
+          await escalate(
+            deps.vault,
+            entry.cardId,
+            {
+              kind: "intent",
+              question: outcome.question,
+              options: outcome.options,
+              otherCardIds: contributorIds,
+            },
+            "blocked-intent",
+          );
+          await setEntry(deps.vault, entry, { status: "escalated", result: "intent-conflict" });
+          await deps.git.resetIntegration(handle.workdir, priorTip);
+          continue;
+        }
+        if (outcome.kind === "unverifiable") {
+          await escalate(
+            deps.vault,
+            entry.cardId,
+            { kind: "unverifiable", question: outcome.question },
+            "blocked-unverifiable",
+          );
+          await setEntry(deps.vault, entry, { status: "escalated", result: "unverifiable" });
+          await deps.git.resetIntegration(handle.workdir, priorTip);
+          continue;
+        }
+        // resolved: the resolver agent committed its reconciliation in the worktree
+        tip = await deps.git.currentTip(handle.workdir);
+        mergeKind = "resolved";
       }
-      if (outcome.kind === "unverifiable") {
-        await escalate(
-          deps.vault,
-          entry.cardId,
-          { kind: "unverifiable", question: outcome.question },
-          "blocked-unverifiable",
-        );
-        await setEntry(deps.vault, entry, { status: "escalated", result: "unverifiable" });
-        await deps.git.resetIntegration(handle.workdir, priorTip);
-        continue;
-      }
-      // resolved: the resolver agent committed its reconciliation in the worktree
-      tip = await deps.git.currentTip(handle.workdir);
     }
 
     // Gate the combined state after each apply so the culprit is identifiable.
@@ -276,7 +294,7 @@ export async function drain(deps: CoordinatorDeps, projectId: string): Promise<v
     merged.push(entry.cardId);
     await setEntry(deps.vault, entry, {
       status: "merged",
-      result: preview.clean ? "clean" : "resolved",
+      result: mergeKind,
       integrationTip: tip,
     });
     if (card) {

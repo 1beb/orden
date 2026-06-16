@@ -4,6 +4,7 @@ import {
   previewMerge,
   applyClean,
   resetIntegration,
+  stackOnto,
   currentTip,
   changedFiles,
   runGate,
@@ -72,6 +73,26 @@ describe("applyClean", () => {
     expect(merge).toBeDefined();
     expect(merge).toContain("--no-ff");
     expect(merge).toContain("orden/feat-a");
+  });
+});
+
+describe("stackOnto", () => {
+  it("cherry-picks base..incoming onto the current tip and returns the new tip on a clean stack", async () => {
+    const { exec, calls } = recordingExec({ "rev-parse HEAD": { stdout: "stacktip\n" } });
+    const res = await stackOnto("/wt", "main", "orden/feat-b", exec);
+    expect(res).toEqual({ clean: true, tip: "stacktip" });
+    const cp = calls.find((a) => a[0] === "cherry-pick");
+    expect(cp).toContain("main..orden/feat-b");
+  });
+
+  it("aborts and reports the unmerged files when the cherry-pick series conflicts", async () => {
+    const { exec, calls } = recordingExec({
+      "cherry-pick main": { code: 1 },
+      "diff --name-only --diff-filter=U": { stdout: "x.ts\ny.ts\n" },
+    });
+    const res = await stackOnto("/wt", "main", "orden/feat-b", exec);
+    expect(res).toEqual({ clean: false, conflictFiles: ["x.ts", "y.ts"] });
+    expect(calls.some((a) => a[0] === "cherry-pick" && a.includes("--abort"))).toBe(true);
   });
 });
 

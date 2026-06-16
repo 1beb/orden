@@ -32,9 +32,10 @@ function makeVault(): VaultStore {
 interface GitOpts {
   conflicts?: Record<string, string[]>; // branch -> conflicted files
   changed?: Record<string, string[]>; // branch -> changed files
+  stackable?: Record<string, boolean>; // branch -> cherry-pick series applies cleanly
 }
 function makeGit(opts: GitOpts = {}) {
-  const calls = { applied: [] as string[], reset: [] as string[] };
+  const calls = { applied: [] as string[], stacked: [] as string[], reset: [] as string[] };
   let n = 0;
   const git: CoordinatorGit = {
     ensureIntegrationWorktree: async () => ({ workdir: "/wt", branch: INTEGRATION_BRANCH, tip: "tip0" }),
@@ -45,6 +46,11 @@ function makeGit(opts: GitOpts = {}) {
     applyClean: async (_c, incoming) => {
       calls.applied.push(incoming);
       return `tip${++n}`;
+    },
+    stackOnto: async (_c, _base, incoming) => {
+      calls.stacked.push(incoming);
+      if (opts.stackable?.[incoming]) return { clean: true, tip: `tip${++n}` };
+      return { clean: false, conflictFiles: opts.conflicts?.[incoming] ?? [] };
     },
     resetIntegration: async (_c, prior) => void calls.reset.push(prior),
     currentTip: async () => `tip${++n}`,
@@ -176,6 +182,66 @@ describe("drain — conflict resolved", () => {
     await drain(baseDeps(v, git, { resolver: async () => ({ kind: "resolved" }) }), "P");
     const e = await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a");
     expect(e).toMatchObject({ status: "merged", result: "resolved" });
+  });
+});
+
+describe("drain — auto-stack on detected dependency", () => {
+  it("a textual conflict whose patch series stacks cleanly merges as 'stacked', no resolver", async () => {
+    const v = makeVault();
+    await seedCard(v, "a", { completedAt: 1 });
+    await seedCard(v, "b", { completedAt: 2 }); // textually conflicts but stacks atop a
+    await enqueueOnComplete(v, "a");
+    await enqueueOnComplete(v, "b");
+    const { git, calls } = makeGit({
+      conflicts: { "orden/b": ["x.ts"] },
+      stackable: { "orden/b": true },
+    });
+    let resolverCalls = 0;
+    await drain(
+      baseDeps(v, git, { resolver: async () => (resolverCalls++, { kind: "resolved" }) }),
+      "P",
+    );
+    expect(calls.stacked).toEqual(["orden/b"]);
+    expect(resolverCalls).toBe(0); // dependency stacked — never reached the resolver
+    expect(await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "b")).toMatchObject({
+      status: "merged",
+      result: "stacked",
+    });
+  });
+
+  it("a textual conflict that will NOT stack falls through to the resolver", async () => {
+    const v = makeVault();
+    await seedCard(v, "a");
+    await enqueueOnComplete(v, "a");
+    const { git, calls } = makeGit({ conflicts: { "orden/a": ["x.ts"] } }); // not stackable
+    let resolverCalls = 0;
+    await drain(
+      baseDeps(v, git, { resolver: async () => (resolverCalls++, { kind: "resolved" }) }),
+      "P",
+    );
+    expect(calls.stacked).toEqual(["orden/a"]); // stack was attempted first
+    expect(resolverCalls).toBe(1); // then fell through to the resolver
+    expect(await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a")).toMatchObject({
+      status: "merged",
+      result: "resolved",
+    });
+  });
+
+  it("a stacked branch is still gated; a red gate escalates it as unverifiable", async () => {
+    const v = makeVault();
+    await seedCard(v, "a");
+    await enqueueOnComplete(v, "a");
+    const { git, calls } = makeGit({
+      conflicts: { "orden/a": ["x.ts"] },
+      stackable: { "orden/a": true },
+    });
+    await drain(baseDeps(v, git, { gate: async () => ({ green: false, output: "BOOM" }) }), "P");
+    expect(calls.stacked).toEqual(["orden/a"]);
+    expect(await v.get<MergeQueueEntry>(MERGE_QUEUE_NS, "a")).toMatchObject({
+      status: "escalated",
+      result: "unverifiable",
+    });
+    expect(calls.reset.length).toBe(1); // reset to prior tip after the failed gate
   });
 });
 
