@@ -4142,8 +4142,8 @@ li.sess-done-head {
   font-size: calc(13px * var(--font-scale));
   overflow-wrap: anywhere;
 }
-/* Project label/selector under the card title — styled as plain small-caps text
-   (native select chrome stripped) but reassignable inline. */
+/* Project label under the card title — plain read-only small-caps text telling
+   you which project the card belongs to (reassignment lives on the card modal). */
 .orden-card__project {
   font-size: calc(11px * var(--font-scale));
   color: var(--muted);
@@ -4151,16 +4151,9 @@ li.sess-done-head {
   font-variant: small-caps;
   letter-spacing: 0.03em;
   max-width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  font-family: inherit;
-}
-.orden-card__project:hover {
-  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .orden-card.dragging {
   opacity: 0.5;

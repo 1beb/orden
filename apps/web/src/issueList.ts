@@ -7,7 +7,7 @@
 // project is fixed, and both are editable on the card modal).
 
 import type { CardState } from "@orden/outliner";
-import { setItemState, setItemProject, cardSessionIds, type Item } from "./cards";
+import { setItemProject, cardSessionIds, type Item } from "./cards";
 import { listProjects, getProject } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
 import {
@@ -111,23 +111,11 @@ export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueG
         });
       });
       row.append(lead, title);
-      // Inline state + project pickers — kanban list view only. The project page
-      // (showMeta === false) drops them: state shows in the group headers, the
-      // project is fixed, and both are editable on the card via its modal.
+      // Inline project picker — kanban list view only. The state is conveyed by
+      // the group headers (no status dropdown needed); the project page
+      // (showMeta === false) drops the picker too, since its rows share one
+      // project and reassignment lives on the card modal.
       if (deps.showMeta !== false) {
-        const select = document.createElement("select");
-        select.className = "issue-state";
-        for (const s of deps.states) {
-          const opt = document.createElement("option");
-          opt.value = s;
-          opt.textContent = STATE_LABELS[s];
-          opt.selected = s === item.state;
-          select.append(opt);
-        }
-        select.addEventListener("change", () => {
-          setItemState(item.id, select.value as CardState);
-          deps.onMutate();
-        });
         // Move the card to another project (it then leaves this list).
         const projSel = document.createElement("select");
         projSel.className = "issue-project";
@@ -150,7 +138,7 @@ export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueG
         // row's right on desktop but drop onto a line under the title on mobile.
         const meta = document.createElement("div");
         meta.className = "issue-row-meta";
-        meta.append(select, projSel);
+        meta.append(projSel);
         row.append(meta);
       }
       details.append(row);
