@@ -209,7 +209,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
-.breadcrumb:empty {
+.breadcrumb:empty,
+.breadcrumb[hidden] {
   display: none;
 }
 .breadcrumb-seg {
