@@ -46,6 +46,11 @@ const devCss = process.env.ORDEN_DEV_CSS === "1";
 const devCssSrc = devCss ? resolve(repoRoot, "apps/web/src/styles.css") : null;
 const host = new NodeHost({ vaultRoot, filesRoot });
 
+// Backfill the search index from existing vault content (no-op once built).
+// Non-blocking: the server starts immediately and live writes are indexed via
+// the change feed regardless; this only catches up content from before boot.
+void host.initSearchIndex().catch((err) => console.error("search index build failed:", err));
+
 // Persists clipper snapshots (and per-highlight screenshots) under vaultRoot for
 // the POST /capture route.
 const snapshotStore = new DiskSnapshotStore(vaultRoot);

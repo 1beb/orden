@@ -25,7 +25,12 @@ import type {
   KeyedMessage,
   ModelOption,
   SlashCommand,
+  SearchService,
+  SearchHit,
+  BacklinkHit,
+  SearchEntryNs,
 } from "@orden/host-api";
+import { fromMarkdown, buildBacklinkIndex } from "@orden/outliner";
 
 import { listProjects, addProject, removeProject } from "../projects";
 import { listFiles, getFile } from "../files";
@@ -210,6 +215,89 @@ class LocalChat implements ChatBackend {
   }
 }
 
+// A short excerpt around the first match of `q` in `body`, with the match
+// bracketed — mirrors the host index's snippet() shape so the UI renders the
+// same either way.
+function localSnippet(body: string, q: string): string {
+  const hay = body.toLowerCase();
+  const i = hay.indexOf(q);
+  if (i < 0) return body.slice(0, 80);
+  const start = Math.max(0, i - 30);
+  const end = Math.min(body.length, i + q.length + 30);
+  const pre = start > 0 ? "…" : "";
+  const post = end < body.length ? "…" : "";
+  return `${pre}${body.slice(start, i)}[${body.slice(i, i + q.length)}]${body.slice(i + q.length, end)}${post}`;
+}
+
+// Browser fallback for SearchService: scans the localStorage-backed vault on
+// demand. No scale concern in single-user browser mode. Reuses @orden/outliner
+// for link extraction so backlinks match the host's semantics (case-insensitive,
+// one ref per source block per target).
+class LocalSearch implements SearchService {
+  constructor(private readonly vault: VaultStore) {}
+
+  async query(text: string, opts?: { kinds?: SearchEntryNs[]; limit?: number }): Promise<SearchHit[]> {
+    const q = text.trim().toLowerCase();
+    if (q === "") return [];
+    const kinds: SearchEntryNs[] = opts?.kinds ?? ["pages", "journal"];
+    const hits: SearchHit[] = [];
+    for (const ns of kinds) {
+      for (const name of await this.vault.list(ns)) {
+        const body = (await this.vault.get<string>(ns, name)) ?? "";
+        const nameHit = name.toLowerCase().includes(q);
+        if (!nameHit && !body.toLowerCase().includes(q)) continue;
+        hits.push({ ns, name, snippet: localSnippet(body, q), score: nameHit ? 0 : 1 });
+      }
+    }
+    hits.sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+    return hits.slice(0, opts?.limit ?? 50);
+  }
+
+  async backlinks(target: string): Promise<BacklinkHit[]> {
+    const lower = target.toLowerCase();
+    const refs: BacklinkHit[] = [];
+    await this.eachEntry((name, body) => {
+      const idx = buildBacklinkIndex([{ name, root: fromMarkdown(body) }]);
+      const seen = new Set<string>();
+      for (const [t, rs] of Object.entries(idx)) {
+        if (t.toLowerCase() !== lower) continue;
+        for (const r of rs) {
+          if (seen.has(r.blockId)) continue;
+          seen.add(r.blockId);
+          refs.push({ pageName: name, blockId: r.blockId, text: r.text });
+        }
+      }
+    });
+    return refs;
+  }
+
+  async backlinkCounts(): Promise<Record<string, number>> {
+    const counts: Record<string, number> = {};
+    await this.eachEntry((name, body) => {
+      const idx = buildBacklinkIndex([{ name, root: fromMarkdown(body) }]);
+      const seen = new Set<string>();
+      for (const [t, rs] of Object.entries(idx)) {
+        const lower = t.toLowerCase();
+        for (const r of rs) {
+          const k = `${r.blockId} ${lower}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          counts[lower] = (counts[lower] ?? 0) + 1;
+        }
+      }
+    });
+    return counts;
+  }
+
+  private async eachEntry(fn: (name: string, body: string) => void): Promise<void> {
+    for (const ns of ["pages", "journal"] as const) {
+      for (const name of await this.vault.list(ns)) {
+        fn(name, (await this.vault.get<string>(ns, name)) ?? "");
+      }
+    }
+  }
+}
+
 class LocalLocks implements LockService {
   // Single-user, in-memory no-op: nothing ever contends.
   async acquire(_resource: string): Promise<{ ok: true } | { ok: false; heldBy: string }> {
@@ -237,12 +325,14 @@ export class BrowserHost implements Host {
   readonly sessions: SessionManager = new LocalSessions();
   readonly locks: LockService = new LocalLocks();
   readonly chat: ChatBackend = new LocalChat();
+  readonly search: SearchService = new LocalSearch(this.vault);
 
   capabilities(): HostCapabilities {
     return {
       remoteProjects: false,
       spawnSessions: false,
       persistentVault: true,
+      search: true, // in-memory scan fallback
     };
   }
 }
