@@ -9,6 +9,7 @@ import {
   journalIndex,
   pageNames,
   pagesIndex,
+  renamePage,
   setPageMarkdown,
 } from "../src/pages";
 
@@ -137,5 +138,135 @@ describe("pages store (host-backed)", () => {
     await hydratePages(new BrowserHost());
     expect(getPageMarkdown("KeepMe")).toBe("");
     expect(pageNames()).not.toContain("KeepMe");
+  });
+});
+
+describe("renamePage", () => {
+  let host: BrowserHost;
+  beforeEach(async () => {
+    localStorage.clear();
+    host = new BrowserHost();
+    await hydratePages(host);
+  });
+
+  it("re-keys the body under the new name and drops the old key", () => {
+    setPageMarkdown("Old Page", "- body content");
+    expect(renamePage("Old Page", "New Page")).toEqual({ ok: true });
+    expect(getPageMarkdown("New Page")).toBe("- body content");
+    expect(getPageMarkdown("Old Page")).toBe("");
+    expect(pageNames()).toContain("New Page");
+    expect(pageNames()).not.toContain("Old Page");
+  });
+
+  it("persists the rename to the vault (survives re-hydrate)", async () => {
+    setPageMarkdown("Old Page", "- body");
+    await settle();
+    renamePage("Old Page", "New Page");
+    await settle();
+    await hydratePages(host);
+    expect(getPageMarkdown("New Page")).toBe("- body");
+    expect(getPageMarkdown("Old Page")).toBe("");
+    expect(await host.vault.get("pages", "Old Page")).toBeNull();
+    expect(await host.vault.get("pages", "New Page")).toBe("- body");
+  });
+
+  it("carries page metadata across the rename", async () => {
+    setPageMarkdown("Old Page", "- body");
+    await settle();
+    const before = await host.vault.get("pagemeta", "Old Page");
+    expect(before).not.toBeNull();
+    renamePage("Old Page", "New Page");
+    await settle();
+    expect(await host.vault.get("pagemeta", "Old Page")).toBeNull();
+    expect(await host.vault.get("pagemeta", "New Page")).toEqual(before);
+  });
+
+  it("rewrites [[OldName]] references in other pages", () => {
+    setPageMarkdown("Target", "- i am the target");
+    setPageMarkdown("Referrer", "- see [[Target]] here");
+    renamePage("Target", "Renamed");
+    expect(getPageMarkdown("Referrer")).toBe("- see [[Renamed]] here");
+    expect(backlinksTo("Renamed").length).toBeGreaterThanOrEqual(1);
+    expect(backlinksTo("Target")).toHaveLength(0);
+  });
+
+  it("rewrites references in journal entries, case-insensitively and whitespace-tolerant", () => {
+    setPageMarkdown("Target", "- target");
+    setPageMarkdown("2026-06-17", "- jotted [[ target ]] today");
+    renamePage("Target", "Renamed");
+    expect(getPageMarkdown("2026-06-17")).toBe("- jotted [[Renamed]] today");
+  });
+
+  it("rewrites a self-reference in the renamed page's own body", () => {
+    setPageMarkdown("Target", "- i link to [[Target]] myself");
+    renamePage("Target", "Renamed");
+    expect(getPageMarkdown("Renamed")).toBe("- i link to [[Renamed]] myself");
+  });
+
+  it("leaves unrelated entries untouched", () => {
+    setPageMarkdown("Target", "- target");
+    setPageMarkdown("Unrelated", "- nothing to see");
+    renamePage("Target", "Renamed");
+    expect(getPageMarkdown("Unrelated")).toBe("- nothing to see");
+  });
+
+  it("blocks a rename onto an existing page name (case-insensitive)", () => {
+    setPageMarkdown("Alpha", "- a");
+    setPageMarkdown("Beta", "- b");
+    expect(renamePage("Alpha", "beta")).toEqual({
+      ok: false,
+      reason: 'A page named "Beta" already exists.',
+    });
+    expect(getPageMarkdown("Alpha")).toBe("- a");
+    expect(getPageMarkdown("Beta")).toBe("- b");
+  });
+
+  it("allows re-casing a page's own name and rewrites its references", () => {
+    setPageMarkdown("notes", "- jot");
+    setPageMarkdown("Referrer", "- see [[notes]]");
+    expect(renamePage("notes", "Notes")).toEqual({ ok: true });
+    expect(pageNames()).toContain("Notes");
+    expect(pageNames()).not.toContain("notes");
+    expect(getPageMarkdown("Referrer")).toBe("- see [[Notes]]");
+  });
+
+  it("treats an unchanged name (modulo whitespace) as a no-op success", () => {
+    setPageMarkdown("Same", "- x");
+    expect(renamePage("Same", "  Same  ")).toEqual({ ok: true });
+    expect(getPageMarkdown("Same")).toBe("- x");
+  });
+
+  it("rejects an empty name", () => {
+    setPageMarkdown("Page", "- x");
+    expect(renamePage("Page", "   ")).toEqual({ ok: false, reason: "Name can't be empty." });
+  });
+
+  it("rejects a date name (would collide with the journal store)", () => {
+    setPageMarkdown("Page", "- x");
+    expect(renamePage("Page", "2026-01-01")).toEqual({
+      ok: false,
+      reason: "A page name can't be a date.",
+    });
+  });
+
+  it("rejects a reserved card:/notes: prefix", () => {
+    setPageMarkdown("Page", "- x");
+    expect(renamePage("Page", "card:123")).toEqual({ ok: false, reason: "That name is reserved." });
+  });
+
+  it("refuses to rename a journal day-page", () => {
+    setPageMarkdown("2026-06-17", "- diary");
+    expect(renamePage("2026-06-17", "My Day")).toEqual({
+      ok: false,
+      reason: "This page can't be renamed.",
+    });
+  });
+
+  it("refuses to rename an internal derived page", () => {
+    setPageMarkdown("card:abc", "- narrative");
+    expect(renamePage("card:abc", "Story")).toEqual({
+      ok: false,
+      reason: "This page can't be renamed.",
+    });
   });
 });

@@ -290,6 +290,23 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
   );
 
   server.registerTool(
+    "resolution_report",
+    {
+      description:
+        "Report the outcome of a merge-conflict reconciliation. ONLY for ephemeral resolver sessions the merge coordinator spawned. Call exactly once when done: kind 'resolved' after you committed a reconciliation that honors both goals; 'intent-conflict' (with a goal-level question) when the goals genuinely contradict and a human must choose; 'unverifiable' when you cannot produce a reconciliation that will pass the project's checks.",
+      inputSchema: {
+        kind: z.enum(["resolved", "intent-conflict", "unverifiable"]),
+        question: z
+          .string()
+          .optional()
+          .describe("goal-level question for the user (required for intent-conflict / unverifiable)"),
+      },
+    },
+    async ({ kind, question }) =>
+      tools.resolutionReport(host.vault, await currentSessionId(), kind, question),
+  );
+
+  server.registerTool(
     "project_list",
     { description: "List the orden projects (id and name).", inputSchema: {} },
     () => tools.projectList(host.vault),

@@ -310,6 +310,9 @@ export interface SessionCwdRec {
   title?: string;
   initialPrompt?: string;
   agent?: "claude" | "opencode";
+  /** Pinned to a host-managed worktree (e.g. the merge integration worktree):
+   *  run THERE, never in a session worktree of its own. */
+  fixedWorkdir?: boolean;
 }
 
 export async function resolveSessionCwd(
@@ -319,6 +322,10 @@ export async function resolveSessionCwd(
   defaultCwd: string,
   opts?: { launch?: boolean; exec?: GitExec; trust?: typeof ensureClaudeTrust },
 ): Promise<string> {
+  // A session pinned to a host-managed worktree (the merge resolver in the
+  // integration worktree) runs THERE on launch too — never in its own worktree.
+  if (rec.fixedWorkdir && typeof rec.workdir === "string" && rec.workdir) return rec.workdir;
+
   // A session that already ran in a worktree stays associated with it — even
   // for reads after the worktree was reaped (claude keys transcripts by the
   // cwd the agent RAN in, so consistency beats existence here).

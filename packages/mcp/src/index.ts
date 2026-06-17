@@ -19,8 +19,10 @@ export {
   panelOpen,
   docRender,
   learningPropose,
+  resolutionReport,
+  MERGE_RESOLUTION_NS,
 } from "./tools";
-export type { ToolResult } from "./tools";
+export type { ToolResult, ResolutionKind, ResolutionVerdict } from "./tools";
 export {
   sessionForConversation,
   cardForSession,

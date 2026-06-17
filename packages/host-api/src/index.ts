@@ -71,6 +71,21 @@ export interface Project {
   workingDir?: string;
   /** Per-project worktree isolation override. Absent = inherit the global setting. */
   worktreeIsolation?: boolean;
+  /**
+   * Per-project integration boundary the merge coordinator applies on a green
+   * combined state. "fast" = merge to local main + rebuild (origin push stays a
+   * gated manual step); "measured" = push + open a PR, never touch main. Absent
+   * = inherit the global default.
+   */
+  integrationMode?: "fast" | "measured";
+  /** Per-project gate command. Absent = the global default verify command. */
+  integrationVerify?: string;
+  /**
+   * Per-project command run after a `fast` merge to main (e.g. rebuild a served
+   * bundle). Absent/empty = no post-merge build. Project-specific by nature —
+   * orden sets it to rebuild its web dist; most projects need nothing.
+   */
+  integrationRebuild?: string;
 }
 
 export interface ProjectRegistry {
@@ -232,9 +247,11 @@ export interface RenderResult {
  * - "pushed": branch pushed; compareUrl set when the forge is recognized.
  * - "pr-opened": branch pushed and a PR created (prUrl).
  * - "push-failed": the push errored (auth/network); branch stays local.
+ * - "clean": tree verified clean, branch reported, NOT pushed — the merge
+ *   coordinator owns the ordered push/merge (checkOnly mode).
  */
 export interface PublishResult {
-  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed";
+  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed" | "clean";
   branch?: string;
   prUrl?: string;
   compareUrl?: string;

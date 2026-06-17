@@ -285,9 +285,11 @@ export class NodeHost implements Host {
   }
 
   /**
-   * Publish a session's worktree branch on completion: clean-check, push, PR
-   * (per the prForge setting). "no-worktree" for sessions that never got an
-   * isolated worktree — there is nothing to publish for them.
+   * Verify a session's worktree is clean on completion and report its branch —
+   * WITHOUT pushing or opening a PR. The merge coordinator owns the actual,
+   * ordered push/merge of the combined integration (checkOnly), so completion
+   * only gates on a clean tree. "no-worktree" for sessions that never got an
+   * isolated worktree — there is nothing to integrate for them.
    */
   async publish(sessionId: string, meta: { title: string; summary?: string }): Promise<PublishResult> {
     const rec = await this.vault.get<{ workdir?: string; branch?: string }>("sessions", sessionId);
@@ -301,6 +303,7 @@ export class NodeHost implements Host {
       title: meta.title,
       summary: meta.summary,
       prForge: settings.prForge,
+      checkOnly: true,
     });
   }
 

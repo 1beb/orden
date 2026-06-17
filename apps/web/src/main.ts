@@ -18,7 +18,7 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages, getPageMarkdown, pagesIndex, journalIndex } from "./pages";
+import { hydratePages, getPageMarkdown, pagesIndex, journalIndex, renamePage } from "./pages";
 import {
   hydrateWorkflows,
   renderWorkflowsView,
@@ -1481,6 +1481,19 @@ const journal = mountJournal(
     }
     return btn;
   },
+  // Commit a page-title rename: vault-side re-key + backlink rewrite. On failure
+  // (e.g. name collision) surface the reason; the journal reverts the heading.
+  // Self-originated vault writes don't echo back, so refresh the Pages index if
+  // it happens to be the open view.
+  (oldName, newName) => {
+    const result = renamePage(oldName, newName);
+    if (!result.ok) {
+      showToast(result.reason);
+    } else if (viewStore.get() === "pages") {
+      renderPagesIndex(viewEls.pages, openPage);
+    }
+    return result;
+  },
 );
 
 function refreshBoard(): void {
@@ -2293,6 +2306,11 @@ bindCheckbox("worktree-auto-trust", "worktreeAutoTrust");
 // PR forge: how card completion publishes a session branch — auto-infer the
 // forge CLI from the remote URL, force one, or push without opening a PR.
 bindSelect("pr-forge", "prForge", ["auto", "gh", "glab", "none"]);
+
+// Integration mode: how the merge coordinator integrates a green combined state —
+// fast (merge to local main + rebuild) or measured (push + open a PR). The
+// per-project override in the project modal beats this global default.
+bindSelect("integration-mode", "integrationMode", ["fast", "measured"]);
 
 // HTML render default: when on, .html files open rendered; off shows source.
 // This is the default only — a per-file topbar toggle can override it for the

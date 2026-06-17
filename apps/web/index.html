@@ -161,6 +161,13 @@
                       <option value="none">Push only</option>
                     </select>
                   </div>
+                  <div class="settings-row">
+                    <span class="settings-row-label">Integration mode</span>
+                    <select id="integration-mode" class="settings-select">
+                      <option value="fast">Fast — merge to main + rebuild</option>
+                      <option value="measured">Measured — push + open a PR</option>
+                    </select>
+                  </div>
                   <label class="settings-row">
                     <span class="settings-row-label">Show Terminal Only button</span>
                     <span class="settings-switch"><input type="checkbox" id="show-scratch-terminal" /><span class="settings-switch-track"></span></span>

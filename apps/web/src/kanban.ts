@@ -3,10 +3,18 @@ import {
   isExpiredComplete,
   type CardState,
 } from "@orden/outliner";
-import { listItems, setItemState, setItemProject, cardSessionIds, type Item } from "./cards";
-import { listProjects } from "./projects";
+import {
+  listItems,
+  setItemState,
+  setItemProject,
+  cardSessionIds,
+  getItem,
+  chooseIntegrationWinner,
+  type Item,
+} from "./cards";
+import { listProjects, getProject } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
-import { getSession, setSessionProject, type Agent } from "./sessions";
+import { getSession, type Agent } from "./sessions";
 import { openCardModal } from "./cardModal";
 import { renderIssueGroups } from "./issueList";
 import { loadSettings, saveSettings, type KanbanView } from "./settings";
@@ -297,29 +305,12 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
       const title = document.createElement("div");
       title.className = "orden-card__title";
       title.textContent = item.title;
-      // Project shown in small caps under the title, as a select so the card can
-      // be reassigned to another project inline. Pointer events are stopped so
-      // using it neither opens the modal (card click) nor starts a drag.
-      const proj = document.createElement("select");
+      // Project shown in small caps under the title as a plain read-only label —
+      // it tells you which project the card belongs to at a glance. Reassigning a
+      // card to another project lives on the card modal, not inline here.
+      const proj = document.createElement("div");
       proj.className = "orden-card__project";
-      proj.title = "Project";
-      for (const p of listProjects()) {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        opt.textContent = p.name;
-        opt.selected = p.id === item.projectId;
-        proj.append(opt);
-      }
-      proj.addEventListener("mousedown", (e) => e.stopPropagation());
-      proj.addEventListener("click", (e) => e.stopPropagation());
-      proj.addEventListener("change", (e) => {
-        e.stopPropagation();
-        setItemProject(item.id, proj.value);
-        // Keep linked sessions on the same project so they don't strand under
-        // Homeroom's "Active sessions" while their card moved away.
-        for (const sid of cardSessionIds(item)) setSessionProject(sid, proj.value);
-        rerender();
-      });
+      proj.textContent = getProject(item.projectId)?.name ?? "—";
       card.append(title, proj);
 
       // Footer line: due-date badge (overdue when past today and not complete)
@@ -367,6 +358,49 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
           }
         }
         card.append(footer);
+      }
+
+      // Integration decision: a card the merge coordinator blocked on an intent
+      // collision (or an unverifiable resolution). Surface the goal-level question
+      // and one chip per contributing card; a chip click records the winner and
+      // resumes integration. No diffs — decisions stay at the intent level.
+      const block = item.integrationBlock;
+      if (
+        (item.mergeStatus === "blocked-intent" || item.mergeStatus === "blocked-unverifiable") &&
+        block
+      ) {
+        const box = document.createElement("div");
+        box.className = "orden-card__decision";
+        const q = document.createElement("div");
+        q.className = "orden-card__decision-q";
+        q.textContent = block.question;
+        box.append(q);
+        if (block.kind === "intent" && block.options && block.options.length > 0) {
+          const chips = document.createElement("div");
+          chips.className = "orden-card__decision-chips";
+          for (const optId of block.options) {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "orden-card__decision-chip";
+            if (block.chosen === optId) chip.classList.add("is-chosen");
+            chip.textContent = getItem(optId)?.title ?? optId;
+            chip.addEventListener("mousedown", (e) => e.stopPropagation());
+            chip.addEventListener("click", (e) => {
+              e.stopPropagation();
+              chooseIntegrationWinner(item.id, optId);
+              rerender();
+            });
+            chips.append(chip);
+          }
+          box.append(chips);
+        }
+        card.append(box);
+      }
+      if (item.integrationNote) {
+        const note = document.createElement("div");
+        note.className = "orden-card__integration-note";
+        note.textContent = item.integrationNote;
+        card.append(note);
       }
 
       // No AI conversation yet → offer to start one (Claude / opencode) right

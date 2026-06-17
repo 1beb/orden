@@ -3,14 +3,21 @@
 //
 // Claude Code stores transcripts at
 //   ~/.claude/projects/<encoded-cwd>/<session_id>.jsonl
-// where <encoded-cwd> is the absolute cwd with every "/" and "." replaced by "-"
-// (e.g. /home/b/projects/orden -> -home-b-projects-orden). Verified against the
-// real ~/.claude/projects directory on disk (Claude Code v2.1.x).
+// where <encoded-cwd> is the absolute cwd with every NON-alphanumeric char
+// replaced by "-" — not just "/" and "." but "_" too (e.g.
+// /home/b/projects/orden -> -home-b-projects-orden, and the underscore-laden
+// worktree path /home/b/.orden/worktrees/proj_x_1/sess_y_2 ->
+// -home-b--orden-worktrees-proj-x-1-sess-y-2). Verified against the real
+// ~/.claude/projects directory on disk (Claude Code v2.1.x). Missing the "_"
+// case made claudeTranscriptExists look in the wrong dir for every worktree
+// session (their paths all carry proj_<id>/sess_<id>), so a resume could not
+// find the transcript and buildCommand minted a brand-new conversation instead
+// of reattaching to the ongoing one.
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const encodeCwd = (cwd: string): string => cwd.replace(/[/.]/g, "-");
+export const encodeCwd = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, "-");
 
 // The user's home, used to locate ~/.claude. Prefer the live $HOME env var over
 // os.homedir(): on Linux they're identical (homedir() returns $HOME when set),

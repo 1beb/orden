@@ -67,6 +67,35 @@ export async function vaultList(host: Host, ns: string): Promise<ToolResult> {
   return text(keys.length ? keys.sort().join("\n") : "(empty)");
 }
 
+// --- merge-resolution verdict ---------------------------------------------
+// The protocol an ephemeral resolver agent uses to return its structured verdict
+// to the awaiting merge coordinator. The agent (bound to a resolver session)
+// calls resolution_report; the host's resolver runner watches MERGE_RESOLUTION_NS
+// keyed by that session id and maps the verdict to a ResolverOutcome.
+
+export const MERGE_RESOLUTION_NS = "merge-resolution";
+
+export type ResolutionKind = "resolved" | "intent-conflict" | "unverifiable";
+
+export interface ResolutionVerdict {
+  kind: ResolutionKind;
+  /** Goal-level question for the user; carried on intent-conflict / unverifiable. */
+  question?: string;
+}
+
+export async function resolutionReport(
+  vault: VaultStore,
+  sessionId: string | undefined,
+  kind: ResolutionKind,
+  question?: string,
+): Promise<ToolResult> {
+  if (!sessionId)
+    return text("resolution_report: this connection isn't bound to a resolver session");
+  const verdict: ResolutionVerdict = { kind, ...(question?.trim() ? { question: question.trim() } : {}) };
+  await vault.set(MERGE_RESOLUTION_NS, sessionId, verdict);
+  return text(`resolution recorded: ${kind}`);
+}
+
 // --- kanban / session / project / panel tools -----------------------------
 // These take the VaultStore directly (host runtime). Host-minted ids use a
 // time+random suffix so they never collide with the web's per-process counter
@@ -342,6 +371,7 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
 // Ranking for picking the card-level publish stamp when a card has several
 // sessions: surface the most "published" outcome.
 const PUBLISH_RANK: Record<PublishResult["state"], number> = {
+  clean: 6, // verified clean, awaiting coordinator integration — the success state
   "pr-opened": 5,
   pushed: 4,
   "push-failed": 3,
