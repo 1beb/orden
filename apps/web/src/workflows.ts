@@ -136,22 +136,31 @@ function openEditor(name: string, creating: boolean): void {
 
 // --- rendering ----------------------------------------------------------
 
+// A normal inline-sized button (NOT .nav-add, which is a full-width nav pill).
+function makeButton(label: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = label;
+  b.style.cssText =
+    "flex:0 0 auto;width:auto;white-space:nowrap;font:inherit;color:var(--muted);" +
+    "background:none;border:1px dashed var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;";
+  return b;
+}
+
 function renderList(c: { container: HTMLElement }): void {
   const { container } = c;
 
+  // Header row, aligned to the same centered 760px column as the table.
+  const header = document.createElement("div");
+  header.style.cssText =
+    "max-width:760px;margin:0 auto 16px;display:flex;align-items:center;justify-content:space-between;gap:1rem;";
   const heading = document.createElement("h1");
-  heading.className = "projects-index-title";
   heading.textContent = "Workflows";
-  container.append(heading);
-
-  const newBtn = document.createElement("button");
-  newBtn.className = "nav-add";
-  newBtn.type = "button";
-  newBtn.textContent = "+ New workflow";
-  newBtn.style.cssText = "position:absolute;top:1.25rem;right:1.5rem;";
+  heading.style.cssText = "margin:0;font-size:calc(22px * var(--font-scale));font-weight:700;";
+  const newBtn = makeButton("+ New workflow");
   newBtn.addEventListener("click", () => openEditor("my-workflow", true));
-  container.style.position = "relative";
-  container.append(newBtn);
+  header.append(heading, newBtn);
+  container.append(header);
 
   const rows = listWorkflows();
   const table = document.createElement("table");
@@ -192,7 +201,8 @@ function renderEditor(c: { container: HTMLElement; host: Host }, name: string, c
   const { container, host } = c;
 
   const wrap = document.createElement("div");
-  wrap.style.cssText = "padding:1.25rem 1.5rem;display:flex;flex-direction:column;gap:0.75rem;height:100%;box-sizing:border-box;";
+  wrap.style.cssText =
+    "max-width:760px;margin:0 auto;padding:0 0 1.25rem;display:flex;flex-direction:column;gap:0.75rem;box-sizing:border-box;";
 
   const ta = document.createElement("textarea");
   ta.value = markdownFor(name, creating);
@@ -204,11 +214,8 @@ function renderEditor(c: { container: HTMLElement; host: Host }, name: string, c
     "color:inherit;resize:vertical;";
 
   const bar = document.createElement("div");
-  bar.style.cssText = "display:flex;gap:0.5rem;";
-  const save = document.createElement("button");
-  save.className = "nav-add";
-  save.type = "button";
-  save.textContent = "Save";
+  bar.style.cssText = "display:flex;gap:0.5rem;align-items:center;";
+  const save = makeButton("Save");
   const err = document.createElement("span");
   err.style.cssText = "color:#dc2626;font-size:12px;align-self:center;";
   save.addEventListener("click", async () => {
@@ -219,10 +226,7 @@ function renderEditor(c: { container: HTMLElement; host: Host }, name: string, c
     }
     workflowsBackToList();
   });
-  const cancel = document.createElement("button");
-  cancel.className = "nav-add";
-  cancel.type = "button";
-  cancel.textContent = "Back";
+  const cancel = makeButton("Back");
   cancel.addEventListener("click", () => workflowsBackToList());
 
   bar.append(save, cancel, err);
@@ -233,7 +237,6 @@ function renderEditor(c: { container: HTMLElement; host: Host }, name: string, c
 function draw(): void {
   if (!ctx) return;
   ctx.container.replaceChildren();
-  ctx.container.style.position = "";
   if (editing) renderEditor(ctx, editing.name, editing.creating);
   else renderList(ctx);
 }
