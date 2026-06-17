@@ -150,10 +150,11 @@ function makeButton(label: string): HTMLButtonElement {
 function renderList(c: { container: HTMLElement }): void {
   const { container } = c;
 
-  // Header row, aligned to the same centered 760px column as the table.
+  // Header row, aligned to the same centered 760px column as the table, with
+  // breathing room below the breadcrumb/topbar.
   const header = document.createElement("div");
   header.style.cssText =
-    "max-width:760px;margin:0 auto 16px;display:flex;align-items:center;justify-content:space-between;gap:1rem;";
+    "max-width:760px;margin:1.5rem auto 16px;display:flex;align-items:center;justify-content:space-between;gap:1rem;";
   const heading = document.createElement("h1");
   heading.textContent = "Workflows";
   heading.style.cssText = "margin:0;font-size:calc(22px * var(--font-scale));font-weight:700;";
@@ -195,6 +196,58 @@ function renderList(c: { container: HTMLElement }): void {
   }
   table.append(tbody);
   container.append(table);
+
+  container.append(renderGlossary());
+}
+
+const GLOSSARY: { term: string; def: string }[] = [
+  {
+    term: "Description (intent)",
+    def: "What the workflow is for. The agent reads it to suggest the right workflow for a task, and it shows in this list.",
+  },
+  {
+    term: "Prose step",
+    def: "Plain instructions to the agent — it does the work (write a plan, implement, analyze). Non-deterministic: the agent interprets it.",
+  },
+  {
+    term: "Gate — approve / review",
+    def: "A pause for you. `approve` = sign off on the plan before any work; `review` = read and annotate the result before the workflow advances. Your annotations flow back to the agent.",
+  },
+  {
+    term: "Action (do:)",
+    def: "A step orden runs itself, deterministically: push, open-pr, merge, journal, reap, propose-learnings.",
+  },
+];
+
+function renderGlossary(): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.cssText =
+    "max-width:760px;margin:32px auto 0;padding-top:16px;border-top:1px solid var(--line);";
+
+  const h = document.createElement("h2");
+  h.textContent = "Glossary";
+  h.style.cssText = "margin:0 0 4px;font-size:calc(13px * var(--font-scale));text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);";
+  wrap.append(h);
+
+  const note = document.createElement("p");
+  note.textContent =
+    "A workflow is a runbook: an ordered list of steps written as markdown. Each step is one of:";
+  note.style.cssText = "margin:0 0 10px;font-size:calc(13px * var(--font-scale));color:var(--muted);";
+  wrap.append(note);
+
+  const dl = document.createElement("dl");
+  dl.style.cssText = "margin:0;display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;";
+  for (const { term, def } of GLOSSARY) {
+    const dt = document.createElement("dt");
+    dt.textContent = term;
+    dt.style.cssText = "font-weight:600;font-size:calc(13px * var(--font-scale));";
+    const dd = document.createElement("dd");
+    dd.textContent = def;
+    dd.style.cssText = "margin:0;font-size:calc(13px * var(--font-scale));color:var(--muted);";
+    dl.append(dt, dd);
+  }
+  wrap.append(dl);
+  return wrap;
 }
 
 function renderEditor(c: { container: HTMLElement; host: Host }, name: string, creating: boolean): void {
