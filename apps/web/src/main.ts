@@ -18,7 +18,7 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages, getPageMarkdown, pagesIndex, journalIndex } from "./pages";
+import { hydratePages, getPageMarkdown, pagesIndex, journalIndex, renamePage } from "./pages";
 import { listFiles } from "./files";
 import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
@@ -1466,6 +1466,19 @@ const journal = mountJournal(
       btn.title = "Open session";
     }
     return btn;
+  },
+  // Commit a page-title rename: vault-side re-key + backlink rewrite. On failure
+  // (e.g. name collision) surface the reason; the journal reverts the heading.
+  // Self-originated vault writes don't echo back, so refresh the Pages index if
+  // it happens to be the open view.
+  (oldName, newName) => {
+    const result = renamePage(oldName, newName);
+    if (!result.ok) {
+      showToast(result.reason);
+    } else if (viewStore.get() === "pages") {
+      renderPagesIndex(viewEls.pages, openPage);
+    }
+    return result;
   },
 );
 

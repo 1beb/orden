@@ -136,6 +136,82 @@ export function deletePage(name: string): void {
   }
 }
 
+export type RenameResult = { ok: true } | { ok: false; reason: string };
+
+// Escape a string for literal use inside a RegExp.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Rename a knowledge page and rewrite every [[OldName]] reference (across all
+// pages AND journal entries) to [[NewName]]. Vault-side: re-keys the page body +
+// metadata and writes back only the entries whose text actually changed, so an
+// unrelated journal entry is scanned (cheap, in-memory) but never re-written.
+// Knowledge pages only — refuses to turn a page into a journal date or an
+// internal card:/notes: key. Collisions are blocked (case-insensitive), but a
+// pure re-casing of the page's own name (e.g. "notes" -> "Notes") is allowed.
+export function renamePage(oldName: string, newName: string): RenameResult {
+  const trimmed = newName.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "Name can't be empty." };
+
+  const oldKey = canonicalKey(oldName);
+  if (isJournalKey(oldKey) || INTERNAL_PAGE_PREFIX.test(oldKey) || !(oldKey in pageCache)) {
+    return { ok: false, reason: "This page can't be renamed." };
+  }
+  if (isJournalKey(trimmed)) return { ok: false, reason: "A page name can't be a date." };
+  if (INTERNAL_PAGE_PREFIX.test(trimmed)) return { ok: false, reason: "That name is reserved." };
+
+  // Exact same key (incl. casing) — nothing to do.
+  if (trimmed === oldKey) return { ok: true };
+
+  // Collision: another page already uses this name case-insensitively. A page
+  // re-casing its own name (same lowercase) passes through.
+  const lower = trimmed.toLowerCase();
+  for (const key of Object.keys(pageCache)) {
+    if (key === oldKey) continue;
+    if (key.toLowerCase() === lower) return { ok: false, reason: `A page named "${key}" already exists.` };
+  }
+
+  // Re-key the body + metadata. Metadata is carried unchanged (a rename isn't a
+  // content edit, so the page keeps its place in the activity-sorted index).
+  const body = pageCache[oldKey] ?? "";
+  const meta = metaCache[oldKey];
+  delete pageCache[oldKey];
+  pageCache[trimmed] = body;
+  if (meta) {
+    delete metaCache[oldKey];
+    metaCache[trimmed] = meta;
+  }
+  if (host) {
+    void host.vault.set("pages", trimmed, body);
+    void host.vault.delete("pages", oldKey);
+    if (meta) {
+      void host.vault.set("pagemeta", trimmed, meta);
+      void host.vault.delete("pagemeta", oldKey);
+    }
+  }
+
+  // Rewrite [[oldKey]] -> [[trimmed]] everywhere, whitespace-tolerant and
+  // case-insensitive (so [[ oldname ]] is caught too). Only changed entries are
+  // written through; the renamed page's own body (now under trimmed) is included,
+  // so a self-reference updates as well.
+  const linkRe = new RegExp(`\\[\\[\\s*${escapeRegExp(oldKey)}\\s*\\]\\]`, "gi");
+  const replacement = `[[${trimmed}]]`;
+  const rewriteStore = (cache: Record<string, string>, ns: string): void => {
+    for (const [name, md] of Object.entries(cache)) {
+      const next = md.replace(linkRe, replacement);
+      if (next !== md) {
+        cache[name] = next;
+        if (host) void host.vault.set(ns, name, next);
+      }
+    }
+  };
+  rewriteStore(pageCache, "pages");
+  rewriteStore(journalCache, "journal");
+
+  return { ok: true };
+}
+
 // Knowledge-page names (excludes journal day-pages, which live in their own
 // store — see journalDates).
 export function pageNames(): string[] {

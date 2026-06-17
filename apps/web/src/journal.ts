@@ -1,10 +1,13 @@
 import { EditorView } from "prosemirror-view";
 import { journalKey } from "@orden/outliner";
 import { makeOutlineEditor } from "./outlineEditor";
-import { backlinksTo, journalDates } from "./pages";
+import { backlinksTo, journalDates, type RenameResult } from "./pages";
 import { effectiveTimeZone } from "./settings";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Derived pages (per-card narratives, project notes) live in the pages store but
+// aren't standalone wiki pages, so their title isn't user-renamable.
+const INTERNAL_PAGE_RE = /^(card|notes):/;
 
 // Today's journal key in the user's effective zone (override or host default).
 // Centralizes the zone lookup so "today" is consistent across the feed heading,
@@ -38,6 +41,10 @@ export function mountJournal(
   // Optional callback that returns a DOM element for [[Session: <id>]] links
   // so they render as widget buttons instead of inline [[Session: x]] text.
   widgetForSession?: (sessionId: string) => HTMLElement | null | undefined,
+  // Commit a page rename (title edited then clicked away). The owner performs the
+  // vault-side rename + backlink rewrite and reports success; on failure the
+  // heading reverts to the old name. Absent => titles aren't editable.
+  onRename?: (oldName: string, newName: string) => RenameResult,
 ): JournalController {
   let mode: "feed" | "page" = "feed";
   let currentName: string | null = null;
@@ -113,6 +120,44 @@ export function mountJournal(
     return DATE_RE.test(name) ? `Journal — ${name}` : `Page — ${name}`;
   }
 
+  // Make a knowledge page's <h1> title editable in place. The edit commits when
+  // the user clicks away (blur): the rename + backlink rewrite runs, then the
+  // page re-renders under its new name. Enter commits (blurs); Escape cancels.
+  // A no-op, empty, or rejected name reverts the heading text.
+  function makeTitleEditable(heading: HTMLElement, name: string): void {
+    heading.textContent = name;
+    heading.classList.add("page-title-edit");
+    heading.contentEditable = "plaintext-only";
+    heading.spellcheck = false;
+    heading.title = "Click to rename";
+
+    let committed = false;
+    const commit = (): void => {
+      if (committed) return;
+      committed = true;
+      const next = (heading.textContent ?? "").trim();
+      if (next.length === 0 || next === name) {
+        showPage(name); // revert any stray whitespace / empty edit
+        return;
+      }
+      const result = onRename!(name, next);
+      if (result.ok) showPage(next);
+      else showPage(name); // owner surfaced the reason; restore the old title
+    };
+
+    heading.addEventListener("blur", commit);
+    heading.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        heading.blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        committed = true; // skip the blur-driven commit
+        showPage(name);
+      }
+    });
+  }
+
   function showPage(name: string): void {
     mode = "page";
     currentName = name;
@@ -135,6 +180,8 @@ export function mountJournal(
       next.title = "Next day";
       next.addEventListener("click", () => showPage(shiftDate(name, 1)));
       heading.append(prev, label, next);
+    } else if (onRename && !INTERNAL_PAGE_RE.test(name)) {
+      makeTitleEditable(heading, name);
     } else {
       heading.textContent = name;
     }

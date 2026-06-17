@@ -3005,6 +3005,24 @@ li.sess-done-head {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* Editable knowledge-page title: subtle affordance until hovered/focused, then a
+   text caret + soft box so it reads as an editable field. Commits on blur. */
+.page-title-edit {
+  cursor: text;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  outline: none;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.page-title-edit:hover {
+  background: var(--accent-soft);
+}
+.page-title-edit:focus {
+  color: var(--ink);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 .journal-nav {
   border: none;
   background: none;
