@@ -19,6 +19,7 @@ class FakeQuery {
   canUseTool: CanUseTool | null = null;
   setModelCalls: (string | undefined)[] = [];
   interrupted = false;
+  supportedModelsCalls = 0;
 
   constructor(options?: Options) {
     this.canUseTool = options?.canUseTool ?? null;
@@ -75,6 +76,17 @@ class FakeQuery {
     return [
       { name: "commit", description: "commit changes", argumentHint: "", aliases: [] },
     ] as unknown as SlashCommand[];
+  }
+
+  async supportedModels(): Promise<Array<{ value: string; displayName: string; description: string }>> {
+    this.supportedModelsCalls++;
+    return [
+      { value: "claude-opus-4-8", displayName: "Claude Opus 4.8", description: "Most capable model" },
+      { value: "claude-opus-4-8[1m]", displayName: "Claude Opus 4.8 (1M context)", description: "Most capable model with 1M context" },
+      { value: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6", description: "Balanced speed and capability" },
+      { value: "claude-sonnet-4-6[1m]", displayName: "Claude Sonnet 4.6 (1M context)", description: "Balanced with 1M context" },
+      { value: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", description: "Fast and efficient" },
+    ];
   }
 }
 
@@ -163,11 +175,32 @@ function inertQuery(): Query {
 
 // Direct unit checks beyond the shared contract.
 describe("makeClaudeAdapter", () => {
-  it("lists curated claude models including a [1m] variant", async () => {
-    const adapter = makeClaudeAdapter({ query: (() => ({}) as Query) as QueryFn });
+  it("lists claude models dynamically via supportedModels()", async () => {
+    // listModels() opens a short-lived query, calls supportedModels(), and tears
+    // it down. Our fake query returns a known set that includes [1m] variants.
+    let fake: FakeQuery | null = null;
+    const fakeQuery: QueryFn = (params) => {
+      fake = new FakeQuery(params.options);
+      return fake as unknown as Query;
+    };
+    const adapter = makeClaudeAdapter({ query: fakeQuery });
     const models = await adapter.listModels();
+    expect(models.length).toBeGreaterThanOrEqual(3);
     expect(models.every((m) => m.harness === "claude")).toBe(true);
     expect(models.some((m) => m.id.includes("[1m]"))).toBe(true);
+    expect(fake!.supportedModelsCalls).toBe(1);
+    expect(fake!.interrupted).toBe(true); // cleaned up
+  });
+
+  it("returns empty list when supportedModels() fails", async () => {
+    const fakeQuery: QueryFn = () => {
+      const q = new FakeQuery();
+      q.supportedModels = async () => { throw new Error("nope"); };
+      return q as unknown as Query;
+    };
+    const adapter = makeClaudeAdapter({ query: fakeQuery });
+    const models = await adapter.listModels();
+    expect(models).toEqual([]);
   });
 
   it("delivers send() payloads to the streaming-input prompt", async () => {

@@ -15,6 +15,7 @@ const DEFAULTS = {
   htmlRender: true,
   timeZone: "",
   defaultMode: { claude: "tui", opencode: "tui" },
+  defaultModel: { claude: "", opencode: "" },
   showScratchTerminal: true,
   worktreeIsolation: true,
   worktreeAutoTrust: true,
@@ -74,6 +75,7 @@ describe("settings store (host-backed)", () => {
       htmlRender: true,
       timeZone: "",
       defaultMode: { claude: "tui", opencode: "tui" },
+      defaultModel: { claude: "", opencode: "" },
       showScratchTerminal: true,
       worktreeIsolation: true,
       worktreeAutoTrust: true,
@@ -188,6 +190,27 @@ describe("settings store (host-backed)", () => {
     expect(coerce({ integrationMode: "measured" }).integrationMode).toBe("measured");
     expect(coerce({ integrationMode: "yolo" }).integrationMode).toBe("fast");
     expect(coerce({ worktreeBaseRef: 42 }).worktreeBaseRef).toBe("");
+  });
+
+  it("defaults defaultModel to empty strings for both tools", () => {
+    const s = coerce({});
+    expect(s.defaultModel).toEqual({ claude: "", opencode: "" });
+  });
+
+  it("accepts valid defaultModel ids and rejects non-strings", () => {
+    expect(coerce({ defaultModel: { claude: "claude-sonnet-4-6", opencode: "anthropic/claude-opus-4-8" } }).defaultModel)
+      .toEqual({ claude: "claude-sonnet-4-6", opencode: "anthropic/claude-opus-4-8" });
+    expect(coerce({ defaultModel: { claude: 42 } }).defaultModel)
+      .toEqual({ claude: "", opencode: "" });
+    expect(coerce({ defaultModel: "not-an-object" }).defaultModel)
+      .toEqual({ claude: "", opencode: "" });
+    expect(coerce({ defaultModel: { claude: "" } }).defaultModel)
+      .toEqual({ claude: "", opencode: "" });
+  });
+
+  it("round-trips a default model selection", async () => {
+    await saveSettings({ defaultModel: { claude: "claude-sonnet-4-6", opencode: "" } });
+    expect(loadSettings().defaultModel).toEqual({ claude: "claude-sonnet-4-6", opencode: "" });
   });
 
 });

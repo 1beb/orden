@@ -21,17 +21,6 @@ export type QueryFn = (params: {
   options?: Options;
 }) => Query;
 
-// Curated, stable model list. ids are the model strings the SDK accepts
-// (passed straight through as Options.model); the `[1m]` variants request the
-// 1M-token context window.
-const CLAUDE_MODELS: ModelOption[] = [
-  { harness: "claude", id: "claude-opus-4-8", label: "Claude Opus 4.8" },
-  { harness: "claude", id: "claude-opus-4-8[1m]", label: "Claude Opus 4.8 (1M context)" },
-  { harness: "claude", id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { harness: "claude", id: "claude-sonnet-4-6[1m]", label: "Claude Sonnet 4.6 (1M context)" },
-  { harness: "claude", id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-];
-
 // A single-producer/single-consumer async queue used as the streaming-input
 // `prompt`. `push` feeds user messages; `end` completes the iterator (so the
 // query loop and our events generator can terminate on close).
@@ -94,8 +83,30 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
   return {
     harness: "claude",
 
+    // Dynamically list available Claude models via the SDK. Opens a short-lived
+    // query just to call supportedModels(), with a 5-second timeout so a missing
+    // or hung Claude process doesn't block the caller forever. Falls back to an
+    // empty list on any failure.
     async listModels(): Promise<ModelOption[]> {
-      return CLAUDE_MODELS;
+      let q: Query | undefined;
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 5_000);
+      try {
+        q = query({ prompt: "", options: { abortController: ac } });
+        const models = await q.supportedModels();
+        return models.map((m) => ({
+          harness: "claude",
+          id: m.value,
+          label: m.displayName,
+        }));
+      } catch {
+        return [];
+      } finally {
+        clearTimeout(timer);
+        if (q) {
+          try { await q.interrupt(); } catch { /* ignore */ }
+        }
+      }
     },
 
     open({ cwd, model }: { cwd: string; model?: string }): HarnessDriver {

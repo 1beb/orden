@@ -94,6 +94,8 @@ import { makeViewToggler } from "./viewToggler";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
+import { buildModelGrid } from "./settingsModelGrid";
+import type { ModelOption } from "@orden/chat-core";
 import { confirmDialog } from "./modal";
 import { bindCheckbox, bindSelect, bindRadios } from "./settingsBindings";
 import {
@@ -2334,6 +2336,47 @@ if (modeGridMount) {
     await saveSettings({ defaultMode: next });
   };
   renderModeGrid();
+}
+
+// Default model: one dropdown per agent tool, populated from the host's model
+// catalog. Renders immediately with just "Default", then fills in options once
+// the model lists arrive.
+const modelGridMount = document.querySelector<HTMLElement>("#model-grid");
+if (modelGridMount) {
+  const grid = buildModelGrid(loadSettings().defaultModel, { claude: [], opencode: [] } as Record<string, ModelOption[]>, (next) => {
+    void saveSettings({ defaultModel: next });
+  });
+  modelGridMount.append(grid);
+  if (host.chat) {
+    Promise.allSettled([
+      host.chat.listModels("claude"),
+      host.chat.listModels("opencode"),
+    ])
+      .then(([claude, opencode]) => {
+        const selectByTool: Record<string, HTMLSelectElement> = {};
+        for (const sel of Array.from(grid.querySelectorAll("select"))) {
+          const toolLabel = sel.getAttribute("aria-label") ?? "";
+          if (toolLabel.includes("Claude Code")) selectByTool.claude = sel;
+          else if (toolLabel.includes("OpenCode")) selectByTool.opencode = sel;
+        }
+        const populate = (tool: string, result: PromiseSettledResult<ModelOption[]>) => {
+          if (result.status !== "fulfilled") return;
+          const select = selectByTool[tool];
+          if (!select) return;
+          for (const m of result.value) {
+            const opt = document.createElement("option");
+            opt.value = m.id;
+            opt.textContent = m.label;
+            select.append(opt);
+          }
+          const current = loadSettings().defaultModel;
+          select.value = current[tool as keyof typeof current] ?? "";
+        };
+        populate("claude", claude);
+        populate("opencode", opencode);
+      })
+      .catch(() => {});
+  }
 }
 
 // Vault location: a read-only path so the user knows where their data lives.
