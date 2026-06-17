@@ -24,6 +24,7 @@ export {
   isAction,
 } from "./catalog";
 export { DEFAULT_WORKFLOW } from "./default";
+export { PRESET_WORKFLOWS } from "./presets";
 export { parseWorkflowMarkdown } from "./parse";
 export type { ParsedStage, ParsedWorkflow } from "./parse";
 export { validateWorkflow } from "./validate";
