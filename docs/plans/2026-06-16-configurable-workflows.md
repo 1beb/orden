@@ -22,15 +22,30 @@ screen, and offers a per-project picker. Design doc:
 
 ## Staging
 
-- Stage 1 (this plan, detailed): the pure `packages/workflows` module. No behavior
-  change anywhere else; fully unit-tested in isolation.
-- Stage 2 (outlined): host resolver + reactors read the spec + contract test. This is
-  where live behavior changes; detail it once Stage 1's types exist.
-- Stage 3 (outlined): LLM compile-on-save, confirm/validate UI, diagram, per-project
-  picker.
+NOTE (2026-06-17): the canonical design is now
+`docs/plans/2026-06-17-configurable-workflows-consolidated.md` (the runbook model). The
+Stage 1 tasks below shipped against the earlier stages-as-columns model; the closed-
+effects substrate they built (catalog, executor registry, resolver) survives unchanged.
+The model types migrate from `Stage[]` to a runbook `Step[]` in Stage 1b. Stages 2/3 are
+reshaped around the runbook below.
+
+- Stage 1 (DONE): the pure `packages/workflows` module — types, catalog, default,
+  parser, validator, resolver. 29 tests.
+- Stage 1b (NEW): migrate the model from `Stage[]` to a runbook `Step[]` discriminated
+  union (`prose` | `primitive` | `gate`) with a role for board projection; keep the
+  catalog/validator/resolver, adapt their shapes; regenerate `DEFAULT_WORKFLOW` as a
+  runbook.
+- Stage 2 (host runbook engine): session-level resolver + multi-workflow directory
+  discovery, extend the executor registry (add `run`/`check`, `notify`, `capture`, etc.),
+  a host-side step runner that walks the runbook and evaluates control flow, gates as
+  durable vault suspensions, the role-based board projection, and the dirty-state rule.
+- Stage 3 (authoring + selection): the `workflow_*` MCP capability, per-harness guidance
+  (Claude skill + opencode wrapper), the compile/validate/confirm authoring UI, the
+  agent-suggest + operator-confirm selection, and the per-repo workflow picker.
 
 Each stage merges to main and rebuilds dist before the next begins (repo policy:
-single-user, integrate as you go).
+single-user, integrate as you go). Behavior-changing work (Stage 2 onward) gets an
+app-run regression check: the `default` workflow must behave exactly as orden does today.
 
 ---
 
@@ -293,47 +308,76 @@ This is the merge point for Stage 1.
 
 ---
 
-## Stage 2 — Host resolver + reactors read the spec (OUTLINE)
+## Stage 1b — Migrate the model to a runbook of typed steps (OUTLINE)
 
-Detail after Stage 1 lands. Tasks, roughly:
+Keep the catalog/validator/resolver substrate; change the model shape. All in
+`packages/workflows`, still pure, still TDD.
 
-1. `apps/host/src/workflowResolver.ts`: resolve a project's `WorkflowSpec` —
-   `DEFAULT_WORKFLOW` <- vault `workflows/<name>.md` <- project repo `.orden/workflow.md`,
-   using `parseWorkflowMarkdown` + `resolveSpec`. (The prose->primitive *compile* is
-   Stage 3; until then the resolver consumes already-compiled specs persisted in the
-   vault, falling back to `DEFAULT_WORKFLOW`.)
-2. Executor registry: a host map from each catalog `Action`/`Gate` to its implementation
-   (`journal`->cardJournal, `push`/`open-pr`/`merge`->publishReactor, `reap`->cardReaper,
-   `propose-learnings`->existing learnings flow, `verify`->new agentic check).
-3. Contract test (`apps/host/src/workflows.contract.test.ts`): assert bijection — every
-   `ACTIONS`/`GATES` member has a registered executor and every registered executor id is
-   in the catalog. Fails the build on drift.
-4. Rewire the four `host.onChange` reactors in `serve.ts` to read the resolved spec's
-   terminal-stage `onEnter` instead of unconditionally publishing/journaling/reaping.
-   `LIFECYCLE_ORDER` becomes the resolved spec's stage ids (compat shim: default spec ==
-   today's literal four states).
-5. Dirty-state rule: completion that cannot cleanly run its actions moves the card to the
-   `waiting`-role stage with a reason (generalize publishSession's clean-tree refusal),
-   honoring the spec's `dirtyTree` policy.
-6. `verify` primitive: runs an agent against a criterion; fail/uncertain calls
-   `card_create` (raise a card); gate-position verify holds the stage.
-7. Stage gate: `pnpm -r typecheck && pnpm -r test`, then run the app and confirm the
-   default workflow behaves exactly as before (no regression) per @superpowers:verification-before-completion.
+1. `Step` discriminated union (`types.ts`): `kind: "prose" | "primitive" | "gate"`, a
+   `role` (`initial`/`active`/`waiting`/`terminal`) for board projection, and kind-
+   specific fields — prose carries the agent settings (`models`/`aggregate` move here),
+   primitive carries `{ action, params }`, gate carries `{ gate }`. `WorkflowSpec.steps:
+   Step[]` replaces `stages: Stage[]`.
+2. Adapt the validator to runbook rules: every `primitive` action and `gate` is in the
+   catalog (error otherwise); a terminal-role step exists; the trade-off + multi-model
+   warnings re-expressed over steps.
+3. Adapt the resolver `extends` merge to steps (by step id), preserving the
+   inherit-by-id semantics.
+4. Regenerate `DEFAULT_WORKFLOW` as the six-step runbook from
+   `2026-06-17-default-workflow-two-framings.md` (Framing B).
+5. Gate: `pnpm --filter @orden/workflows test` + `pnpm -r typecheck`.
 
-## Stage 3 — Compile-on-save + web UI (OUTLINE)
+## Stage 2 — Host runbook engine (OUTLINE)
 
-1. `packages/workflows/src/compileSpec.ts`: the LLM prompt + the JSON schema for a
-   `WorkflowSpec` (pure data; no LLM call here).
-2. Host: a compile endpoint that runs the LLM over parsed prose -> `WorkflowSpec`,
-   validates, persists to the vault on confirm.
-3. Web: confirm/validate screen (reads back the mapping, flags un-mappable prose, shows
-   `validateWorkflow` warnings), a read-only pipeline diagram, and a per-project workflow
-   picker. New center view via the view registry; settings via settingsBindings.
-4. Stage gate + dist rebuild.
+Where live behavior changes; default runbook must behave exactly as orden does today.
 
-## Open questions (from the design doc)
+1. Session-level resolver: extend `workflowResolver.ts` to
+   `resolveSessionWorkflow(host, sessionId)` = `session.workflow ?? project.defaultWorkflow
+   ?? DEFAULT_WORKFLOW`. Multi-workflow discovery: list `.orden/workflows/*.md` (repo) +
+   vault `workflows` ns; repo shadows vault on name collision.
+2. Extend the executor registry (`workflowExecutors.ts`) with the new effects — `run`/
+   `check`, `notify`, `capture`, `code-review` — each a real host executor; flip `merge`/
+   `verify` from pending to implemented as they land. Contract test stays green throughout.
+3. Step runner: a host-side router that walks the resolved runbook, evaluates control
+   flow (sequence, conditional routing on a step outcome, the one rework loop), and
+   invokes the executor for `primitive` steps / prompts the agent for `prose` steps.
+   Control flow is host-evaluated — never delegated to the agent.
+4. Gates as durable vault suspensions: a `gate` step parks on a vault key; the
+   annotation/approve write is the resume signal carrying the operator's decision; the
+   runner resumes and branches on it. Survives host restart.
+5. Board projection: derive the card's column from the active step's `role`; the existing
+   completion reactors (reap/publish/journal) become executors invoked by the terminal
+   step instead of firing unconditionally on `state === "complete"` (behavior-neutral
+   under the default runbook).
+6. Dirty-state rule: any step that cannot cleanly run parks the card in the waiting role
+   with a reason, honoring the `dirtyTree` policy.
+7. Stage gate: `pnpm -r typecheck && pnpm -r test`, then an app-run regression check —
+   complete a card under the default runbook and confirm publish/journal/reap are
+   identical to today (@superpowers:verification-before-completion).
 
-- Project-override on-disk path (`.orden/workflow.md` vs other).
-- Whether stage roles must be unique (two `waiting` stages?).
-- Per-stage agent override vs a session spanning stages.
-- Generating the `default` workflow markdown from `DEFAULT_WORKFLOW` as the reference.
+## Stage 3 — Authoring, selection, and UI (OUTLINE)
+
+1. `workflow_*` MCP capability (`packages/mcp`): `list` / `propose` / `validate` / `save`
+   / `render`, delegating to `@orden/workflows`. Mirror over the agent HTTP fallback like
+   `panel_open`/`card_move`.
+2. Compile: `packages/workflows/src/compileSpec.ts` (LLM prompt + the `WorkflowSpec` JSON
+   schema, pure data); host runs the LLM over the prose, validates, persists on confirm.
+3. Per-harness guidance, one source: a Claude skill + an opencode wrapper (custom command
+   / AGENTS guidance via the generated opencode plugin) carrying the runbook-authoring
+   process + the primitive catalog + the operator's saved composites.
+4. Web: the compile/validate/confirm authoring view (reads back the mapping, flags
+   un-mappable prose, shows warnings), the runbook diagram, the per-repo workflow picker,
+   and the agent-suggest + operator-confirm selection at session-create. Center view via
+   the view registry; settings via settingsBindings.
+5. Composites: named, version-pinned, parameterizable bundles of primitives + prose
+   (data, not code).
+6. Stage gate + dist rebuild.
+
+## Open questions (see consolidated design doc)
+
+- Per-step agent override vs a single session spanning many steps (worktree/branch
+  sharing across steps).
+- Switching a card's workflow mid-run: re-map the active step or restart.
+- Concrete on-disk runbook syntax (numbered typed list vs frontmatter step table).
+- Composite parameterization surface (typed inputs, like GitLab `spec:inputs`).
+- Generating the `default` runbook markdown from `DEFAULT_WORKFLOW` as the reference.
