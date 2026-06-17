@@ -45,6 +45,15 @@ describe("Host RPC", () => {
     expect(models.every((m) => m.harness === "claude")).toBe(true);
   });
 
+  test("search is exposed: the client proxy forwards search.query", async () => {
+    // Proves "search" is in CAPABILITIES. Write through the client, let the live
+    // indexer settle, then query back over the proxy.
+    await client.vault.set("pages", "Indexed Page", "- a uniquely findable phrase");
+    await new Promise((r) => setTimeout(r, 20));
+    const hits = await client.search!.query("findable");
+    expect(hits.map((h) => h.name)).toEqual(["Indexed Page"]);
+  });
+
   test("a top-level method (applyLearning) round-trips through the transport", async () => {
     // A non-repo local project so the write succeeds and commit is skipped.
     const projDir = await mkdtemp(join(tmpdir(), "orden-proj-"));
