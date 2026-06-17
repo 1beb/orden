@@ -6,9 +6,12 @@ export type {
   SessionMode,
   AgentSettings,
   Aggregation,
-  CompletionOutput,
   DirtyTreePolicy,
-  Stage,
+  StepKind,
+  ProseStep,
+  PrimitiveStep,
+  GateStep,
+  Step,
   WorkflowSpec,
 } from "./types";
 export {
@@ -26,4 +29,4 @@ export type { ParsedStage, ParsedWorkflow } from "./parse";
 export { validateWorkflow } from "./validate";
 export type { ValidationResult } from "./validate";
 export { resolveSpec } from "./resolve";
-export type { StageOverride, WorkflowOverride } from "./resolve";
+export type { StepOverride, WorkflowOverride } from "./resolve";

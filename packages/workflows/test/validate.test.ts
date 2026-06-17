@@ -1,21 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { validateWorkflow } from "../src/validate";
 import { DEFAULT_WORKFLOW } from "../src/default";
-import type { WorkflowSpec } from "../src/types";
+import type { GateStep, PrimitiveStep, ProseStep, WorkflowSpec } from "../src/types";
 
 const clone = (): WorkflowSpec => JSON.parse(JSON.stringify(DEFAULT_WORKFLOW));
+const proseStep = (spec: WorkflowSpec, id: string) =>
+  spec.steps.find((s): s is ProseStep => s.kind === "prose" && s.id === id)!;
 
-describe("validateWorkflow", () => {
+describe("validateWorkflow (runbook)", () => {
   it("passes the default with no errors or warnings", () => {
     expect(validateWorkflow(DEFAULT_WORKFLOW)).toEqual({ errors: [], warnings: [] });
   });
 
-  it("warns when merging without a review gate", () => {
+  it("warns when a merge step has no preceding review gate", () => {
     const spec = clone();
-    spec.completion = "push+merge";
-    const terminal = spec.stages.find((s) => s.role === "terminal")!;
-    terminal.gates = terminal.gates.filter((g) => g !== "review");
-    if (!terminal.onEnter.includes("merge")) terminal.onEnter.push("merge");
+    spec.steps = spec.steps.filter((s) => !(s.kind === "gate" && (s as GateStep).gate === "review"));
+    spec.steps.push({ id: "merge", label: "Merge", role: "terminal", kind: "primitive", action: "merge" });
     const { errors, warnings } = validateWorkflow(spec);
     expect(errors).toEqual([]);
     expect(warnings.some((w) => /review/i.test(w))).toBe(true);
@@ -29,62 +29,49 @@ describe("validateWorkflow", () => {
 
   it("warns when nothing gates plan approval", () => {
     const spec = clone();
-    for (const s of spec.stages) s.gates = s.gates.filter((g) => g !== "approve");
-    expect(
-      validateWorkflow(spec).warnings.some((w) => /approv|sign-off/i.test(w)),
-    ).toBe(true);
+    spec.steps = spec.steps.filter((s) => !(s.kind === "gate" && (s as GateStep).gate === "approve"));
+    expect(validateWorkflow(spec).warnings.some((w) => /approv|sign-off/i.test(w))).toBe(true);
   });
 
   it("warns when the workflow publishes nothing", () => {
     const spec = clone();
-    spec.completion = "none";
-    const terminal = spec.stages.find((s) => s.role === "terminal")!;
-    terminal.onEnter = ["journal", "reap", "propose-learnings"];
-    expect(
-      validateWorkflow(spec).warnings.some((w) => /publish|branch/i.test(w)),
-    ).toBe(true);
+    spec.steps = spec.steps.filter(
+      (s) => !(s.kind === "primitive" && ["push", "open-pr", "merge"].includes((s as PrimitiveStep).action)),
+    );
+    expect(validateWorkflow(spec).warnings.some((w) => /publish|branch/i.test(w))).toBe(true);
   });
 
-  it("errors on a primitive that is not in the catalog", () => {
+  it("errors on a primitive whose action is not in the catalog", () => {
     const spec = clone();
-    const terminal = spec.stages.find((s) => s.role === "terminal")!;
-    (terminal.onEnter as string[]).push("deploy-to-prod");
-    const { errors } = validateWorkflow(spec);
-    expect(errors.some((e) => /deploy-to-prod/.test(e))).toBe(true);
+    spec.steps.push({ id: "deploy", label: "Deploy", role: "terminal", kind: "primitive", action: "deploy-to-prod" as PrimitiveStep["action"] });
+    expect(validateWorkflow(spec).errors.some((e) => /deploy-to-prod/.test(e))).toBe(true);
   });
 
-  it("errors when there is no terminal stage", () => {
+  it("errors when there is no terminal step", () => {
     const spec = clone();
-    spec.stages = spec.stages.filter((s) => s.role !== "terminal");
+    spec.steps = spec.steps.filter((s) => s.role !== "terminal");
     expect(validateWorkflow(spec).errors.some((e) => /terminal/i.test(e))).toBe(true);
   });
 
-  it("warns when a multi-model stage has no aggregation step", () => {
+  it("warns when a multi-model prose step has no aggregation", () => {
     const spec = clone();
-    const active = spec.stages.find((s) => s.role === "active")!;
-    active.agent = { models: ["opus", "sonnet"] };
-    expect(
-      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
-    ).toBe(true);
+    proseStep(spec, "implement").agent = { models: ["opus", "sonnet"] };
+    expect(validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w))).toBe(true);
   });
 
-  it("does not warn when a multi-model stage has an aggregation step", () => {
+  it("does not warn when a multi-model prose step has an aggregation", () => {
     const spec = clone();
-    const active = spec.stages.find((s) => s.role === "active")!;
-    active.agent = { models: ["opus", "sonnet"] };
-    active.aggregate = { model: "opus" };
-    expect(
-      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
-    ).toBe(false);
+    const step = proseStep(spec, "implement");
+    step.agent = { models: ["opus", "sonnet"] };
+    step.aggregate = { model: "opus" };
+    expect(validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w))).toBe(false);
   });
 
   it("warns when an aggregation step has nothing to aggregate", () => {
     const spec = clone();
-    const active = spec.stages.find((s) => s.role === "active")!;
-    active.agent = { models: ["opus"] };
-    active.aggregate = { model: "opus" };
-    expect(
-      validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w)),
-    ).toBe(true);
+    const step = proseStep(spec, "implement");
+    step.agent = { models: ["opus"] };
+    step.aggregate = { model: "opus" };
+    expect(validateWorkflow(spec).warnings.some((w) => /aggregat/i.test(w))).toBe(true);
   });
 });
