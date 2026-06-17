@@ -19,7 +19,12 @@ import {
 } from "./projects";
 import { openProjectModal } from "./projectModal";
 import { hydratePages, getPageMarkdown, pagesIndex, journalIndex } from "./pages";
-import { hydrateWorkflows, renderWorkflowsIndex } from "./workflows";
+import {
+  hydrateWorkflows,
+  renderWorkflowsView,
+  workflowsBreadcrumbName,
+  workflowsBackToList,
+} from "./workflows";
 import { listFiles } from "./files";
 import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
@@ -1277,8 +1282,12 @@ function breadcrumbForView(v: View): Crumb[] {
         : [{ label: "Journal" }];
     case "pages":
       return [{ label: "Pages" }];
-    case "workflows":
-      return [{ label: "Workflows" }];
+    case "workflows": {
+      const editing = workflowsBreadcrumbName();
+      return editing
+        ? [{ label: "Workflows", go: () => workflowsBackToList() }, { label: editing }]
+        : [{ label: "Workflows" }];
+    }
     case "projects":
       return [{ label: "Projects" }];
     case "project":
@@ -2047,7 +2056,10 @@ viewRegistry.register("workflows", {
   el: viewEls.workflows,
   breadcrumb: () => breadcrumbForView("workflows"),
   navLinks: ["#nav-workflows", "#bn-workflows"],
-  onEnter: () => renderWorkflowsIndex(viewEls.workflows, host),
+  onEnter: () =>
+    renderWorkflowsView(viewEls.workflows, host, () =>
+      paintBreadcrumb(breadcrumbForView("workflows")),
+    ),
 });
 viewRegistry.register("projects", {
   el: viewEls.projects,

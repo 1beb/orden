@@ -12,6 +12,7 @@ export interface ParsedStage {
 export interface ParsedWorkflow {
   name?: string;
   extends?: string;
+  description?: string;
   stages: ParsedStage[];
 }
 
@@ -52,6 +53,7 @@ export function parseWorkflowMarkdown(src: string): ParsedWorkflow {
   return {
     name: fields.name,
     extends: fields.extends,
+    description: fields.description,
     stages,
   };
 }
