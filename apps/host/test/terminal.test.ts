@@ -641,6 +641,32 @@ describe("buildCommand (claude resume vs mint)", () => {
     expect(cmd).not.toContain("--resume");
     expect(cmd).toContain("--session-id conv-gone");
   });
+
+  test("applies the per-tool default-model setting as --model on first launch", async () => {
+    setup();
+    const { host } = vaultHost({ settings: { app: { defaultModel: { claude: "claude-opus-4-8" } } } });
+    const rec = { agent: "claude" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--model 'claude-opus-4-8'");
+  });
+
+  test("omits --model on resume so a live conversation keeps its chosen model", async () => {
+    setup();
+    writeTranscript(CWD, "conv-real");
+    const { host } = vaultHost({ settings: { app: { defaultModel: { claude: "claude-opus-4-8" } } } });
+    const rec = { agent: "claude", conversationId: "conv-real" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--resume conv-real");
+    expect(cmd).not.toContain("--model");
+  });
+
+  test("emits no --model flag when the default-model setting is unset", async () => {
+    setup();
+    const { host } = vaultHost();
+    const rec = { agent: "claude" } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).not.toContain("--model");
+  });
 });
 
 describe("killSessionTmux", () => {

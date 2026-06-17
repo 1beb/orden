@@ -100,6 +100,8 @@ import { makeViewToggler } from "./viewToggler";
 import { mountJournal } from "./journal";
 import { markFor } from "./agentMarks";
 import { buildModeGrid } from "./settingsModeGrid";
+import { buildModelGrid } from "./settingsModelGrid";
+import type { ModelOption } from "@orden/chat-core";
 import { confirmDialog } from "./modal";
 import { bindCheckbox, bindSelect, bindRadios } from "./settingsBindings";
 import {
@@ -261,8 +263,29 @@ let currentDocTitle = DOC_TITLE;
 let watchedDoc: { projectId: string; path: string } | null = null;
 const docAnnotationSessions = new Set<string>();
 
+// Signature of the doc+annotations the editor currently reflects, so persist
+// and reload can both skip when nothing changed. Keyed on docKey + markdown +
+// records: a doc switch or an annotation-only edit (e.g. a collaborator added
+// a note remotely) still differs and reloads, while a round-trip of identical
+// content is a no-op.
+function reviewSig(docKey: string, md: string, records: Annotation[]): string {
+  return `${docKey}\u0000${md}\u0000${JSON.stringify(records)}`;
+}
+// Last persisted signature. persistReview runs on EVERY editor transaction —
+// including the transactions loadReviewDoc fires when the docs change handler
+// reloads the doc. Without this guard, an unfocused editor turns that into a
+// feedback loop: reload → dispatch → persist → vault write → docs change →
+// reload, firing as fast as the event loop allows and burning CPU/mem on the
+// host (one atomic temp-file write per cycle). Skipping the write when nothing
+// changed breaks the cycle after one pass.
+let lastReviewSig = "";
 function persistReview(): void {
-  saveState(currentDocKey, markdownSerializer.serialize(view.state.doc), log.all());
+  const md = markdownSerializer.serialize(view.state.doc);
+  const records = log.all();
+  const sig = reviewSig(currentDocKey, md, records);
+  if (sig === lastReviewSig) return;
+  lastReviewSig = sig;
+  saveState(currentDocKey, md, records);
 }
 
 const state = EditorState.create({
@@ -2377,6 +2400,34 @@ if (modeGridMount) {
   renderModeGrid();
 }
 
+// Default model: one dropdown per agent tool, pinning the model new sessions of
+// that tool launch with ("" = the agent's own default). Renders immediately with
+// just "Default", then rebuilds once the host's model catalogs resolve (claude's
+// curated list; opencode's live provider list). Reads via host.chat — the
+// in-browser host has no agents, so the grid simply stays at "Default" there.
+const modelGridMount = document.querySelector<HTMLElement>("#model-grid");
+if (modelGridMount) {
+  const renderModelGrid = (modelsByTool: Record<"claude" | "opencode", ModelOption[]>): void => {
+    modelGridMount.replaceChildren(
+      buildModelGrid(loadSettings().defaultModel, modelsByTool, (next) => {
+        void saveSettings({ defaultModel: next });
+      }),
+    );
+  };
+  renderModelGrid({ claude: [], opencode: [] });
+  if (host.chat) {
+    const chat = host.chat;
+    void Promise.allSettled([chat.listModels("claude"), chat.listModels("opencode")]).then(
+      ([claude, opencode]) => {
+        renderModelGrid({
+          claude: claude.status === "fulfilled" ? claude.value : [],
+          opencode: opencode.status === "fulfilled" ? opencode.value : [],
+        });
+      },
+    );
+  }
+}
+
 // Vault location: a read-only path so the user knows where their data lives.
 // The in-browser host has no on-disk vault, so it reports browser storage.
 const vaultLocationEl = document.querySelector<HTMLElement>("#vault-location");
@@ -2642,6 +2693,12 @@ vaultChanges.register("docs", async () => {
   await hydrateDocs(host);
   const saved = loadState(currentDocKey);
   if (viewStore.get() === "review" && saved && !view.hasFocus()) {
+    // Skip when the editor already reflects the persisted state. A reload
+    // dispatches a transaction that re-persists the same content; without
+    // persistReview's signature guard (and this one) that's a feedback loop.
+    // Comparing the full signature — not just markdown — means a remote
+    // annotation-only change (same text, new records) still reloads.
+    if (reviewSig(currentDocKey, saved.markdown, saved.records) === lastReviewSig) return;
     loadReviewDoc({ key: currentDocKey, title: currentDocTitle, markdown: saved.markdown });
   }
 });
