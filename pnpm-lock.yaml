@@ -80,6 +80,9 @@ importers:
       '@orden/outliner':
         specifier: workspace:*
         version: link:../../packages/outliner
+      '@orden/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0

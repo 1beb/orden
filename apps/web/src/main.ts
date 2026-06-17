@@ -19,6 +19,7 @@ import {
 } from "./projects";
 import { openProjectModal } from "./projectModal";
 import { hydratePages, getPageMarkdown, pagesIndex, journalIndex } from "./pages";
+import { hydrateWorkflows, renderWorkflowsIndex } from "./workflows";
 import { listFiles } from "./files";
 import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
@@ -137,6 +138,7 @@ async function hydrateAll(): Promise<void> {
     hydrateSettings(host),
     hydrateOutbox(host),
     hydratePages(host),
+    hydrateWorkflows(host),
     hydrateProjects(host),
     hydrateDocs(host),
     hydrateCards(host),
@@ -1275,6 +1277,8 @@ function breadcrumbForView(v: View): Crumb[] {
         : [{ label: "Journal" }];
     case "pages":
       return [{ label: "Pages" }];
+    case "workflows":
+      return [{ label: "Workflows" }];
     case "projects":
       return [{ label: "Projects" }];
     case "project":
@@ -1321,6 +1325,7 @@ const viewEls: Record<View, HTMLElement> = {
   html: document.querySelector<HTMLElement>("#view-html")!,
   journal: document.querySelector<HTMLElement>("#view-journal")!,
   pages: document.querySelector<HTMLElement>("#view-pages")!,
+  workflows: document.querySelector<HTMLElement>("#view-workflows")!,
   projects: document.querySelector<HTMLElement>("#view-projects")!,
   project: document.querySelector<HTMLElement>("#view-project")!,
   "project-settings": document.querySelector<HTMLElement>("#view-project-settings")!,
@@ -1631,6 +1636,7 @@ document.querySelector("#nav-journal")?.addEventListener("click", () => {
   viewStore.set("journal");
 });
 document.querySelector("#nav-pages")?.addEventListener("click", () => viewStore.set("pages"));
+document.querySelector("#nav-workflows")?.addEventListener("click", () => viewStore.set("workflows"));
 document.querySelector("#nav-kanban")?.addEventListener("click", () => viewStore.set("kanban"));
 document.querySelector("#nav-projects")?.addEventListener("click", () => viewStore.set("projects"));
 
@@ -1654,6 +1660,10 @@ document.querySelector("#bn-kanban")?.addEventListener("click", () => {
 document.querySelector("#bn-pages")?.addEventListener("click", () => {
   closeMobileDrawers();
   viewStore.set("pages");
+});
+document.querySelector("#bn-workflows")?.addEventListener("click", () => {
+  closeMobileDrawers();
+  viewStore.set("workflows");
 });
 document.querySelector("#bn-projects")?.addEventListener("click", () => {
   closeMobileDrawers();
@@ -2032,6 +2042,12 @@ viewRegistry.register("pages", {
   breadcrumb: () => breadcrumbForView("pages"),
   navLinks: ["#nav-pages", "#bn-pages"],
   onEnter: () => renderPagesIndex(viewEls.pages, openPage),
+});
+viewRegistry.register("workflows", {
+  el: viewEls.workflows,
+  breadcrumb: () => breadcrumbForView("workflows"),
+  navLinks: ["#nav-workflows", "#bn-workflows"],
+  onEnter: () => renderWorkflowsIndex(viewEls.workflows, host),
 });
 viewRegistry.register("projects", {
   el: viewEls.projects,

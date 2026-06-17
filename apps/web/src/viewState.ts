@@ -6,6 +6,7 @@ export type View =
   | "journal"
   | "kanban"
   | "pages"
+  | "workflows"
   | "projects"
   | "project"
   | "project-settings"
