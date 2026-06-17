@@ -14,6 +14,7 @@ import { makeChatClient } from "./chatClient";
 import { renderMarkdown } from "./chatMarkdown";
 import { getProject } from "./projects";
 import type { Session } from "./sessions";
+import { loadSettings } from "./settings";
 
 // Resolve the cwd a standalone (agent-path) chat session should run in. We
 // prefer the session's project working dir — its explicit workingDir override,
@@ -128,6 +129,7 @@ export function createChatMount(
               harness: panelSession.agent,
               cwd: sessionCwd(panelSession, host),
               title: panelSession.title,
+              model: loadSettings().defaultModel[panelSession.agent] || undefined,
             });
             chatSessionId = created.id;
             await host.vault.set("chat-link", panelSession.id, chatSessionId);

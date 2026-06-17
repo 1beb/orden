@@ -31,6 +31,7 @@ export interface Settings {
   prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
   integrationMode: IntegrationMode; // how the merge coordinator integrates a green combined state
   learningPrompt: string; // system prompt given to agents for proposing learnings on completion
+  defaultModel: { claude: string; opencode: string }; // per-tool default model id; "" = the agent's own default
 }
 
 export type IntegrationMode = "fast" | "measured";
@@ -99,6 +100,7 @@ const DEFAULT_SETTINGS: Settings = {
   prForge: "auto",
   integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
+  defaultModel: { claude: "", opencode: "" },
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -119,6 +121,17 @@ function coerceMode(v: unknown): Settings["defaultMode"] {
   return {
     claude: isMode(o.claude) ? o.claude : "tui",
     opencode: isMode(o.opencode) ? o.opencode : "tui",
+  };
+}
+
+// Coerce a stored per-tool default-model map; each tool defaults to "" (the
+// agent's own built-in default). A stored id that's since been removed from the
+// model list still round-trips here — the grid falls back to "Default" visually.
+function coerceModel(v: unknown): Settings["defaultModel"] {
+  const o = (typeof v === "object" && v ? v : {}) as Record<string, unknown>;
+  return {
+    claude: typeof o.claude === "string" ? o.claude : "",
+    opencode: typeof o.opencode === "string" ? o.opencode : "",
   };
 }
 
@@ -185,6 +198,7 @@ export function coerce(stored: unknown): Settings {
       typeof s.learningPrompt === "string" && s.learningPrompt.length > 0
         ? s.learningPrompt
         : DEFAULT_SETTINGS.learningPrompt,
+    defaultModel: coerceModel(s.defaultModel),
   };
 }
 

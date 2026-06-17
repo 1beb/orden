@@ -22,6 +22,7 @@ const DEFAULTS = {
   prForge: "auto",
   integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
+  defaultModel: { claude: "", opencode: "" },
 };
 
 describe("settings store (host-backed)", () => {
@@ -81,6 +82,7 @@ describe("settings store (host-backed)", () => {
       prForge: "auto",
       integrationMode: "fast",
       learningPrompt: DEFAULT_LEARNING_PROMPT,
+      defaultModel: { claude: "", opencode: "" },
     });
   });
 
@@ -164,6 +166,19 @@ describe("settings store (host-backed)", () => {
       .toEqual({ claude: "tui", opencode: "tui" });
     expect(coerce({ defaultMode: "not-an-object" }).defaultMode)
       .toEqual({ claude: "tui", opencode: "tui" });
+  });
+
+  it("defaults defaultModel to \"\" (the agent's own default) for both tools", () => {
+    expect(coerce({}).defaultModel).toEqual({ claude: "", opencode: "" });
+  });
+
+  it("round-trips per-tool default model ids and rejects non-string garbage", () => {
+    expect(coerce({ defaultModel: { claude: "claude-opus-4-8", opencode: "anthropic/x" } }).defaultModel)
+      .toEqual({ claude: "claude-opus-4-8", opencode: "anthropic/x" });
+    expect(coerce({ defaultModel: { claude: 42 } }).defaultModel)
+      .toEqual({ claude: "", opencode: "" });
+    expect(coerce({ defaultModel: "not-an-object" }).defaultModel)
+      .toEqual({ claude: "", opencode: "" });
   });
 
   it("coerces a non-boolean showScratchTerminal to the default", () => {

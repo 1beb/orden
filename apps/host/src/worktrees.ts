@@ -189,11 +189,13 @@ export async function ensureSessionWorktree(
     );
     return null;
   }
-  // Build a fresh codegraph index in the worktree so MCP codegraph tools work
-  // inside the isolated session. Fire-and-forget: the index isn't needed for
-  // the agent to start, and the agent can re-sync it after making changes.
+  // Initialize codegraph in the worktree and run the initial index so MCP
+  // codegraph tools work inside the isolated session. `init -i` both creates
+  // .codegraph/ and indexes; a bare `index` on an uninitialized worktree fails
+  // with "not initialized". Fire-and-forget: the index isn't needed for the
+  // agent to start, and the agent can re-sync it after making changes.
   const codegraphBin = process.env.CODEGRAPH_BIN ?? "codegraph";
-  spawn(codegraphBin, ["index", workdir], {
+  spawn(codegraphBin, ["init", "-i", workdir], {
     stdio: "ignore",
     detached: true,
   }).unref();

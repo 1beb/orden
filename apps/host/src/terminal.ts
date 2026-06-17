@@ -453,6 +453,23 @@ export async function buildCommand(
   // Launch via the agent's absolute path so a minimal host PATH can't break it
   // (see resolveAgentBin). shquoted in case the resolved path contains spaces.
   const bin = shquote(resolveAgentBin(rec.agent));
+
+  // The user's default-model setting for this agent type, applied as `--model`
+  // on FIRST launch only. Resumes keep whatever model the session already chose,
+  // so changing the default never retroactively rewrites a live conversation.
+  // "" (or a failed read) means no override — the agent uses its own default.
+  let modelFlag = "";
+  try {
+    const s = await host.vault.get<{ defaultModel?: { claude?: string; opencode?: string } }>(
+      "settings",
+      "app",
+    );
+    const modelId = s?.defaultModel?.[rec.agent];
+    if (modelId) modelFlag = ` --model ${shquote(modelId)}`;
+  } catch {
+    // No vault record yet, or a read error — launch with no model override.
+  }
+
   if (rec.agent === "opencode") {
     // opencode's TUI has no --session-id to MINT a chosen id (only -s/--session to
     // RESUME an existing one), so we can't pre-persist an id the way Claude allows.
@@ -486,6 +503,7 @@ export async function buildCommand(
     // envPrefix carries inline VAR=val assignments so the plugin's env vars survive
     // even if the shell init files clear inherited environment (see sessionLaunchEnv).
     let cmd = envPrefix ? `${envPrefix} ${bin}` : bin;
+    if (modelFlag) cmd += modelFlag;
     if (rec.initialPrompt) {
       cmd += ` --prompt ${shquote(rec.initialPrompt)}`;
       rec.initialPrompt = undefined;
@@ -545,6 +563,7 @@ export async function buildCommand(
   // First open: pass the card's text as claude's positional prompt so the agent
   // starts working on it immediately. Cleared so a later --resume won't resend.
   let cmd = `${bin} ${mcpConfigArg(id)} ${settingsArg(sessionId)} --session-id ${id}`;
+  if (modelFlag) cmd += modelFlag;
   if (rec.initialPrompt) {
     cmd += ` ${shquote(rec.initialPrompt)}`;
     rec.initialPrompt = undefined;

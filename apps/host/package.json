@@ -19,6 +19,7 @@
     "@orden/host-api": "workspace:*",
     "@orden/mcp": "workspace:*",
     "@orden/outliner": "workspace:*",
+    "@orden/workflows": "workspace:*",
     "node-pty": "^1.1.0",
     "ws": "^8.20.0",
     "zod": "^4.4.2"
