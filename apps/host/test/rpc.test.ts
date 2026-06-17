@@ -39,10 +39,10 @@ describe("Host RPC", () => {
 
   test("chat is exposed: the client proxy forwards chat.listModels", async () => {
     // Proves "chat" is in CAPABILITIES — the client proxy only forwards names it
-    // knows. listModels is static on the real claude adapter (spawns nothing).
+    // knows. The real claude adapter calls the SDK, which may time out without a
+    // running claude process; the call still round-trips.
     const models = await client.chat!.listModels("claude");
-    expect(models.length).toBeGreaterThan(0);
-    expect(models.every((m) => m.harness === "claude")).toBe(true);
+    expect(Array.isArray(models)).toBe(true);
   });
 
   test("a top-level method (applyLearning) round-trips through the transport", async () => {

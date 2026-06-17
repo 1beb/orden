@@ -31,6 +31,7 @@ export interface Settings {
   prForge: PrForge; // PR creation on card completion: auto-infer from the remote, force a CLI, or push-only
   integrationMode: IntegrationMode; // how the merge coordinator integrates a green combined state
   learningPrompt: string; // system prompt given to agents for proposing learnings on completion
+  defaultModel: { claude: string; opencode: string }; // per-agent default model id; "" = use agent's own default
 }
 
 export type IntegrationMode = "fast" | "measured";
@@ -99,6 +100,7 @@ const DEFAULT_SETTINGS: Settings = {
   prForge: "auto",
   integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
+  defaultModel: { claude: "", opencode: "" },
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -111,6 +113,18 @@ function isKanbanView(value: unknown): value is KanbanView {
 
 function isMode(v: unknown): v is SessionMode {
   return v === "tui" || v === "gui";
+}
+
+function coerceModelId(v: unknown): string {
+  return typeof v === "string" && v.length > 0 ? v : "";
+}
+
+function coerceModel(v: unknown): Settings["defaultModel"] {
+  const o = (typeof v === "object" && v ? v : {}) as Record<string, unknown>;
+  return {
+    claude: coerceModelId(o.claude),
+    opencode: coerceModelId(o.opencode),
+  };
 }
 
 // Coerce a stored per-tool mode map, defaulting each tool to "tui".
@@ -185,6 +199,7 @@ export function coerce(stored: unknown): Settings {
       typeof s.learningPrompt === "string" && s.learningPrompt.length > 0
         ? s.learningPrompt
         : DEFAULT_SETTINGS.learningPrompt,
+    defaultModel: coerceModel(s.defaultModel),
   };
 }
 
