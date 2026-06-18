@@ -9,6 +9,7 @@ import {
   type Item,
 } from "../src/cards";
 import { hydrateSessions, createSession } from "../src/sessions";
+import { hydrateSettings, saveSettings } from "../src/settings";
 import { renderKanban } from "../src/kanban";
 
 function cardFor(sessionId: string): Item {
@@ -343,5 +344,101 @@ describe("kanban — derived Learnings column", () => {
     // not a CardState).
     dropOnto(columnEl(c2, "learnings"), card.id);
     expect(listItems().find((i) => i.id === card.id)?.state).toBe("blocked");
+  });
+});
+
+describe("kanban list view — derived Learnings group", () => {
+  const deps = (over: Partial<Parameters<typeof renderKanban>[1]> = {}) => ({
+    onStartSession: () => {},
+    onOpenSession: () => {},
+    onOpenLearnings: () => {},
+    openLearnings: () => 0,
+    ...over,
+  });
+
+  // The .issue-group whose state pill carries data-state, for a given card title.
+  function groupStateOf(root: ParentNode, title: string): string | undefined {
+    const titleBtn = [...root.querySelectorAll<HTMLElement>(".issue-title")].find(
+      (b) => b.textContent === title,
+    );
+    const group = titleBtn?.closest<HTMLElement>(".issue-group");
+    return group?.querySelector<HTMLElement>(".issue-group-state")?.dataset.state;
+  }
+
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+    await hydrateSettings(host); // reset settings cache to defaults (board)
+    await saveSettings({ kanbanView: "list" });
+  });
+
+  it("buckets a complete card with open learnings under a Learnings group, not Complete", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    renderKanban(container, deps({ openLearnings: () => 1 }));
+
+    expect(groupStateOf(container, "Do work")).toBe("learnings");
+  });
+
+  it("buckets a complete card with no open learnings under Complete", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    renderKanban(container, deps({ openLearnings: () => 0 }));
+
+    expect(groupStateOf(container, "Do work")).toBe("complete");
+  });
+
+  it("opens the learnings review view (not the card modal) when a Learnings-group row is clicked", () => {
+    const s = createSession({ title: "Do work", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+
+    const container = document.createElement("div");
+    const opened: string[] = [];
+    renderKanban(container, deps({ openLearnings: () => 1, onOpenLearnings: (id) => opened.push(id) }));
+
+    const titleBtn = [...container.querySelectorAll<HTMLElement>(".issue-title")].find(
+      (b) => b.textContent === "Do work",
+    );
+    expect(titleBtn).toBeTruthy();
+    titleBtn!.click();
+    // onOpenLearnings firing proves the row took the review path and returned
+    // before the card-modal branch.
+    expect(opened).toEqual([card.id]);
+  });
+
+  it("keeps a complete-with-learnings card visible even after its fade TTL has passed", () => {
+    const s = createSession({ title: "Stale learnings", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+    // Age the completion well past any fade window — the board's Complete column
+    // would drop this, but an open-learnings card must persist in the list.
+    getItem(card.id)!.completedAt = 1;
+
+    const container = document.createElement("div");
+    renderKanban(container, deps({ openLearnings: () => 1 }));
+
+    expect(groupStateOf(container, "Stale learnings")).toBe("learnings");
+  });
+
+  it("ages off a complete card with NO learnings once past its fade TTL", () => {
+    const s = createSession({ title: "Stale done", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "complete");
+    getItem(card.id)!.completedAt = 1; // long past the fade window
+
+    const container = document.createElement("div");
+    renderKanban(container, deps({ openLearnings: () => 0 }));
+
+    // Gone entirely — no row for it, so the empty-state message shows.
+    expect(groupStateOf(container, "Stale done")).toBeUndefined();
   });
 });

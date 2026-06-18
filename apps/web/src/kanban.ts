@@ -230,8 +230,14 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
   if (view === "list") {
     // Same grouped issue list as the project page, but across all projects
     // (honoring the board's filters and lifecycle group order). Completed cards
-    // age off after the configured dwell time, mirroring the Complete column.
-    const visible = items.filter((i) => !isExpiredComplete(i, nowMs, ttlMs));
+    // age off after the configured dwell time, mirroring the Complete column —
+    // EXCEPT a complete card with open learnings, which (like the board's
+    // Learnings column) must never silently age off while its learnings are
+    // unresolved, so it's kept regardless of the fade TTL.
+    const visible = items.filter((i) => {
+      if (i.state === "complete" && deps.openLearnings(i.id) > 0) return true;
+      return !isExpiredComplete(i, nowMs, ttlMs);
+    });
     const list = document.createElement("div");
     list.className = "issue-list orden-board__list";
     if (visible.length === 0) {
@@ -245,6 +251,9 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
         onMutate: rerender,
         onStartSession: deps.onStartSession,
         onOpenSession: deps.onOpenSession,
+        // Mirror the board's derived Learnings column: bucket complete cards
+        // with open learnings into a Learnings group whose rows open the review.
+        learnings: { openFor: deps.openLearnings, onOpen: deps.onOpenLearnings },
       });
     }
     container.append(list);
