@@ -29,7 +29,9 @@ import type {
   SearchHit,
   BacklinkHit,
   SearchEntryNs,
+  RenameResult,
 } from "@orden/host-api";
+import { renamePageInVault } from "@orden/host-api";
 import { fromMarkdown, buildBacklinkIndex } from "@orden/outliner";
 
 import { listProjects, addProject, removeProject } from "../projects";
@@ -326,6 +328,12 @@ export class BrowserHost implements Host {
   readonly locks: LockService = new LocalLocks();
   readonly chat: ChatBackend = new LocalChat();
   readonly search: SearchService = new LocalSearch(this.vault);
+
+  // Same rename logic as NodeHost (shared helper); LocalSearch rescans on demand
+  // so backlinks stay correct without a separate index update.
+  renamePage(oldName: string, newName: string): Promise<RenameResult> {
+    return renamePageInVault(this.vault, oldName, newName);
+  }
 
   capabilities(): HostCapabilities {
     return {

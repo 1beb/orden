@@ -108,6 +108,11 @@ export async function connectHostClient(transport: Transport): Promise<Host> {
     if (!res.ok) throw new Error(res.error);
     return res.result;
   };
+  client.renamePage = async (oldName: string, newName: string) => {
+    const res = await transport({ id: nextId(), path: ["renamePage"], args: [oldName, newName] });
+    if (!res.ok) throw new Error(res.error);
+    return res.result;
+  };
 
   return client as unknown as Host;
 }
