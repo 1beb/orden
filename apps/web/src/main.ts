@@ -18,7 +18,7 @@ import {
   ensureDefaultProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
-import { hydratePages, getPageMarkdown, pagesIndex, journalIndex, renamePage } from "./pages";
+import { hydratePages, pagesIndex, journalIndex, renamePage } from "./pages";
 import {
   hydrateWorkflows,
   renderWorkflowsView,
@@ -2460,12 +2460,10 @@ const searchForm = document.querySelector<HTMLFormElement>("#omnisearch-form");
 const searchInput = document.querySelector<HTMLInputElement>("#omnisearch");
 const paletteMount = document.querySelector<HTMLElement>("#palette-results");
 
-// First doc line containing the query — a result subtitle for body matches.
-function snippet(md: string, q: string): string | undefined {
-  if (!q) return undefined;
-  const line = md.split("\n").find((l) => l.toLowerCase().includes(q.toLowerCase()));
-  return line?.trim().slice(0, 80) || undefined;
-}
+// Derived pages (per-card narratives, project notes) live in the "pages" ns and
+// are full-text indexed, but they're reached through the card modal / project
+// page — so omnisearch hides them, matching pages.ts's pagesIndex() filter.
+const INTERNAL_PAGE_NAME = /^(card|notes):/;
 
 // The high-level destinations (mirrors the nav rail's top links). Surfaced first
 // in the palette so a single keystroke jumps there — "j" → Journal, "k" → Kanban.
@@ -2510,34 +2508,40 @@ const searchSources: SearchSource[] = [
   {
     id: "pages",
     label: "Pages",
-    search: (q) => {
-      const pages = pagesIndex(); // knowledge pages only — journal is its own source
-      const byName = fuzzyRank(q, pages, (p) => p.name).map((r) => r.item);
-      const extra = q === ""
-        ? []
-        : pages.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
-      return [...byName, ...extra].map((p) => ({
-        id: `page:${p.name}`,
-        title: p.name,
-        subtitle: snippet(getPageMarkdown(p.name), q),
-        open: () => openPage(p.name),
-      }));
+    // Empty query lists resident page names; a real query goes to the host's
+    // full-text index (name + body), so a word that only appears in a body
+    // surfaces too — no resident body scan. card:/notes: derived pages are
+    // indexed by the host but stay out of omnisearch (mirrors pagesIndex()).
+    search: async (q) => {
+      if (!q || !host.search) {
+        const pages = fuzzyRank(q, pagesIndex(), (p) => p.name).map((r) => r.item);
+        return pages.map((p) => ({ id: `page:${p.name}`, title: p.name, open: () => openPage(p.name) }));
+      }
+      const hits = await host.search.query(q, { kinds: ["pages"] });
+      return hits
+        .filter((h) => !INTERNAL_PAGE_NAME.test(h.name))
+        .map((h) => ({
+          id: `page:${h.name}`,
+          title: h.name,
+          subtitle: h.snippet || undefined,
+          open: () => openPage(h.name),
+        }));
     },
   },
   {
     id: "journal",
     label: "Journal",
-    search: (q) => {
-      const days = journalIndex(); // personal journal day-pages, kept out of Pages
-      const byName = fuzzyRank(q, days, (p) => p.name).map((r) => r.item);
-      const extra = q === ""
-        ? []
-        : days.filter((p) => !byName.includes(p) && getPageMarkdown(p.name).toLowerCase().includes(q.toLowerCase()));
-      return [...byName, ...extra].map((p) => ({
-        id: `journal:${p.name}`,
-        title: p.name,
-        subtitle: snippet(getPageMarkdown(p.name), q),
-        open: () => openPage(p.name),
+    search: async (q) => {
+      if (!q || !host.search) {
+        const days = fuzzyRank(q, journalIndex(), (p) => p.name).map((r) => r.item);
+        return days.map((p) => ({ id: `journal:${p.name}`, title: p.name, open: () => openPage(p.name) }));
+      }
+      const hits = await host.search.query(q, { kinds: ["journal"] });
+      return hits.map((h) => ({
+        id: `journal:${h.name}`,
+        title: h.name,
+        subtitle: h.snippet || undefined,
+        open: () => openPage(h.name),
       }));
     },
   },

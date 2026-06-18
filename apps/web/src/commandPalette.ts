@@ -10,7 +10,11 @@ export interface PaletteItem {
 export interface SearchSource {
   id: string;
   label: string;
-  search: (query: string) => PaletteItem[];
+  // May resolve synchronously (resident sources: nav, projects, files, cards) or
+  // asynchronously (host-backed: pages/journal full-text search). Sync results
+  // render on the keystroke; async ones fill in a tick later, guarded so a stale
+  // query's late result never clobbers a newer one.
+  search: (query: string) => PaletteItem[] | Promise<PaletteItem[]>;
 }
 
 export interface Command {
@@ -34,6 +38,7 @@ export interface PaletteController {
 }
 
 const GROUP_CAP = 4;
+const DEBOUNCE_MS = 120;
 
 interface RenderGroup {
   label: string;
@@ -119,18 +124,15 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
     item.open();
   }
 
-  function update(): void {
-    const raw = input.value;
-    if (raw.startsWith(">")) {
-      const q = raw.slice(1).trim();
-      const items = rankCommands(q);
-      render(items.length ? [{ label: "Commands", items, extra: 0, isCommands: true }] : []);
-      return;
-    }
-    const q = raw.trim();
-    const groups = sources
-      .map((s): RenderGroup => {
-        const all = s.search(q);
+  // Per-query token: each update() bumps it; an async source's resolved result
+  // only renders if its token is still the latest, so a slow query that lands
+  // after a newer keystroke is discarded rather than flashing stale results.
+  let queryToken = 0;
+
+  function buildGroups(resolved: PaletteItem[][]): RenderGroup[] {
+    return sources
+      .map((s, i): RenderGroup => {
+        const all = resolved[i];
         return {
           label: s.label,
           items: all.slice(0, GROUP_CAP),
@@ -139,7 +141,47 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
         };
       })
       .filter((g) => g.items.length > 0);
-    render(groups);
+  }
+
+  function update(): void {
+    const raw = input.value;
+    if (raw.startsWith(">")) {
+      queryToken++; // invalidate any in-flight async search-source results
+      const q = raw.slice(1).trim();
+      const items = rankCommands(q);
+      render(items.length ? [{ label: "Commands", items, extra: 0, isCommands: true }] : []);
+      return;
+    }
+    const q = raw.trim();
+    const token = ++queryToken;
+    const results = sources.map((s) => s.search(q));
+    // Render synchronously-available sources now (snappy nav); async sources
+    // contribute an empty group this pass and fill in once they resolve.
+    render(buildGroups(results.map((r) => (Array.isArray(r) ? r : []))));
+    if (results.every((r) => Array.isArray(r))) return;
+    void Promise.all(results.map((r) => Promise.resolve(r))).then((all) => {
+      if (token !== queryToken) return; // a newer query superseded this one
+      render(buildGroups(all));
+    });
+  }
+
+  // Debounce live typing so we don't fire a host query on every keystroke; the
+  // stale-token guard in update() keeps results correct regardless. Programmatic
+  // entry points (open, Enter/submit) flush immediately for responsiveness.
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleUpdate(): void {
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined;
+      update();
+    }, DEBOUNCE_MS);
+  }
+  function flushUpdate(): void {
+    if (debounceTimer !== undefined) {
+      clearTimeout(debounceTimer);
+      debounceTimer = undefined;
+    }
+    update();
   }
 
   function open(prefill?: string, overlay = false): void {
@@ -147,7 +189,7 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
     form.classList.toggle("overlay", overlay);
     backdrop.classList.toggle("open", overlay);
     input.focus();
-    update();
+    flushUpdate();
   }
 
   function close(): void {
@@ -162,7 +204,7 @@ export function createCommandPalette(deps: PaletteDeps): PaletteController {
     e.preventDefault();
     choose(active);
   });
-  input.addEventListener("input", update);
+  input.addEventListener("input", scheduleUpdate);
 
   input.addEventListener("keydown", (e) => {
     const rows = flat.length;

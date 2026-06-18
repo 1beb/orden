@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCommandPalette } from "../src/commandPalette";
-import type { SearchSource, Command } from "../src/commandPalette";
+import type { SearchSource, Command, PaletteItem } from "../src/commandPalette";
 
 afterEach(() => document.body.replaceChildren());
 
@@ -61,6 +61,72 @@ describe("command palette query routing", () => {
     input.value = "qqq";
     palette.update();
     expect(mount.querySelector(".palette-group")).toBeNull();
+  });
+});
+
+describe("async search sources", () => {
+  it("renders results from an async source once it resolves", async () => {
+    const { input, mount, palette } = harness([
+      {
+        id: "Pages",
+        label: "Pages",
+        search: async (q) => [{ id: `p:${q}`, title: `Hit ${q}`, open: vi.fn() }],
+      },
+    ]);
+    input.value = "foo";
+    palette.update();
+    // Async source contributes nothing synchronously.
+    expect(mount.querySelectorAll(".palette-row")).toHaveLength(0);
+    await vi.waitFor(() => expect(mount.querySelectorAll(".palette-row")).toHaveLength(1));
+    expect(mount.querySelector(".palette-row")?.textContent).toContain("Hit foo");
+  });
+
+  it("renders sync sources immediately and fills async ones a tick later", async () => {
+    const { input, mount, palette } = harness([
+      { id: "Nav", label: "Nav", search: (q) => [{ id: "n", title: `Nav ${q}`, open: vi.fn() }] },
+      {
+        id: "Pages",
+        label: "Pages",
+        search: async (q) => [{ id: "p", title: `Page ${q}`, open: vi.fn() }],
+      },
+    ]);
+    input.value = "x";
+    palette.update();
+    // Sync "Nav" group renders now; async "Pages" not yet.
+    expect([...mount.querySelectorAll(".palette-group")].map((g) => g.getAttribute("data-source"))).toEqual([
+      "Nav",
+    ]);
+    await vi.waitFor(() =>
+      expect([...mount.querySelectorAll(".palette-group")].map((g) => g.getAttribute("data-source"))).toEqual([
+        "Nav",
+        "Pages",
+      ]),
+    );
+  });
+
+  it("ignores a stale async result when a newer query supersedes it", async () => {
+    let resolveFirst!: (v: PaletteItem[]) => void;
+    const first = new Promise<PaletteItem[]>((r) => (resolveFirst = r));
+    const { input, mount, palette } = harness([
+      {
+        id: "Pages",
+        label: "Pages",
+        search: (q) =>
+          q === "old" ? first : Promise.resolve([{ id: "p:new", title: "New result", open: vi.fn() }]),
+      },
+    ]);
+    input.value = "old";
+    palette.update(); // token 1, awaiting `first`
+    input.value = "new";
+    palette.update(); // token 2, resolves to "New result"
+    await vi.waitFor(() =>
+      expect(mount.querySelector(".palette-row")?.textContent).toContain("New result"),
+    );
+    // The stale first query resolves late — it must NOT replace current results.
+    resolveFirst([{ id: "p:old", title: "Old result", open: vi.fn() }]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mount.querySelector(".palette-row")?.textContent).toContain("New result");
   });
 });
 
