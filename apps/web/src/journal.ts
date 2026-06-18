@@ -192,12 +192,14 @@ export function mountJournal(
     container.append(heading, host, backlinksEl);
 
     makeEditor(host, name);
-    renderBacklinks(backlinksEl, name);
+    void renderBacklinks(backlinksEl, name);
     onTitle(titleFor(name));
   }
 
-  function renderBacklinks(el: HTMLElement, name: string): void {
-    const refs = backlinksTo(name);
+  // Backlinks come from the host index (async). Fill the panel once they land —
+  // the page body already rendered, so this never blocks the editor mount.
+  async function renderBacklinks(el: HTMLElement, name: string): Promise<void> {
+    const refs = await backlinksTo(name);
     el.replaceChildren();
     if (refs.length === 0) return;
     const title = document.createElement("div");

@@ -5,8 +5,7 @@
 // accessor routes through it, so a journal entry can't structurally leak into a
 // page listing (and vice versa). [[wiki links]] still cross both for backlinks.
 // Accessors stay synchronous over caches hydrated at boot; writes write through.
-import { fromMarkdown, buildBacklinkIndex, type Page } from "@orden/outliner";
-import type { Host } from "@orden/host-api";
+import type { BacklinkHit, Host } from "@orden/host-api";
 
 // Per-page timestamps, stored in a sidecar vault ns ("pagemeta") so the page
 // value itself stays a plain markdown string (consumed directly by the outliner).
@@ -257,10 +256,17 @@ export function journalIndex(): PageInfo[] {
 }
 
 // Which blocks across all pages AND journal entries reference `name`, so jotting
-// [[AI Suspects]] in today's journal still backlinks the page.
-export function backlinksTo(name: string) {
-  const pages: Page[] = [...Object.entries(pageCache), ...Object.entries(journalCache)].map(
-    ([n, md]) => ({ name: n, root: fromMarkdown(md) }),
-  );
-  return buildBacklinkIndex(pages)[name] ?? [];
+// [[AI Suspects]] in today's journal still backlinks the page. Served by the
+// host's link index (case-insensitive) rather than scanning resident bodies.
+export async function backlinksTo(name: string): Promise<BacklinkHit[]> {
+  if (!host?.search) return [];
+  return host.search.backlinks(name);
+}
+
+// Backlink counts for every linked target (keyed by lowercased target), in one
+// host call — the Pages index badges each row from this map instead of a
+// per-row scan.
+export async function backlinkCounts(): Promise<Record<string, number>> {
+  if (!host?.search) return {};
+  return host.search.backlinkCounts();
 }

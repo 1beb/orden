@@ -1513,7 +1513,7 @@ const journal = mountJournal(
     if (!result.ok) {
       showToast(result.reason);
     } else if (viewStore.get() === "pages") {
-      renderPagesIndex(viewEls.pages, openPage);
+      void renderPagesIndex(viewEls.pages, openPage);
     }
     return result;
   },
@@ -2657,7 +2657,7 @@ vaultChanges.register("files", async (key, projectId) => {
 vaultChanges.register("pages", async () => {
   await hydratePages(host);
   const v = viewStore.get();
-  if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+  if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
   else if (v === "journal") journal.refresh();
   else if (v === "project") refreshProject(); // notes page may have changed
 });
@@ -2778,7 +2778,7 @@ onReconnect(() => {
     refreshBoard();
     sessionsPanel.refresh();
     const v = viewStore.get();
-    if (v === "pages") renderPagesIndex(viewEls.pages, openPage);
+    if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
     else if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
     else if (v === "journal") journal.refresh();
     else if (v === "project") refreshProject();

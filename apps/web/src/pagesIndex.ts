@@ -1,4 +1,4 @@
-import { pagesIndex, backlinksTo, deletePage } from "./pages";
+import { pagesIndex, backlinkCounts, deletePage } from "./pages";
 import { confirmDialog } from "./modal";
 
 // Format an ISO timestamp as a short, locale-friendly date; "—" when unknown.
@@ -11,10 +11,10 @@ function fmtDate(iso?: string): string {
 
 // Renders a table of all pages with their creation date + backlink counts,
 // ordered by most recent activity (updated, then created). Rows open the page.
-export function renderPagesIndex(
+export async function renderPagesIndex(
   container: HTMLElement,
   onOpen: (name: string) => void,
-): void {
+): Promise<void> {
   container.replaceChildren();
 
   const heading = document.createElement("h1");
@@ -31,6 +31,9 @@ export function renderPagesIndex(
     container.append(empty);
     return;
   }
+
+  // One batched call for every row's badge, keyed by lowercased target.
+  const counts = await backlinkCounts();
 
   const table = document.createElement("table");
   table.className = "pages-table";
@@ -56,7 +59,7 @@ export function renderPagesIndex(
 
     const countCell = document.createElement("td");
     countCell.className = "pages-count";
-    countCell.textContent = String(backlinksTo(p.name).length);
+    countCell.textContent = String(counts[p.name.toLowerCase()] ?? 0);
 
     const actionCell = document.createElement("td");
     actionCell.className = "pages-actions";
@@ -77,7 +80,7 @@ export function renderPagesIndex(
       }).then((ok) => {
         if (!ok) return;
         deletePage(p.name);
-        renderPagesIndex(container, onOpen);
+        void renderPagesIndex(container, onOpen);
       });
     });
     actionCell.append(del);

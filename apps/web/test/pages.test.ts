@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import {
+  backlinkCounts,
   backlinksTo,
   deletePage,
   getPageMarkdown,
@@ -36,10 +37,17 @@ describe("pages store (host-backed)", () => {
     expect(pageNames()).toEqual(["alpha", "beta"]);
   });
 
-  it("backlinksTo finds pages whose blocks reference the name", () => {
+  it("backlinksTo finds pages whose blocks reference the name", async () => {
     setPageMarkdown("a", "- see [[b]]");
     setPageMarkdown("b", "- hi");
-    expect(backlinksTo("b").length).toBeGreaterThanOrEqual(1);
+    expect((await backlinksTo("b")).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("backlinkCounts groups by lowercased target across pages and journal", async () => {
+    setPageMarkdown("Source", "- see [[Topic]]");
+    setPageMarkdown("2026-05-24", "- also [[topic]]");
+    const counts = await backlinkCounts();
+    expect(counts["topic"]).toBeGreaterThanOrEqual(2);
   });
 
   it("persists across a re-hydrate (fresh host over the same vault)", async () => {
@@ -103,10 +111,10 @@ describe("pages store (host-backed)", () => {
     expect(pageNames()).not.toContain("2026-05-24");
   });
 
-  it("backlinks still cross from a journal entry to a knowledge page", () => {
+  it("backlinks still cross from a journal entry to a knowledge page", async () => {
     setPageMarkdown("AI Suspects", "- a curated page");
     setPageMarkdown("2026-05-24", "- looked at [[AI Suspects]]");
-    expect(backlinksTo("AI Suspects").length).toBeGreaterThanOrEqual(1);
+    expect((await backlinksTo("AI Suspects")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("migrates legacy journal day-pages out of the pages ns on hydrate", async () => {
@@ -124,10 +132,10 @@ describe("pages store (host-backed)", () => {
     expect(await host.vault.get<string>("journal", "2026-05-24")).toBe("- legacy journal");
   });
 
-  it("internal card:/notes: pages stay readable and backlinkable though hidden from the index", () => {
+  it("internal card:/notes: pages stay readable and backlinkable though hidden from the index", async () => {
     setPageMarkdown("card:item_abc_1", "- see [[Topic]]");
     expect(getPageMarkdown("card:item_abc_1")).toBe("- see [[Topic]]");
-    expect(backlinksTo("Topic").length).toBeGreaterThanOrEqual(1);
+    expect((await backlinksTo("Topic")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("deletePage resolves case-insensitively and persists across re-hydrate", async () => {
@@ -181,13 +189,13 @@ describe("renamePage", () => {
     expect(await host.vault.get("pagemeta", "New Page")).toEqual(before);
   });
 
-  it("rewrites [[OldName]] references in other pages", () => {
+  it("rewrites [[OldName]] references in other pages", async () => {
     setPageMarkdown("Target", "- i am the target");
     setPageMarkdown("Referrer", "- see [[Target]] here");
     renamePage("Target", "Renamed");
     expect(getPageMarkdown("Referrer")).toBe("- see [[Renamed]] here");
-    expect(backlinksTo("Renamed").length).toBeGreaterThanOrEqual(1);
-    expect(backlinksTo("Target")).toHaveLength(0);
+    expect((await backlinksTo("Renamed")).length).toBeGreaterThanOrEqual(1);
+    expect(await backlinksTo("Target")).toHaveLength(0);
   });
 
   it("rewrites references in journal entries, case-insensitively and whitespace-tolerant", () => {
