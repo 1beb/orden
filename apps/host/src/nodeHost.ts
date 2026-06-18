@@ -30,7 +30,11 @@ import type {
 } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { relative, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import type { SearchService } from "@orden/host-api";
 import { DiskVault } from "./diskVault";
+import { VaultIndex } from "./vaultIndex";
+import { NodeSearchService, attachIndexer } from "./searchService";
 import { FsFiles } from "./fsFiles";
 import { makeProjectRootResolver, type ProjectRootResolver } from "./projectRoots";
 import { renderDoc } from "./docRender";
@@ -148,11 +152,13 @@ export class NodeHost implements Host {
   readonly locks: LockService = new NoopLocks();
   readonly chat: ChatBackend;
   readonly terminalChat: TerminalChat;
+  readonly search: SearchService;
 
   private readonly changeListeners = new Set<(change: VaultChange) => void>();
   private readonly filesRoot?: string;
   private readonly vaultRoot: string;
   private readonly rootResolver: ProjectRootResolver;
+  private readonly index: VaultIndex;
 
   constructor(opts: NodeHostOptions) {
     this.filesRoot = opts.filesRoot;
@@ -160,6 +166,14 @@ export class NodeHost implements Host {
     this.vault = new EmittingVault(new DiskVault(opts.vaultRoot), (change) => {
       for (const listener of this.changeListeners) listener(change);
     });
+    // Derived, rebuildable search/backlink index over page+journal content. The
+    // vault dir is ensured first so sqlite can create index.db beside it; the
+    // indexer subscribes to the change feed so writes from any bus stay indexed.
+    // Pre-existing content is (re)built by initSearchIndex() at boot.
+    mkdirSync(opts.vaultRoot, { recursive: true });
+    this.index = new VaultIndex(join(opts.vaultRoot, "index.db"));
+    this.search = new NodeSearchService(this.index);
+    attachIndexer(this.index, this.vault, (l) => this.onChange(l));
     // FsFiles serves every project from its own root (resolved per call from the
     // "projects" vault ns); "repo" aliases filesRoot, and an unresolvable id
     // degrades to empty lists / throwing reads, so this works even with no
@@ -215,10 +229,22 @@ export class NodeHost implements Host {
     return () => this.changeListeners.delete(listener);
   }
 
-  /** Release any open-doc file watchers. Not needed in production (one host,
-   *  process lifetime); used by tests to avoid leaking fs.watch instances. */
+  /**
+   * Build the search index from existing vault content if it's empty/stale.
+   * Idempotent; call once at boot. Live writes are already indexed via the
+   * change-feed subscription set up in the constructor, so this only backfills
+   * content that predates this process.
+   */
+  async initSearchIndex(): Promise<void> {
+    if (this.index.needsRebuild()) await this.index.rebuildFrom(this.vault);
+  }
+
+  /** Release any open-doc file watchers + close the search index db. Not needed
+   *  in production (one host, process lifetime); used by tests to avoid leaking
+   *  fs.watch instances and sqlite handles. */
   stop(): void {
     if (this.files instanceof FsFiles) this.files.stopWatching();
+    this.index.close();
   }
 
   /**
@@ -312,6 +338,8 @@ export class NodeHost implements Host {
       remoteProjects: false, // H4
       spawnSessions: true, // H3: NodeSessions runs claude/opencode
       persistentVault: true,
+      search: true, // host-side indexed page/journal search + backlinks
+
       filesRoot: this.filesRoot, // so the web can root chat/agent sessions in the repo
       vaultRoot: this.vaultRoot, // so the web can show where the vault lives
       pickDirectory: hasDirectoryPicker(), // native folder chooser available?

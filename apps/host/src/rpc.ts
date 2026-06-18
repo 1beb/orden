@@ -32,6 +32,7 @@ const CAPABILITIES = [
   "locks",
   "chat",
   "terminalChat",
+  "search",
 ] as const;
 
 export async function dispatch(host: Host, req: RpcRequest): Promise<RpcResponse> {

@@ -11,6 +11,54 @@ describe("BrowserHost", () => {
       remoteProjects: false,
       spawnSessions: false,
       persistentVault: true,
+      search: true,
+    });
+  });
+
+  describe("search (in-memory fallback)", () => {
+    let host: BrowserHost;
+    beforeEach(() => {
+      host = new BrowserHost();
+    });
+
+    it("finds pages by body content with a bracketed snippet", async () => {
+      await host.vault.set("pages", "Design", "- the quick brown fox");
+      await host.vault.set("pages", "Other", "- nothing here");
+      const hits = await host.search!.query("brown");
+      expect(hits.map((h) => h.name)).toEqual(["Design"]);
+      expect(hits[0].snippet).toContain("[brown]");
+    });
+
+    it("ranks name matches ahead of body-only matches", async () => {
+      await host.vault.set("pages", "Roadmap", "- nothing relevant");
+      await host.vault.set("pages", "Other", "- mentions roadmap in the body");
+      const hits = await host.search!.query("roadmap");
+      expect(hits.map((h) => h.name)).toEqual(["Roadmap", "Other"]);
+    });
+
+    it("filters by kind", async () => {
+      await host.vault.set("pages", "P", "- shared term");
+      await host.vault.set("journal", "2026-06-17", "- shared term");
+      const hits = await host.search!.query("shared", { kinds: ["journal"] });
+      expect(hits.map((h) => h.name)).toEqual(["2026-06-17"]);
+    });
+
+    it("resolves backlinks across pages and journal, case-insensitively", async () => {
+      await host.vault.set("pages", "Source", "- see [[Target]] and [[ target ]]");
+      await host.vault.set("journal", "2026-06-17", "- [[TARGET]] noted");
+      const refs = await host.search!.backlinks("target");
+      expect(refs.map((r) => r.pageName).sort()).toEqual(["2026-06-17", "Source"]);
+    });
+
+    it("counts backlinks grouped by lowercased target", async () => {
+      await host.vault.set("pages", "A", "- [[Topic]]");
+      await host.vault.set("pages", "B", "- [[topic]]");
+      expect((await host.search!.backlinkCounts())["topic"]).toBe(2);
+    });
+
+    it("returns nothing for an empty query", async () => {
+      await host.vault.set("pages", "A", "- content");
+      expect(await host.search!.query("   ")).toEqual([]);
     });
   });
 
