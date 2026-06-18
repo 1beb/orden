@@ -18,12 +18,19 @@ import {
 } from "./sessions";
 import { openCardModal } from "./cardModal";
 
+// A list group key: every real card state, plus the web-local DERIVED group
+// "learnings" (mirrors the kanban board's derived Learnings column — see
+// kanban.ts). No card is ever stored in state "learnings"; a complete card with
+// open learnings is bucketed there at render time when the caller opts in.
+type GroupKey = CardState | "learnings";
+
 // Capitalized labels for group headers and the state picker.
-export const STATE_LABELS: Record<CardState, string> = {
+export const STATE_LABELS: Record<GroupKey, string> = {
   planning: "Planning",
   "in-progress": "In-progress",
   blocked: "Blocked",
   complete: "Complete",
+  learnings: "Learnings",
 };
 
 export interface IssueGroupDeps {
@@ -38,6 +45,15 @@ export interface IssueGroupDeps {
   // group headers and every row shares the page's project, so changing either
   // belongs on the card (the title opens the card modal, which owns both).
   showMeta?: boolean;
+  // Optional derived "Learnings" group — mirrors the kanban board's Learnings
+  // column. When provided, a COMPLETE card with >0 open learnings is pulled out
+  // of its Complete group into a trailing "Learnings" group, and clicking such a
+  // row opens the learnings review view (onOpen) instead of the card modal. The
+  // project-page widget omits this (it has no learnings concept).
+  learnings?: {
+    openFor: (cardId: string) => number;
+    onOpen: (cardId: string) => void;
+  };
 }
 
 // A leading control for an item row. If the item has linked session(s), render
@@ -80,16 +96,26 @@ function rowLeader(
 // context) and any TTL/fade filtering of `items`.
 export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueGroupDeps): void {
   list.replaceChildren();
-  for (const state of deps.states) {
-    const group = items.filter((i) => i.state === state);
+  // The group a card buckets into. Same rule as the board's columnFor: a
+  // complete card with open learnings is diverted to the derived "learnings"
+  // group (only when the caller opts in), otherwise it sits in its stored state.
+  const lrn = deps.learnings;
+  const bucketOf = (i: Item): GroupKey =>
+    lrn && i.state === "complete" && lrn.openFor(i.id) > 0 ? "learnings" : i.state;
+  // Render the lifecycle groups in order, then the derived Learnings group last.
+  const order: GroupKey[] = lrn ? [...deps.states, "learnings"] : [...deps.states];
+  for (const key of order) {
+    const group = items.filter((i) => bucketOf(i) === key);
     if (group.length === 0) continue;
+    const isLearnings = key === "learnings";
     const details = document.createElement("details");
     details.className = "issue-group";
     // Completed cards can pile up; show the group but keep it furled until the
-    // user opens it. Every other state defaults open.
-    details.open = state !== "complete";
+    // user opens it. Every other group (including Learnings, which needs the
+    // user's attention) defaults open.
+    details.open = key !== "complete";
     const summary = document.createElement("summary");
-    summary.innerHTML = `<span class="issue-group-state" data-state="${state}">${STATE_LABELS[state]}</span> <span class="issue-group-count">${group.length}</span>`;
+    summary.innerHTML = `<span class="issue-group-state" data-state="${key}">${STATE_LABELS[key]}</span> <span class="issue-group-count">${group.length}</span>`;
     details.append(summary);
     for (const item of group) {
       const row = document.createElement("div");
@@ -98,12 +124,17 @@ export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueG
       // launch one. This is what folds Active sessions into the row.
       const lead = rowLeader(item, deps.onStartSession, deps.onOpenSession);
       // Click the title to open the card's detail modal (the same modal the
-      // kanban board opens). Mutations there re-render this list.
+      // kanban board opens). A row in the derived Learnings group instead opens
+      // the learnings review view for that card, matching the board column.
       const title = document.createElement("button");
       title.type = "button";
       title.className = "issue-title";
       title.textContent = item.title;
       title.addEventListener("click", () => {
+        if (isLearnings) {
+          lrn!.onOpen(item.id);
+          return;
+        }
         openCardModal(item.id, {
           onStartSession: (it, agent) => deps.onStartSession?.(it, agent),
           onOpenSession: (id) => deps.onOpenSession?.(id),
