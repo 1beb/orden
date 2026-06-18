@@ -1508,8 +1508,8 @@ const journal = mountJournal(
   // (e.g. name collision) surface the reason; the journal reverts the heading.
   // Self-originated vault writes don't echo back, so refresh the Pages index if
   // it happens to be the open view.
-  (oldName, newName) => {
-    const result = renamePage(oldName, newName);
+  async (oldName, newName) => {
+    const result = await renamePage(oldName, newName);
     if (!result.ok) {
       showToast(result.reason);
     } else if (viewStore.get() === "pages") {

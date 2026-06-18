@@ -1,7 +1,7 @@
 import { EditorView } from "prosemirror-view";
 import { journalKey } from "@orden/outliner";
 import { makeOutlineEditor } from "./outlineEditor";
-import { backlinksTo, journalDates, type RenameResult } from "./pages";
+import { backlinksTo, getPageBody, journalDates, type RenameResult } from "./pages";
 import { effectiveTimeZone } from "./settings";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -44,13 +44,17 @@ export function mountJournal(
   // Commit a page rename (title edited then clicked away). The owner performs the
   // vault-side rename + backlink rewrite and reports success; on failure the
   // heading reverts to the old name. Absent => titles aren't editable.
-  onRename?: (oldName: string, newName: string) => RenameResult,
+  onRename?: (oldName: string, newName: string) => RenameResult | Promise<RenameResult>,
 ): JournalController {
   let mode: "feed" | "page" = "feed";
   let currentName: string | null = null;
   const editors: EditorView[] = [];
+  // Bumped on every clear, so an async editor mount whose body resolves after a
+  // newer render started knows to drop itself (mirrors the search stale guard).
+  let renderGen = 0;
 
   function clearEditors(): void {
+    renderGen++;
     for (const v of editors) {
       try {
         v.destroy();
@@ -61,16 +65,20 @@ export function mountJournal(
     editors.length = 0;
   }
 
-  function makeEditor(host: HTMLElement, name: string): EditorView {
-    const view = makeOutlineEditor(host, name, (target) => {
+  // Bodies are fetched on demand now, so mounting an editor is async: grab the
+  // body, then (if this render still stands) build the editor into `host`.
+  async function makeEditor(host: HTMLElement, name: string): Promise<void> {
+    const gen = renderGen;
+    const body = await getPageBody(name);
+    if (gen !== renderGen) return; // a newer render superseded this mount
+    const view = makeOutlineEditor(host, name, body, (target) => {
       if (onWikiLink?.(target)) return; // handled externally (e.g. [[Project: X]])
       showPage(target);
     }, widgetForSession);
     editors.push(view);
-    return view;
   }
 
-  // One day in the feed: a date heading + its editable outline.
+  // One day in the feed: a date heading + its editable outline (mounted async).
   function dayChunk(name: string): HTMLElement {
     const section = document.createElement("section");
     section.className = "journal-day";
@@ -80,7 +88,7 @@ export function mountJournal(
     const host = document.createElement("div");
     host.className = "journal-editor";
     section.append(heading, host);
-    makeEditor(host, name);
+    void makeEditor(host, name);
     return section;
   }
 
@@ -132,7 +140,7 @@ export function mountJournal(
     heading.title = "Click to rename";
 
     let committed = false;
-    const commit = (): void => {
+    const commit = async (): Promise<void> => {
       if (committed) return;
       committed = true;
       const next = (heading.textContent ?? "").trim();
@@ -140,7 +148,7 @@ export function mountJournal(
         showPage(name); // revert any stray whitespace / empty edit
         return;
       }
-      const result = onRename!(name, next);
+      const result = await onRename!(name, next);
       if (result.ok) showPage(next);
       else showPage(name); // owner surfaced the reason; restore the old title
     };
@@ -191,7 +199,7 @@ export function mountJournal(
     backlinksEl.className = "backlinks";
     container.append(heading, host, backlinksEl);
 
-    makeEditor(host, name);
+    void makeEditor(host, name);
     void renderBacklinks(backlinksEl, name);
     onTitle(titleFor(name));
   }

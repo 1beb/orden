@@ -11,25 +11,28 @@ import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-li
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { wikiLinkPlugin } from "./wikilink";
-import { getPageMarkdown, setPageMarkdown } from "./pages";
+import { setPageMarkdown } from "./pages";
 
 // ProseMirror's markdown serializer escapes "[" / "]"; restore [[wiki links]].
 export function serializePage(doc: Parameters<typeof markdownSerializer.serialize>[0]): string {
   return markdownSerializer.serialize(doc).replace(/\\\[\\\[(.+?)\\\]\\\]/g, "[[$1]]");
 }
 
-// Mount an editable outline for page `name` into `host`. Persists through to the
-// pages store on every doc change. `onWikiLink(target)` fires on a [[link]] click.
-// `widgetForSession` is an optional callback that returns a DOM element for
-// [[Session: <id>]] links so they render as widget buttons instead of inline text.
+// Mount an editable outline for page `name` into `host`, seeded with `body`
+// (the caller fetches it via the async getPageBody, keeping this constructor
+// synchronous). Persists through to the pages store on every doc change.
+// `onWikiLink(target)` fires on a [[link]] click. `widgetForSession` is an
+// optional callback that returns a DOM element for [[Session: <id>]] links so
+// they render as widget buttons instead of inline text.
 export function makeOutlineEditor(
   host: HTMLElement,
   name: string,
+  body: string,
   onWikiLink: (target: string) => void,
   widgetForSession?: (sessionId: string) => HTMLElement | null | undefined,
 ): EditorView {
   const state = EditorState.create({
-    doc: markdownParser.parse(getPageMarkdown(name) || "- "),
+    doc: markdownParser.parse(body || "- "),
     schema,
     plugins: [
       buildInputRules(schema),

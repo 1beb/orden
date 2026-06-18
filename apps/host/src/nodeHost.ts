@@ -27,7 +27,9 @@ import type {
   Learning,
   ApplyLearningResult,
   DeliverCommentResult,
+  RenameResult,
 } from "@orden/host-api";
+import { renamePageInVault } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { relative, join } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -308,6 +310,13 @@ export class NodeHost implements Host {
       learningId,
       text,
     );
+  }
+
+  // Rename a knowledge page + rewrite its references over the vault. The writes
+  // flow through EmittingVault, so the live search index updates off the change
+  // feed; the shared helper keeps the rules identical to BrowserHost.
+  async renamePage(oldName: string, newName: string): Promise<RenameResult> {
+    return renamePageInVault(this.vault, oldName, newName);
   }
 
   /**

@@ -90,6 +90,9 @@ export interface SearchService {
   backlinkCounts(): Promise<Record<string, number>>;
 }
 
+/** Outcome of a page rename — failure carries a user-facing reason. */
+export type RenameResult = { ok: true } | { ok: false; reason: string };
+
 export type ProjectSource =
   | { kind: "ephemeral" }
   | { kind: "local"; path: string }
@@ -397,5 +400,88 @@ export interface Host {
    * the learning. Absent on hosts without agents (browser).
    */
   deliverLearningComment?(learningId: string, text: string): Promise<DeliverCommentResult>;
+  /**
+   * Rename a knowledge page and rewrite every [[OldName]] reference across all
+   * pages AND journal entries to [[NewName]], operating directly over the vault
+   * (no resident bodies needed on the client). Refuses to turn a page into a
+   * journal date or an internal card:/notes: key, and blocks a case-insensitive
+   * collision (a pure re-casing of the page's own name is allowed). The derived
+   * search index picks up the writes via the change feed. Present on both hosts.
+   */
+  renamePage?(oldName: string, newName: string): Promise<RenameResult>;
   capabilities(): HostCapabilities;
+}
+
+// Escape a string for literal use inside a RegExp.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const RENAME_ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const RENAME_INTERNAL_PREFIX = /^(card|notes):/;
+
+/**
+ * Rename a knowledge page over a VaultStore: re-key the body + sidecar metadata
+ * and rewrite [[OldName]] -> [[NewName]] everywhere (pages + journal),
+ * whitespace-tolerant and case-insensitive. The single implementation behind
+ * both NodeHost.renamePage and BrowserHost.renamePage, so the rules live in one
+ * place. Only changed entries are written back. `oldName` is resolved to its
+ * canonical (stored) casing case-insensitively before any checks.
+ */
+export async function renamePageInVault(
+  vault: VaultStore,
+  oldName: string,
+  newName: string,
+): Promise<RenameResult> {
+  const trimmed = newName.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "Name can't be empty." };
+
+  const pageNames = await vault.list("pages");
+  const exact = pageNames.find((k) => k === oldName);
+  const oldKey =
+    exact ?? pageNames.find((k) => k.toLowerCase() === oldName.toLowerCase()) ?? oldName;
+
+  if (RENAME_ISO_DATE.test(oldKey) || RENAME_INTERNAL_PREFIX.test(oldKey) || !pageNames.includes(oldKey)) {
+    return { ok: false, reason: "This page can't be renamed." };
+  }
+  if (RENAME_ISO_DATE.test(trimmed)) return { ok: false, reason: "A page name can't be a date." };
+  if (RENAME_INTERNAL_PREFIX.test(trimmed)) return { ok: false, reason: "That name is reserved." };
+
+  // Exact same key (incl. casing) — nothing to do.
+  if (trimmed === oldKey) return { ok: true };
+
+  // Collision: another page already uses this name case-insensitively. A page
+  // re-casing its own name (same lowercase) passes through.
+  const lower = trimmed.toLowerCase();
+  for (const key of pageNames) {
+    if (key === oldKey) continue;
+    if (key.toLowerCase() === lower) return { ok: false, reason: `A page named "${key}" already exists.` };
+  }
+
+  // Re-key the body + metadata. Metadata is carried unchanged (a rename isn't a
+  // content edit, so the page keeps its place in the activity-sorted index).
+  const body = (await vault.get<string>("pages", oldKey)) ?? "";
+  const meta = await vault.get<unknown>("pagemeta", oldKey);
+  await vault.set("pages", trimmed, body);
+  await vault.delete("pages", oldKey);
+  if (meta != null) {
+    await vault.set("pagemeta", trimmed, meta);
+    await vault.delete("pagemeta", oldKey);
+  }
+
+  // Rewrite [[oldKey]] -> [[trimmed]] everywhere, whitespace-tolerant and
+  // case-insensitive (so [[ oldname ]] is caught too). The renamed page's own
+  // body now lives under `trimmed` and is scanned too, so a self-reference
+  // updates as well. Only changed entries are written back.
+  const linkRe = new RegExp(`\\[\\[\\s*${escapeRegExp(oldKey)}\\s*\\]\\]`, "gi");
+  const replacement = `[[${trimmed}]]`;
+  for (const ns of ["pages", "journal"] as const) {
+    for (const name of await vault.list(ns)) {
+      const md = (await vault.get<string>(ns, name)) ?? "";
+      const next = md.replace(linkRe, replacement);
+      if (next !== md) await vault.set(ns, name, next);
+    }
+  }
+
+  return { ok: true };
 }
