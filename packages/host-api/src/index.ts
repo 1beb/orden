@@ -6,6 +6,8 @@ export interface HostCapabilities {
   remoteProjects: boolean;
   spawnSessions: boolean;
   persistentVault: boolean;
+  /** True when host.search is available (indexed page/journal search + backlinks). */
+  search?: boolean;
   /**
    * Absolute path the host's single FileSource is rooted at, if any. The web
    * uses it to scope repo files to the one project whose path matches this root
@@ -53,6 +55,39 @@ export interface VaultStore {
   set<T>(ns: string, key: string, value: T): Promise<void>;
   list(ns: string): Promise<string[]>;
   delete(ns: string, key: string): Promise<void>;
+}
+
+/** The two vault stores whose markdown content is full-text searchable. */
+export type SearchEntryNs = "pages" | "journal";
+
+export interface SearchHit {
+  ns: SearchEntryNs;
+  name: string;
+  /** A short excerpt around the match, with the matched terms bracketed. */
+  snippet: string;
+  /** Relevance — lower is a better match (bm25). */
+  score: number;
+}
+
+export interface BacklinkHit {
+  /** The source entry (page name or journal date) that links to the target. */
+  pageName: string;
+  blockId: string;
+  /** The linking block's text, for previewing the reference. */
+  text: string;
+}
+
+/**
+ * Host-side, indexed search & backlinks over the vault's page/journal content,
+ * so the web no longer hydrates every body to search or resolve backlinks. The
+ * backing store (SQLite today) is an implementation detail; this interface is the
+ * stable seam. `target` matching is case-insensitive (mirrors page-name lookup).
+ */
+export interface SearchService {
+  query(text: string, opts?: { kinds?: SearchEntryNs[]; limit?: number }): Promise<SearchHit[]>;
+  backlinks(target: string): Promise<BacklinkHit[]>;
+  /** target (lowercased) -> number of blocks linking to it, for index badges. */
+  backlinkCounts(): Promise<Record<string, number>>;
 }
 
 export type ProjectSource =
@@ -327,6 +362,12 @@ export interface Host {
   locks: LockService;
   chat?: ChatBackend;
   terminalChat?: TerminalChat;
+  /**
+   * Host-side search & backlink index over page/journal content. Present on
+   * hosts that maintain an index (NodeHost via SQLite; BrowserHost via an
+   * in-memory scan). Gated by capabilities().search.
+   */
+  search?: SearchService;
   /**
    * Render a document (e.g. quarto) on the host. `path` is project-relative.
    * Resolves to a RenderResult whose outputPath (on success) is ALSO

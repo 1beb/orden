@@ -201,7 +201,9 @@ describe("ensureSessionWorktree", () => {
     const expected = join(worktreesRoot(vaultRoot), "p1", "s1");
     expect(r).toEqual({ workdir: expected, branch: "orden/fix-it" });
     const wt = calls.find((c) => c[1] === "worktree");
-    expect(wt).toEqual(["/repo", "worktree", "add", expected, "-b", "orden/fix-it", "origin/main"]);
+    // --no-track: orden branches are local (tracking is set up at publish via
+    // `push -u`), so the add skips the .git/config write that races config.lock.
+    expect(wt).toEqual(["/repo", "worktree", "add", "--no-track", expected, "-b", "orden/fix-it", "origin/main"]);
   });
 
   it("honors an explicit base ref setting (no default-branch lookup)", async () => {
@@ -239,6 +241,167 @@ describe("ensureSessionWorktree", () => {
       expect(r).toBeNull();
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("worktree add failed");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // The root-cause regression: a burst of launches used to race `git worktree
+  // add -b` on the repo's single .git/config.lock, each loser degrading to the
+  // shared checkout (and orphaning its history). Per-repo serialization means
+  // the adds run one at a time, so this race can't happen.
+  it("serializes concurrent worktree adds per repo so they can't trip .git/config.lock", async () => {
+    const dir = base();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const exec: GitExec = (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise<{ stdout: string; code: number }>((resolve) => {
+          setTimeout(() => {
+            inFlight--;
+            resolve({ stdout: "", code: 0 });
+          }, 15);
+        });
+      }
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5].map((i) =>
+        ensureSessionWorktree(
+          {
+            repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: `s${i}`,
+            title: `T${i}`, baseRefSetting: "",
+          },
+          exec,
+        ),
+      ),
+    );
+    expect(results.every((r) => r !== null)).toBe(true);
+    expect(maxInFlight).toBe(1); // adds never overlapped — no config.lock race
+  });
+
+  it("does NOT serialize across distinct repos (independent projects add in parallel)", async () => {
+    const dir = base();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const exec: GitExec = (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise<{ stdout: string; code: number }>((resolve) => {
+          setTimeout(() => {
+            inFlight--;
+            resolve({ stdout: "", code: 0 });
+          }, 15);
+        });
+      }
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    await Promise.all([
+      ensureSessionWorktree(
+        { repo: "/repo-a", vaultRoot: join(dir, "v"), projectId: "pa", sessionId: "s1", title: "a", baseRefSetting: "" },
+        exec,
+      ),
+      ensureSessionWorktree(
+        { repo: "/repo-b", vaultRoot: join(dir, "v"), projectId: "pb", sessionId: "s2", title: "b", baseRefSetting: "" },
+        exec,
+      ),
+    ]);
+    expect(maxInFlight).toBe(2); // different repos → ran in parallel, not chained
+  });
+
+  it("retries worktree add on a transient config.lock failure then succeeds", async () => {
+    const dir = base();
+    let addCalls = 0;
+    const exec: GitExec = (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") {
+        addCalls++;
+        if (addCalls < 3) {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "error: could not lock config file .git/config: File exists",
+            code: 255,
+          });
+        }
+        return Promise.resolve({ stdout: "", code: 0 });
+      }
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    const r = await ensureSessionWorktree(
+      { repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: "s", title: "x", baseRefSetting: "" },
+      exec,
+    );
+    expect(r).not.toBeNull();
+    expect(r).toEqual({ workdir: join(worktreesRoot(join(dir, "v")), "p", "s"), branch: "orden/x" });
+    expect(addCalls).toBe(3);
+  });
+
+  it("does NOT retry a non-lock worktree-add failure (a genuine error surfaces once)", async () => {
+    const dir = base();
+    let addCalls = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec: GitExec = (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") {
+        addCalls++;
+        return Promise.resolve({ stdout: "", stderr: "fatal: invalid reference: bogus-base", code: 128 });
+      }
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    try {
+      const r = await ensureSessionWorktree(
+        { repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: "s", title: "x", baseRefSetting: "" },
+        exec,
+      );
+      expect(r).toBeNull();
+      expect(addCalls).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("gives up after exhausting retries on a persistent lock failure (null + warn)", async () => {
+    const dir = base();
+    let addCalls = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec: GitExec = (_cwd, args) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "worktree") {
+        addCalls++;
+        return Promise.resolve({
+          stdout: "",
+          stderr: "fatal: Unable to create '/repo/.git/config.lock': File exists",
+          code: 255,
+        });
+      }
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    try {
+      const r = await ensureSessionWorktree(
+        { repo: "/repo", vaultRoot: join(dir, "v"), projectId: "p", sessionId: "s", title: "x", baseRefSetting: "" },
+        exec,
+      );
+      expect(r).toBeNull();
+      expect(addCalls).toBe(3); // 3 attempts, then give up
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("worktree add failed");
+      // The lock error's first line is surfaced for diagnosability.
+      expect(warn.mock.calls[0]?.[0]).toContain("Unable to create");
     } finally {
       warn.mockRestore();
     }
