@@ -11,12 +11,22 @@ export const STAGE_ROLES = ["initial", "active", "waiting", "terminal"] as const
 export const GATES = ["approve", "review"] as const;
 
 export const ACTIONS = [
+  // Lifecycle / publish
   "journal",
   "push",
   "open-pr",
   "merge",
   "reap",
   "propose-learnings",
+  // Generic, parameterized (the long-tail keystone)
+  "run",
+  "check",
+  // Review / evidence
+  "capture",
+  "code-review",
+  // Communication
+  "notify",
+  // Agent verify
   "verify",
 ] as const;
 
@@ -26,6 +36,14 @@ export const IRREVERSIBLE_ACTIONS: ReadonlySet<Action> = new Set([
   "open-pr",
   "merge",
 ]);
+
+/**
+ * Actions whose outcome (pass/fail) the host evaluates to drive conditional
+ * routing. `check` gates on exit code / output match; `run` and `verify` report
+ * pass/fail too. Other actions always pass. Used by the runbook engine to decide
+ * branching after a primitive step.
+ */
+export const GATING_ACTIONS: ReadonlySet<Action> = new Set(["check", "run", "verify"]);
 
 export const isStageRole = (s: string): s is StageRole =>
   (STAGE_ROLES as readonly string[]).includes(s);

@@ -20,6 +20,13 @@ export {
   docRender,
   learningPropose,
   resolutionReport,
+  workflowList,
+  workflowValidate,
+  workflowSave,
+  workflowRender,
+  workflowPropose,
+  workflowAdvance,
+  WORKFLOW_SIGNAL_NS,
   MERGE_RESOLUTION_NS,
 } from "./tools";
 export type { ToolResult, ResolutionKind, ResolutionVerdict } from "./tools";

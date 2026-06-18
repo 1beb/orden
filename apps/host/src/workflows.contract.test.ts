@@ -19,8 +19,9 @@ describe("workflow executor registry contract", () => {
       .filter(([, v]) => !v.implemented)
       .map(([k]) => k)
       .sort();
-    // Update this list (and wire the executor) when a pending primitive ships.
-    expect(pending).toEqual(["merge", "verify"]);
+    // All catalog actions are wired as executors. Update this list (and wire the
+    // executor) if a primitive is ever marked pending again.
+    expect(pending).toEqual([]);
   });
 
   it("every unimplemented primitive carries a note explaining the gap", () => {

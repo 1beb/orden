@@ -30,7 +30,11 @@ export interface StepOverride {
   aggregate?: Aggregation;
   action?: Action;
   params?: Record<string, unknown>;
+  /** Conditional routing on a primitive step's fail outcome. */
+  onFail?: { goto?: string };
   gate?: Gate;
+  /** Routing when the operator rejects a gate. */
+  onReject?: { goto?: string };
 }
 
 export interface WorkflowOverride
@@ -81,6 +85,8 @@ function mergeStep(child: StepOverride, base?: Step): Step {
     if (params !== undefined) step.params = params;
     const prose = child.prose ?? b?.prose;
     if (prose !== undefined) step.prose = prose;
+    const onFail = child.onFail ?? b?.onFail;
+    if (onFail !== undefined) step.onFail = onFail;
     return step;
   }
 
@@ -94,6 +100,8 @@ function mergeStep(child: StepOverride, base?: Step): Step {
   };
   const prose = child.prose ?? b?.prose;
   if (prose !== undefined) step.prose = prose;
+  const onReject = child.onReject ?? b?.onReject;
+  if (onReject !== undefined) step.onReject = onReject;
   return step;
 }
 

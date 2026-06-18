@@ -6,7 +6,7 @@ import type { Host } from "@orden/host-api";
 import {
   PRESET_WORKFLOWS,
   parseWorkflowMarkdown,
-  type Step,
+  renderSpecMarkdown,
   type WorkflowSpec,
 } from "@orden/workflows";
 
@@ -59,24 +59,9 @@ export function listWorkflows(): Row[] {
 
 // --- markdown <-> spec --------------------------------------------------
 
-function stepTag(step: Step): string {
-  if (step.kind === "gate") return `gate: ${step.gate}`;
-  if (step.kind === "primitive") return `do: ${step.action}`;
-  return "prose";
-}
-
-/** Render a spec to a readable runbook markdown (used to seed a preset for editing). */
+/** Render a spec to a readable runbook markdown (shared with the host/MCP). */
 function specToMarkdown(spec: WorkflowSpec): string {
-  const out: string[] = ["---", `name: ${spec.name}`];
-  if (spec.description) out.push(`description: ${spec.description}`);
-  out.push("---", "");
-  spec.steps.forEach((step, i) => {
-    out.push(`${i + 1}. ${stepTag(step)} — ${step.label}`);
-    const prose = "prose" in step ? step.prose : undefined;
-    if (prose) out.push(`   ${prose}`);
-    out.push("");
-  });
-  return out.join("\n").trimEnd() + "\n";
+  return renderSpecMarkdown(spec);
 }
 
 const NEW_TEMPLATE = `---
@@ -215,7 +200,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   },
   {
     term: "Action (do:)",
-    def: "A step orden runs itself, deterministically: push, open-pr, merge, journal, reap, propose-learnings.",
+    def: "A step orden runs itself, deterministically: push, open-pr, merge, journal, reap, propose-learnings (publish/lifecycle); run, check, capture, code-review, notify, verify (mid-work).",
   },
 ];
 

@@ -9,6 +9,7 @@
 
 import type { Host, PublishResult } from "@orden/host-api";
 import { type CardRec, cardSessionIds } from "@orden/mcp";
+import { isEngineDrivenCard } from "./runbookRunner";
 
 const PUBLISH_RANK: Record<PublishResult["state"], number> = {
   clean: 6, // verified clean, awaiting coordinator integration — the success state
@@ -38,6 +39,7 @@ export async function publishCompletedCard(
     published.delete(cardId); // gone or left Done — a future completion may publish again
     return;
   }
+  if (await isEngineDrivenCard(host.vault, cardId)) return; // engine-driven: runner handles it
   if (published.has(cardId)) return;
   if (typeof card.publishState === "string" && card.publishState) {
     published.add(cardId); // MCP completion already published

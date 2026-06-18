@@ -7,8 +7,21 @@ import type { Host, VaultStore, PublishResult } from "@orden/host-api";
 // Deep import the DOM-free ./page subpath, not the barrel: the barrel re-exports
 // kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
 import { journalKey } from "@orden/outliner/page";
+import {
+  PRESET_WORKFLOWS,
+  DEFAULT_WORKFLOW,
+  parseWorkflowMarkdown,
+  resolveSpec,
+  renderSpecMarkdown,
+  inferStepRole,
+  validateWorkflow,
+  type StepOverride,
+} from "@orden/workflows";
 import { findCard, cardSessionIds, type CardRec, type SessionRec } from "./sessionLink";
 import { putLearning, getLearning, type Learning, type LearningType } from "./learnings";
+
+const WORKFLOWS_NS = "workflows";
+const WORKFLOW_MD_PREFIX = "md:";
 
 export interface ToolResult {
   content: { type: "text"; text: string }[];
@@ -690,4 +703,126 @@ export async function panelOpen(
   const nonce = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   await vault.set("ui", "panel-intent", { kind, target, nonce, ...(projectId ? { projectId } : {}) });
   return text(target ? `opened ${kind} in panel: ${target}` : `opened ${kind} in panel`);
+}
+
+// --- workflow_* tools (agent-assisted authoring + selection) -----------------
+// These let an agent help an operator author/select a workflow runbook over MCP,
+// the same bus as card_* and learning_propose. The host runs them; both Claude
+// and opencode reach orden's MCP, so authoring works identically on either
+// harness. See docs/plans/2026-06-17-configurable-workflows-consolidated.md.
+
+/** List available workflows (built-in presets + vault-saved), name + description. */
+export async function workflowList(vault: VaultStore): Promise<ToolResult> {
+  const rows: { name: string; description: string; source: string }[] = [];
+  for (const w of PRESET_WORKFLOWS) {
+    rows.push({ name: w.name, description: w.description ?? "", source: "preset" });
+  }
+  const keys = await vault.list(WORKFLOWS_NS);
+  for (const k of keys) {
+    if (!k.startsWith(WORKFLOW_MD_PREFIX)) continue;
+    const md = await vault.get<string>(WORKFLOWS_NS, k);
+    if (typeof md !== "string") continue;
+    const parsed = parseWorkflowMarkdown(md);
+    rows.push({ name: parsed.name ?? k.slice(WORKFLOW_MD_PREFIX.length), description: parsed.description ?? "", source: "saved" });
+  }
+  if (!rows.length) return text("(no workflows)");
+  return text(rows.map((r) => `${r.name}  — ${r.description}  [${r.source}]`).join("\n"));
+}
+
+/** Validate a workflow markdown source; returns errors + warnings (never throws). */
+export async function workflowValidate(markdown: string): Promise<ToolResult> {
+  const parsed = parseWorkflowMarkdown(markdown);
+  const name = parsed.name ?? "(unnamed)";
+  const override = { name, description: parsed.description, steps: parsedToSteps(parsed) };
+  const resolved = resolveSpec(override, DEFAULT_WORKFLOW);
+  const { errors, warnings } = validateWorkflow(resolved);
+  return text(
+    JSON.stringify({ name, errors, warnings, steps: resolved.steps.length }, null, 2),
+  );
+}
+
+/** Save a workflow markdown to the vault (key workflows/md:<name>). */
+export async function workflowSave(vault: VaultStore, markdown: string): Promise<ToolResult> {
+  const parsed = parseWorkflowMarkdown(markdown);
+  const name = (parsed.name ?? "").trim();
+  if (!name || name.includes(":") || name.startsWith("__")) {
+    return text("workflow_save needs a `name:` in the frontmatter (no ':' or leading '__')");
+  }
+  await vault.set(WORKFLOWS_NS, `${WORKFLOW_MD_PREFIX}${name}`, markdown);
+  return text(`saved workflow "${name}"`);
+}
+
+/** Render a named workflow (preset or saved) as readable runbook markdown. */
+export async function workflowRender(vault: VaultStore, name: string): Promise<ToolResult> {
+  const preset = PRESET_WORKFLOWS.find((w) => w.name === name);
+  if (preset) return text(renderSpecMarkdown(preset));
+  const md = await vault.get<string>(WORKFLOWS_NS, `${WORKFLOW_MD_PREFIX}${name}`);
+  if (typeof md === "string") return text(md);
+  return text(`(workflow not found: ${name})`);
+}
+
+/**
+ * Bind a workflow to a session (the selection-confirm step). Sets session.workflow
+ * (HOST_OWNED); the runbook engine drives the card iff the name is non-default.
+ * Call from a session-scoped MCP connection to bind "my session".
+ */
+export async function workflowPropose(
+  vault: VaultStore,
+  sessionId: string,
+  workflowName: string,
+): Promise<ToolResult> {
+  const ses = await vault.get<SessionRec>("sessions", sessionId);
+  if (!ses) return text(`session not found: ${sessionId}`);
+  const name = workflowName.trim();
+  await vault.set("sessions", sessionId, { ...ses, workflow: name });
+  const driven = name && name !== "default";
+  return text(
+    `session "${ses.title ?? sessionId}" bound to workflow "${name}"` +
+      (driven ? " (runbook engine will drive this card)" : " (default — existing behavior)"),
+  );
+}
+
+/** The vault namespace the host reactor watches for runbook-advance signals. */
+export const WORKFLOW_SIGNAL_NS = "workflow-signal";
+
+/**
+ * Advance a card's runbook: send a signal (approve/reject for a gate step,
+ * complete for a prose step) that the host runbook runner resumes on. This is
+ * the operator's gate-approval / step-advancement surface. No-op for a card that
+ * isn't engine-driven (the signal is simply ignored).
+ */
+export async function workflowAdvance(
+  vault: VaultStore,
+  cardId: string,
+  signal: "approve" | "reject" | "complete",
+): Promise<ToolResult> {
+  await vault.set(WORKFLOW_SIGNAL_NS, cardId, { signal });
+  return text(`sent "${signal}" to card ${cardId}`);
+}
+
+// Parse the parser's stages into StepOverride shape. The numbered-runbook format
+// carries the step kind (prose/gate/primitive); the legacy heading format yields
+// prose-only stages. validate/resolve take it from here.
+function parsedToSteps(parsed: ReturnType<typeof parseWorkflowMarkdown>): StepOverride[] {
+  return parsed.stages.map((s) => {
+    const id =
+      s.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || `step-${Math.random().toString(36).slice(2, 6)}`;
+    const step: StepOverride = { id, label: s.label, prose: s.prose };
+    if (s.kind === "gate") {
+      step.kind = "gate";
+      step.gate = (s.gate as "approve" | "review") ?? "approve";
+      step.role = inferStepRole("gate", undefined, step.gate);
+    } else if (s.kind === "primitive") {
+      step.kind = "primitive";
+      step.action = s.action as never;
+      step.role = inferStepRole("primitive", step.action);
+    } else {
+      step.kind = "prose";
+      step.role = inferStepRole("prose");
+    }
+    return step;
+  });
 }

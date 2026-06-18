@@ -4,6 +4,7 @@ import {
   GATES,
   ACTIONS,
   IRREVERSIBLE_ACTIONS,
+  GATING_ACTIONS,
   isAction,
   isGate,
   isStageRole,
@@ -20,6 +21,11 @@ describe("catalog", () => {
       "merge",
       "reap",
       "propose-learnings",
+      "run",
+      "check",
+      "capture",
+      "code-review",
+      "notify",
       "verify",
     ]);
   });
@@ -28,8 +34,14 @@ describe("catalog", () => {
     expect([...IRREVERSIBLE_ACTIONS].sort()).toEqual(["merge", "open-pr", "push"]);
   });
 
+  it("marks the gating actions whose outcome drives routing", () => {
+    expect([...GATING_ACTIONS].sort()).toEqual(["check", "run", "verify"]);
+  });
+
   it("guards reject unknown ids", () => {
     expect(isAction("push")).toBe(true);
+    expect(isAction("run")).toBe(true);
+    expect(isAction("code-review")).toBe(true);
     expect(isAction("nope")).toBe(false);
     expect(isGate("approve")).toBe(true);
     expect(isGate("ship")).toBe(false);

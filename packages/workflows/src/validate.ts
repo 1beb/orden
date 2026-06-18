@@ -32,6 +32,23 @@ export function validateWorkflow(spec: WorkflowSpec): ValidationResult {
     errors.push("Workflow has no terminal step; nothing can complete.");
   }
 
+  // Routing targets (onFail.goto / onReject.goto) must name a real step.
+  const ids = new Set(spec.steps.map((s) => s.id));
+  for (const step of spec.steps) {
+    if (step.kind === "primitive") {
+      const goto = (step as PrimitiveStep).onFail?.goto;
+      if (goto && !ids.has(goto)) {
+        errors.push(`Step "${step.label}" onFail.goto targets unknown step "${goto}".`);
+      }
+    }
+    if (step.kind === "gate") {
+      const goto = (step as GateStep).onReject?.goto;
+      if (goto && !ids.has(goto)) {
+        errors.push(`Step "${step.label}" onReject.goto targets unknown step "${goto}".`);
+      }
+    }
+  }
+
   // --- trade-off warnings ------------------------------------------------
   const primitives = spec.steps.filter((s): s is PrimitiveStep => s.kind === "primitive");
   const hasApprove = spec.steps.some((s) => s.kind === "gate" && (s as GateStep).gate === "approve");
