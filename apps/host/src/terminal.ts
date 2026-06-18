@@ -200,6 +200,10 @@ interface SessionRecord {
   // Set by resolveSessionCwd on first launch; reused on resume.
   workdir?: string;
   branch?: string;
+  // The workflow this session runs under (HOST_OWNED, chosen at session-create):
+  // session.workflow ?? project.defaultWorkflow ?? DEFAULT_WORKFLOW. The runbook
+  // engine drives only cards whose resolved workflow is non-default.
+  workflow?: string;
   [k: string]: unknown;
 }
 

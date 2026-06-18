@@ -23,6 +23,11 @@ export type Action =
   | "merge"
   | "reap"
   | "propose-learnings"
+  | "run"
+  | "check"
+  | "capture"
+  | "code-review"
+  | "notify"
   | "verify";
 
 export type Harness = "claude" | "opencode";
@@ -83,10 +88,18 @@ export interface ProseStep extends StepBase {
 export interface PrimitiveStep extends StepBase {
   kind: "primitive";
   action: Action;
-  /** Effect parameters (e.g. the command for a future `run` primitive). */
+  /** Effect parameters (e.g. the command for a `run`/`check` primitive). */
   params?: Record<string, unknown>;
   /** Optional human/agent-facing note. */
   prose?: string;
+  /**
+   * Conditional routing on this step's outcome. The host evaluates the outcome
+   * (pass/fail) of gating actions (`check`/`run`/`verify`); non-gating actions
+   * always pass. `onFail.goto` jumps to a step by id (a rework loop points at an
+   * earlier step). Absent onFail parks the card in the waiting role with a
+   * reason. See GATING_ACTIONS.
+   */
+  onFail?: { goto?: string };
 }
 
 /** A durable pause for the operator. */
@@ -95,6 +108,12 @@ export interface GateStep extends StepBase {
   gate: Gate;
   /** Optional human/agent-facing note. */
   prose?: string;
+  /**
+   * Where to route when the operator rejects (the resume payload's decision).
+   * Absent => the run parks in the waiting role for the operator to decide what
+   * to do next; present => jump to the step by id (typically a rework loop).
+   */
+  onReject?: { goto?: string };
 }
 
 export type Step = ProseStep | PrimitiveStep | GateStep;

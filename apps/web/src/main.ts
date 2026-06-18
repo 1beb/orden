@@ -25,6 +25,7 @@ import {
   workflowsBreadcrumbName,
   workflowsBackToList,
 } from "./workflows";
+import { hydrateWorkflowRuns, refreshWorkflowRuns } from "./workflowRun";
 import { listFiles } from "./files";
 import { fuzzyRank } from "./fuzzy";
 import { createCommandPalette } from "./commandPalette";
@@ -152,6 +153,7 @@ async function hydrateAll(): Promise<void> {
     hydrateLearnings(host),
     hydrateSessions(host),
     hydrateRecentFiles(host),
+    hydrateWorkflowRuns(host),
     hydrateKeybindings(host),
     annotationStore.hydrate(),
   ]);
@@ -2670,6 +2672,13 @@ vaultChanges.register("cards", async () => {
   refreshBoard(); // kanban board + badge count
   notifyBlockedTransitions(); // toast when a session starts waiting on you
   refreshProject();
+});
+
+// A runbook-engine-driven card's run-state: re-hydrate + refresh the board so
+// the gate-approval affordance and the projected column stay live.
+vaultChanges.register("workflow-run", async () => {
+  await refreshWorkflowRuns();
+  refreshBoard();
 });
 
 vaultChanges.register("learnings", async () => {

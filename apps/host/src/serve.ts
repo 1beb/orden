@@ -23,6 +23,7 @@ import { reapCompletedCard } from "./cardReaper";
 import { publishCompletedCard } from "./publishReactor";
 import { journalCompletedCard } from "./cardJournal";
 import { registerMergeCoordinator } from "./integrationReactor";
+import { tickRunbook, handleSignal, hostRunnerDeps, WORKFLOW_SIGNAL_NS } from "./runbookRunner";
 import { handleMcpRequest } from "@orden/mcp";
 import { handleAgentRequest } from "./agentRoute";
 import { handleHookRequest } from "./hooks";
@@ -142,6 +143,33 @@ host.onChange((change) => {
 // + rebuild, or push + open a PR. Supersedes per-session eager publish (NodeHost
 // .publish is now checkOnly). Drains are single-flight per project.
 registerMergeCoordinator(host);
+
+// Runbook-engine reactors (OPT-IN): for cards under a non-default workflow, the
+// engine drives the runbook — board projection from the active step's role,
+// terminal primitives as executors, and gates as durable vault suspensions. A
+// default-workflow card never has a run-state, so these are no-ops for it (the
+// unconditional reactors above fire exactly as before = behavior-neutral).
+host.onChange((change) => {
+  if (change.ns !== "cards") return;
+  void tickRunbook(host, change.key, hostRunnerDeps()).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn(`orden: runbook tick failed for ${change.key}:`, err);
+  });
+});
+// Operator/agent signals (gate decisions, prose-step completion) land on the
+// workflow-signal namespace; route them to the runner to advance the runbook.
+host.onChange((change) => {
+  if (change.ns !== WORKFLOW_SIGNAL_NS) return;
+  void (async () => {
+    const sig = await host.vault.get<{ signal?: string }>(WORKFLOW_SIGNAL_NS, change.key);
+    if (sig && typeof sig.signal === "string") {
+      await handleSignal(host, change.key, sig.signal as never, hostRunnerDeps()).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn(`orden: runbook signal failed for ${change.key}:`, err);
+      });
+    }
+  })();
+});
 
 // Idle reconciler: the hook cycle's safety net. A periodic sweep moves any
 // "in-progress" card whose agent has stopped producing output (stale transcript

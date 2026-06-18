@@ -24,6 +24,7 @@ import {
   setSessionProject,
   type Agent,
 } from "./sessions";
+import { getRunState, sendGateSignal } from "./workflowRun";
 
 const STATE_LABELS: Record<CardState, string> = {
   planning: "Planning",
@@ -119,6 +120,50 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
       deps.onChange();
     });
     bodyEl.append(descHead, desc);
+
+    // Runbook gate banner: when this card is engine-driven and parked at a gate
+    // (or paused on a dirty tree), surface the decision here so the operator can
+    // advance the workflow without leaving the modal.
+    const run = getRunState(item.id);
+    if (run && (run.status === "gate-parked" || run.status === "parked-dirty")) {
+      const banner = document.createElement("div");
+      banner.className = "card-modal__gate";
+      banner.style.cssText =
+        "display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;padding:0.6rem 0.75rem;" +
+        "border:1px solid var(--line);border-radius:8px;background:var(--panel,#0001);margin-bottom:0.75rem;";
+      const label = document.createElement("span");
+      label.style.cssText = "flex:1;min-width:0;font-size:13px;color:var(--muted);";
+      if (run.status === "gate-parked") {
+        label.textContent = `Workflow “${run.workflowName}” is waiting for your decision.`;
+      } else {
+        label.textContent = `Workflow “${run.workflowName}” paused: ${run.parkedReason ?? "a precondition was not met."}`;
+      }
+      banner.append(label);
+      if (run.status === "gate-parked") {
+        const approve = document.createElement("button");
+        approve.type = "button";
+        approve.textContent = "Approve";
+        approve.style.cssText =
+          "font:inherit;padding:4px 12px;border-radius:6px;border:1px solid var(--line);" +
+          "background:var(--accent-bg);color:var(--accent);cursor:pointer;";
+        approve.addEventListener("click", () => {
+          sendGateSignal(item.id, "approve");
+          close();
+        });
+        const reject = document.createElement("button");
+        reject.type = "button";
+        reject.textContent = "Reject";
+        reject.style.cssText =
+          "font:inherit;padding:4px 12px;border-radius:6px;border:1px solid var(--line);" +
+          "background:none;color:var(--muted);cursor:pointer;";
+        reject.addEventListener("click", () => {
+          sendGateSignal(item.id, "reject");
+          close();
+        });
+        banner.append(approve, reject);
+      }
+      bodyEl.append(banner);
+    }
 
     // Meta row: state, project, due date.
     const meta = document.createElement("div");

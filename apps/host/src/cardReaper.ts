@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import type { Host, Project } from "@orden/host-api";
 import { type CardRec, cardSessionIds } from "@orden/mcp";
 import { isOrdenWorktree, removeSessionWorktree, type GitExec } from "./worktrees";
+import { isEngineDrivenCard } from "./runbookRunner";
 
 const PUSHED_STATES = new Set(["pushed", "pr-opened"]);
 
@@ -27,7 +28,8 @@ const PUSHED_STATES = new Set(["pushed", "pr-opened"]);
  * sessions (once), then remove any pushed worktrees (idempotently). `reaped`
  * carries the set of card ids whose completion we've already acted on, so
  * re-writes to an already-complete card don't kill a session the user has
- * since resumed.
+ * since resumed. DEFERS for engine-driven cards (the runbook runner's `reap`
+ * terminal step handles those); default-workflow cards behave exactly as before.
  */
 export async function reapCompletedCard(
   host: Host,
@@ -40,6 +42,7 @@ export async function reapCompletedCard(
     reaped.delete(cardId); // gone or left Done — a future completion may reap again
     return;
   }
+  if (await isEngineDrivenCard(host.vault, cardId)) return; // engine-driven: runner handles it
   if (!reaped.has(cardId)) {
     reaped.add(cardId);
     for (const sessionId of cardSessionIds(card)) {

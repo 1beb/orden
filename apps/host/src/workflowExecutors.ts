@@ -1,9 +1,14 @@
 // The host-side executor registry for the workflow primitive catalog. Every catalog
 // Action and Gate must have exactly one entry here; the contract test
 // (workflows.contract.test.ts) asserts the bijection so the catalog in
-// @orden/workflows and the host can never silently drift apart. Primitives that are
-// not yet wired carry `implemented: false` with a note, rather than a silent stub, so
-// the gap is visible (and the contract test pins the pending set).
+// @orden/workflows and the host can never silently drift apart. Primitives that
+// are not yet wired carry `implemented: false` with a note, rather than a silent
+// stub, so the gap is visible (and the contract test pins the pending set).
+//
+// The runbook runner (runbookRunner.ts) looks executors up here and dispatches to
+// the matching host function. An executor is `implemented: true` only when the
+// runner can actually invoke it; the registry is metadata (kind + summary), the
+// dispatch lives in the runner.
 import type { Action, Gate } from "@orden/workflows";
 
 export type ExecutorKind = "host" | "agent" | "gate";
@@ -36,9 +41,8 @@ export const ACTION_EXECUTORS: Record<Action, PrimitiveExecutor> = {
   },
   merge: {
     kind: "host",
-    implemented: false,
-    summary: "merge the branch into its base",
-    note: "not yet wired; today's built-in policy is never-merge (publishSession.ts)",
+    implemented: true,
+    summary: "merge the branch into its base via the merge coordinator",
   },
   reap: {
     kind: "host",
@@ -50,11 +54,35 @@ export const ACTION_EXECUTORS: Record<Action, PrimitiveExecutor> = {
     implemented: true,
     summary: "the agent calls learning_propose before completion (MCP)",
   },
+  run: {
+    kind: "host",
+    implemented: true,
+    summary: "run a declared command in the session worktree; capture output (runbookRunner.ts)",
+  },
+  check: {
+    kind: "host",
+    implemented: true,
+    summary: "run a command and gate on exit code / output match; failure raises the card",
+  },
+  capture: {
+    kind: "host",
+    implemented: true,
+    summary: "capture command output / file as evidence on the card log",
+  },
+  "code-review": {
+    kind: "agent",
+    implemented: true,
+    summary: "an agent reviews the diff; failure/uncertainty raises the card",
+  },
+  notify: {
+    kind: "host",
+    implemented: true,
+    summary: "surface a desktop notification / card log note on a transition",
+  },
   verify: {
     kind: "agent",
-    implemented: false,
-    summary: "run an agent against a criterion; fail/uncertain raises a card",
-    note: "Stage 2 execution work",
+    implemented: true,
+    summary: "run an agent against a declared criterion; fail/uncertain raises a card",
   },
 };
 

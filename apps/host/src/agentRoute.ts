@@ -19,6 +19,12 @@ import {
   panelOpen,
   cardMove,
   cardCreate,
+  workflowList,
+  workflowValidate,
+  workflowSave,
+  workflowRender,
+  workflowPropose,
+  workflowAdvance,
   sessionForConversation,
   cardForSession,
   type ToolResult,
@@ -142,6 +148,70 @@ export async function handleAgentRequest(
         true,
         toolText(await cardCreate(host.vault, title, project, str(body.notes), str(body.description))),
       );
+      return;
+    }
+
+    // workflow_* fallback: the authoring/selection tools, mirrored over HTTP so
+    // an agent whose MCP transport dropped can still list/validate/save/render
+    // workflows and bind one to its session.
+    if (action === "workflow-list") {
+      send(res, 200, true, toolText(await workflowList(host.vault)));
+      return;
+    }
+    if (action === "workflow-validate") {
+      const markdown = str(body.markdown);
+      if (!markdown) {
+        send(res, 400, false, "workflow-validate needs a markdown body");
+        return;
+      }
+      send(res, 200, true, toolText(await workflowValidate(markdown)));
+      return;
+    }
+    if (action === "workflow-save") {
+      const markdown = str(body.markdown);
+      if (!markdown) {
+        send(res, 400, false, "workflow-save needs a markdown body");
+        return;
+      }
+      send(res, 200, true, toolText(await workflowSave(host.vault, markdown)));
+      return;
+    }
+    if (action === "workflow-render") {
+      const name = str(body.name);
+      if (!name) {
+        send(res, 400, false, "workflow-render needs a name");
+        return;
+      }
+      send(res, 200, true, toolText(await workflowRender(host.vault, name)));
+      return;
+    }
+    if (action === "workflow-propose") {
+      const workflow = str(body.workflow);
+      if (!workflow) {
+        send(res, 400, false, "workflow-propose needs a workflow name");
+        return;
+      }
+      // Resolve the orden session id from the conversationId the agent carries.
+      const s = sid ? await sessionForConversation(host.vault, sid) : undefined;
+      if (!s) {
+        send(res, 400, false, "no session: pass a bound orden_session_id");
+        return;
+      }
+      send(res, 200, true, toolText(await workflowPropose(host.vault, s.id, workflow)));
+      return;
+    }
+    if (action === "workflow-advance") {
+      const signal = str(body.signal);
+      if (!signal || !["approve", "reject", "complete"].includes(signal)) {
+        send(res, 400, false, "workflow-advance needs signal: approve|reject|complete");
+        return;
+      }
+      const cardId = str(body.target) ?? (await cardIdForSession(host, sid));
+      if (!cardId) {
+        send(res, 400, false, "no card: pass target or a bound orden_session_id");
+        return;
+      }
+      send(res, 200, true, toolText(await workflowAdvance(host.vault, cardId, signal as "approve" | "reject" | "complete")));
       return;
     }
 

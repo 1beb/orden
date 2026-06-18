@@ -8,6 +8,7 @@
 
 import type { Host } from "@orden/host-api";
 import { type CardRec, logCardCompletion } from "@orden/mcp";
+import { isEngineDrivenCard } from "./runbookRunner";
 
 /**
  * React to a card write: if the card is now complete, append its completion
@@ -16,7 +17,8 @@ import { type CardRec, logCardCompletion } from "@orden/mcp";
  * card don't append again; the id is forgotten once the card leaves "complete",
  * so a future re-completion logs afresh. logCardCompletion is itself idempotent
  * (byte-identical entries collapse), so this guard is an optimization, not the
- * sole defense.
+ * sole defense. DEFERS for engine-driven cards (the runbook runner's `journal`
+ * terminal step handles those); default-workflow cards behave exactly as before.
  */
 export async function journalCompletedCard(
   host: Host,
@@ -28,6 +30,7 @@ export async function journalCompletedCard(
     journaled.delete(cardId); // gone or left Done — a future completion logs again
     return;
   }
+  if (await isEngineDrivenCard(host.vault, cardId)) return; // engine-driven: runner handles it
   if (journaled.has(cardId)) return; // already logged this completion
   journaled.add(cardId);
   await logCardCompletion(host.vault, card);

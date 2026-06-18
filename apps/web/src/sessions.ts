@@ -201,7 +201,7 @@ export function deleteSession(id: string): void {
 // (sessionForConversation), that silently severs the auto-cycle and freezes the
 // card at planning. So persist re-reads the freshest record and always takes
 // these host-owned fields from it rather than from the (possibly stale) cache.
-const HOST_OWNED = ["conversationId", "prompted", "workdir", "branch"] as const;
+const HOST_OWNED = ["conversationId", "prompted", "workdir", "branch", "workflow"] as const;
 
 function persist(session: Session): void {
   if (!host) return;
