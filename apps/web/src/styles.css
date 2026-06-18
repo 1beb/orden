@@ -1287,22 +1287,23 @@ li.sess-done-head {
   color: var(--accent);
   background: var(--accent-soft);
 }
-/* Breathing room around the Terminal Only scratch shell (agent terminals stay
-   flush). Padding sits on the CONTAINER, not the .xterm element: FitAddon reads
-   the parent's content-box height and shrinks the grid to fit, so the padding
-   shows orden's own background rather than xterm.css's hardcoded black viewport. */
-.sess-scratch-body {
-  padding: 8px 10px;
+/* Terminal breathing room. Padding MUST sit on the .xterm ELEMENT, not the
+   container: FitAddon.proposeDimensions() reads the parent's computed `width`
+   (border-box under the global `* { box-sizing: border-box }`) and subtracts
+   ONLY the .xterm child's own padding — never the parent's. Padding on the
+   container is invisible to FitAddon, so it overestimates cols and the
+   rightmost column gets clipped by .sess-detail-body's overflow:hidden. On .xterm
+   the strip still reads as orden's bg: the viewport is already themed to --bg
+   (#fbfbfa, see terminalView.ts), so xterm.css's hardcoded black never shows.
+   The :has guard keeps the Chat view — also hosted in .sess-detail-body — flush. */
+.sess-detail-body:has(> .xterm) {
   background: var(--bg);
 }
-/* A sliver of left padding so agent terminal output isn't flush to the pane
-   edge. On the container (not .xterm) so the strip shows orden's bg rather than
-   xterm.css's black viewport; the :has guard keeps the Chat view — also hosted
-   in .sess-detail-body — flush, and :not() leaves the scratch shell's own fuller
-   padding alone. */
-.sess-detail-body:has(> .xterm):not(.sess-scratch-body) {
+.sess-scratch-body > .xterm {
+  padding: 8px 10px;
+}
+.sess-detail-body:has(> .xterm):not(.sess-scratch-body) > .xterm {
   padding-left: 3px;
-  background: var(--bg);
 }
 
 /* Terminal | Chat tab toggle in the session detail view. */
