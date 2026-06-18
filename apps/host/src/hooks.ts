@@ -359,17 +359,18 @@ export async function applyStateBySessionId(
   opencodeSessionId?: string,
 ): Promise<void> {
   // opencode writes no claude transcript, so the reconciler leans on this hook
-  // stamp for liveness. Key by the opencode session id (== the persisted
-  // conversationId the sweep reads).
-  if (opencodeSessionId) noteHookActivity(opencodeSessionId);
-  if (opencodeSessionId) {
-    const ses = await host.vault.get<{ conversationId?: string; [k: string]: unknown }>(
-      "sessions",
-      ordenSessionId,
-    );
-    if (ses && !ses.conversationId) {
-      await host.vault.set("sessions", ordenSessionId, { ...ses, conversationId: opencodeSessionId });
-    }
+  // stamp for liveness. Stamp on EVERY plugin event (not just the one that
+  // carries the opencode id) so a busy opencode session can't go stale and get
+  // swept to blocked. Key by the opencode session id (== the persisted
+  // conversationId the sweep reads): use the one in hand, else the persisted one.
+  const ses = await host.vault.get<{ conversationId?: string; [k: string]: unknown }>(
+    "sessions",
+    ordenSessionId,
+  );
+  const liveId = opencodeSessionId ?? ses?.conversationId;
+  if (liveId) noteHookActivity(liveId);
+  if (opencodeSessionId && ses && !ses.conversationId) {
+    await host.vault.set("sessions", ordenSessionId, { ...ses, conversationId: opencodeSessionId });
   }
   const card = await cardForSession(host.vault, ordenSessionId);
   if (!card) return;

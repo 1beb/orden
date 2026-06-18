@@ -8,11 +8,14 @@
 //
 // Event mapping:
 //   session.created / session.updated / tool.execute.after -> in-progress
-//   session.idle                                          -> blocked
+//   session.idle (ROOT session only)                      -> blocked
 //
-// Subagent gating (Claude's SubagentStart/Stop) is not wired for opencode yet;
-// session.idle fires even while child sessions run, which may cause premature
-// blocked transitions during subagent workflows.
+// Subagent gating: opencode runs subagents as separate CHILD sessions (each
+// carries a parentID), and EACH session emits its own session.idle when it
+// finishes. Blocking on any idle would knock the card to blocked the moment a
+// subagent's turn ends, while the parent is still working. So we remember the
+// ROOT session (the first session.created with no parentID) and only treat ITS
+// idle as a real turn boundary — the opencode analogue of Claude's gated Stop.
 //
 // The plugin also carries the destructive-git guardrail (tool.execute.before):
 // in a SHARED checkout (ORDEN_WORKTREE != 1) it throws on the git commands
@@ -34,6 +37,8 @@ export const OrdenKanban = async () => {
   const ORDEN_SID = process.env.ORDEN_SESSION_ID || ""
   const DESTRUCTIVE_GIT = ${destructiveGitArrayLiteral()}
 
+  let rootId = ""
+
   const post = async (path, extra) => {
     try {
       await fetch("http://127.0.0.1:" + PORT + "/hooks/" + path, {
@@ -50,10 +55,23 @@ export const OrdenKanban = async () => {
     event: async ({ event }) => {
       if (!event?.type) return
       if (event.type === "session.created") {
-        await post("session-state?state=in-progress", { session_id: event.properties?.id })
+        // The root session (no parentID) drives the card. Only its id is the
+        // conversationId — child/subagent sessions must not overwrite it.
+        const info = event.properties?.info
+        if (info && !info.parentID) {
+          rootId = info.id
+          await post("session-state?state=in-progress", { session_id: info.id })
+        } else {
+          await post("session-state?state=in-progress")
+        }
       }
       if (event.type === "session.idle") {
-        await post("session-state?state=blocked")
+        // A child/subagent going idle must NOT block the parent's card; only the
+        // root session's idle is a real turn boundary. Before we've seen the root
+        // (rootId unset), fall back to blocking so behavior degrades safely.
+        if (!rootId || event.properties?.sessionID === rootId) {
+          await post("session-state?state=blocked")
+        }
       }
       if (event.type === "session.updated") {
         await post("session-state?state=in-progress")
