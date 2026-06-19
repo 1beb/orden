@@ -7,18 +7,12 @@
 // Dismissal is lossless: Escape / backdrop / ✕ hand the joined text back to the
 // caller (onDismiss) to restore into the add input. Cancel discards. Add creates
 // the card; an agent mark creates it AND starts a session on it.
-import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
+import type { SessionState } from "@orden/host-api";
+import { LANE_ORDER, LANE_LABELS } from "./lifecycle";
 import { addItem, setItemState, setItemDueDate, type Item } from "./cards";
 import { listProjects, getProject } from "./projects";
 import { agentLauncher } from "./agentMarks";
 import type { Agent } from "./sessions";
-
-const STATE_LABELS: Record<CardState, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
-};
 
 export interface NewCardSeed {
   projectId: string;
@@ -105,10 +99,10 @@ export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): voi
 
   const stateSel = labelled("State", document.createElement("select"));
   const stateInput = stateSel.field as HTMLSelectElement;
-  for (const s of LIFECYCLE_ORDER) {
+  for (const s of LANE_ORDER) {
     const opt = document.createElement("option");
     opt.value = s;
-    opt.textContent = STATE_LABELS[s];
+    opt.textContent = LANE_LABELS[s] ?? s;
     opt.selected = s === "planning";
     stateInput.append(opt);
   }
@@ -141,7 +135,7 @@ export function openNewCardModal(seed: NewCardSeed, deps: NewCardModalDeps): voi
     }
     const projectId = projInput.value || seed.projectId;
     const item = addItem(projectId, t, { description: desc.value });
-    const state = stateInput.value as CardState;
+    const state = stateInput.value as SessionState;
     if (state !== "planning") setItemState(item.id, state);
     if (dueInput.value) setItemDueDate(item.id, dueInput.value);
     close();

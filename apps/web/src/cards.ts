@@ -4,14 +4,14 @@
 // synchronous over a cache hydrated at boot; writes write through.
 // A card may have zero or more linked AI sessions (sessionIds); it outlives them
 // (deleting a session unlinks it but keeps the card).
-import type { CardState } from "@orden/outliner";
+import type { SessionState } from "@orden/host-api";
 import type { Host } from "@orden/host-api";
 
 export interface Item {
   id: string;
   projectId: string;
   title: string;
-  state: CardState;
+  state: SessionState;
   notes: string;
   description?: string; // free text sent to the agent with the title on session start
   sessionIds: string[]; // linked AI sessions (0+)
@@ -45,9 +45,11 @@ export interface IntegrationBlock {
   chosen?: string; // the winning card id; set by a chip click to resume
 }
 
-// Map legacy lifecycle states to the current four-state set so cards stored
+// Map legacy lifecycle states to the current default lane set so cards stored
 // under an older schema still land in a real column. Unknown values -> planning.
-const LEGACY_STATE_MAP: Record<string, CardState> = {
+// The lane set itself is defined in @orden/host-api (via @orden/workflows); this
+// map is only for normalizing historical vault strings.
+const LEGACY_STATE_MAP: Record<string, SessionState> = {
   backlog: "planning",
   todo: "planning",
   planning: "planning",
@@ -56,9 +58,10 @@ const LEGACY_STATE_MAP: Record<string, CardState> = {
   ready: "complete",
   complete: "complete",
   broken: "blocked",
+  "on-hold": "on-hold",
 };
 
-function normalizeState(state: unknown): CardState {
+function normalizeState(state: unknown): SessionState {
   return LEGACY_STATE_MAP[String(state)] ?? "planning";
 }
 
@@ -154,7 +157,7 @@ function persist(id: string): void {
   if (host && updated) void host.vault.set("cards", id, updated);
 }
 
-export function setItemState(id: string, state: CardState): void {
+export function setItemState(id: string, state: SessionState): void {
   cache = cache.map((i) => {
     if (i.id !== id) return i;
     const next: Item = { ...i, state };

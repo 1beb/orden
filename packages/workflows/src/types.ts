@@ -5,12 +5,13 @@
  * docs/plans/2026-06-17-configurable-workflows-consolidated.md.
  */
 
-/**
- * The lifecycle lane a step projects onto for the kanban board. Authoring is a runbook;
- * the board is the derived view of the active step's role. Because every runbook projects
- * onto these four roles, one board can show cards running different workflows.
- */
-export type StageRole = "initial" | "active" | "waiting" | "terminal";
+// Role (the closed four-way projection classification) and the Lane/LifecycleConfig
+// vocabulary live in ./lifecycle — the shared board-lifecycle primitives this runbook
+// model projects onto. Re-exported here so the runbook model (Step.role) and the
+// catalog/guards share one import surface. See ./lifecycle and
+// docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
+import type { Role } from "./lifecycle";
+export type { Role } from "./lifecycle";
 
 /** A point that pauses for the operator. */
 export type Gate = "approve" | "review";
@@ -64,8 +65,8 @@ interface StepBase {
   id: string;
   /** The operator's display word. */
   label: string;
-  /** Which board lane the step projects onto. */
-  role: StageRole;
+  /** Which board lane the step projects onto (its Role — see ./lifecycle). */
+  role: Role;
 }
 
 /** Drive the agent with instructions — a non-deterministic effect. */

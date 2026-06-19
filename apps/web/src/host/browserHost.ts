@@ -30,8 +30,9 @@ import type {
   BacklinkHit,
   SearchEntryNs,
   RenameResult,
+  LifecycleConfig,
 } from "@orden/host-api";
-import { renamePageInVault } from "@orden/host-api";
+import { renamePageInVault, DEFAULT_LIFECYCLE } from "@orden/host-api";
 import { fromMarkdown, buildBacklinkIndex } from "@orden/outliner";
 
 import { listProjects, addProject, removeProject } from "../projects";
@@ -333,6 +334,14 @@ export class BrowserHost implements Host {
   // so backlinks stay correct without a separate index update.
   renamePage(oldName: string, newName: string): Promise<RenameResult> {
     return renamePageInVault(this.vault, oldName, newName);
+  }
+
+  // The board's lane set/policy is pure data from @orden/workflows (re-exported
+  // via @orden/host-api). Both hosts serve the same default — no host capability
+  // is involved — so the browser host returns DEFAULT_LIFECYCLE unchanged. Once
+  // the workflow board projection lands, NodeHost resolves per-session.
+  lifecycle(): LifecycleConfig {
+    return DEFAULT_LIFECYCLE;
   }
 
   capabilities(): HostCapabilities {

@@ -209,6 +209,9 @@ importers:
       '@orden/chat-core':
         specifier: workspace:*
         version: link:../chat-core
+      '@orden/workflows':
+        specifier: workspace:*
+        version: link:../workflows
     devDependencies:
       typescript:
         specifier: ^5.4.0

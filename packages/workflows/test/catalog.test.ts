@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
-  STAGE_ROLES,
+  ROLES,
   GATES,
   ACTIONS,
   IRREVERSIBLE_ACTIONS,
   isAction,
   isGate,
-  isStageRole,
+  isRole,
 } from "../src/catalog";
 
 describe("catalog", () => {
   it("enumerates the closed primitive sets", () => {
-    expect([...STAGE_ROLES]).toEqual(["initial", "active", "waiting", "terminal"]);
+    expect([...ROLES]).toEqual(["initial", "active", "waiting", "terminal"]);
     expect([...GATES]).toEqual(["approve", "review"]);
     expect([...ACTIONS]).toEqual([
       "journal",
@@ -33,7 +33,7 @@ describe("catalog", () => {
     expect(isAction("nope")).toBe(false);
     expect(isGate("approve")).toBe(true);
     expect(isGate("ship")).toBe(false);
-    expect(isStageRole("terminal")).toBe(true);
-    expect(isStageRole("done")).toBe(false);
+    expect(isRole("terminal")).toBe(true);
+    expect(isRole("done")).toBe(false);
   });
 });

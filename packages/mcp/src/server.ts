@@ -162,7 +162,9 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
       inputSchema: {
         state: z
           .enum(["planning", "in-progress", "blocked"])
-          .describe("new state (complete is NOT allowed here — use card_complete)"),
+          .describe(
+            "new state. complete is NOT allowed here (use card_complete); on-hold is user-only (a manual park the agent cannot reach).",
+          ),
         target: z.string().optional().describe("card id or title; omit to use the current session's card"),
         note: z.string().optional().describe("optional one-line reason appended to the card notes"),
       },

@@ -4,9 +4,14 @@
  * executor for each (enforced by a contract test in the host). Adding a primitive is
  * a contained change here plus its executor — never an ad-hoc switch elsewhere.
  */
-import type { Action, Gate, StageRole } from "./types";
+import type { Action, Gate, Role } from "./types";
 
-export const STAGE_ROLES = ["initial", "active", "waiting", "terminal"] as const;
+/**
+ * The closed set of projection roles a step may carry. (Renamed from STAGE_ROLES;
+ * see ./lifecycle — Role is the closed four-way classification, Lane is the open
+ * identity a card occupies.)
+ */
+export const ROLES = ["initial", "active", "waiting", "terminal"] as const;
 
 export const GATES = ["approve", "review"] as const;
 
@@ -27,8 +32,8 @@ export const IRREVERSIBLE_ACTIONS: ReadonlySet<Action> = new Set([
   "merge",
 ]);
 
-export const isStageRole = (s: string): s is StageRole =>
-  (STAGE_ROLES as readonly string[]).includes(s);
+export const isRole = (s: string): s is Role =>
+  (ROLES as readonly string[]).includes(s);
 
 export const isGate = (s: string): s is Gate =>
   (GATES as readonly string[]).includes(s);

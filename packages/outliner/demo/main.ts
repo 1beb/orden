@@ -4,7 +4,6 @@ import {
   indent,
   buildBacklinkIndex,
   renderBoard,
-  needsActionCount,
   type Card,
 } from "../src/index";
 
@@ -34,7 +33,19 @@ for (const ref of refs) {
 }
 
 // --- Kanban: mock cards derived from sessions ---
-const cards: Card[] = [
+//
+// The board is a generic primitive: the caller supplies the lane set, its order,
+// labels, and which lanes count as "action". A real consumer (orden) passes its
+// LifecycleConfig; this demo passes a toy config.
+const STATES = ["planning", "in-progress", "blocked", "complete"] as const;
+type S = (typeof STATES)[number];
+const LABELS: Record<S, string> = {
+  planning: "Planning",
+  "in-progress": "In-progress",
+  blocked: "Blocked",
+  complete: "Complete",
+};
+const cards: Card<S>[] = [
   { id: "s1", title: "Outliner block-tree model", state: "complete" },
   { id: "s2", title: "Markdown round-trip", state: "complete" },
   { id: "s3", title: "Wiki links + backlinks", state: "complete" },
@@ -45,7 +56,10 @@ const cards: Card[] = [
   { id: "s8", title: "Transcript adapter (opencode)", state: "blocked" },
 ];
 
-renderBoard(document.getElementById("board")!, cards);
-document.getElementById("nav-badge")!.textContent = String(
-  needsActionCount(cards),
-);
+renderBoard(document.getElementById("board")!, cards, {
+  states: STATES,
+  labels: LABELS,
+  actionStates: ["blocked"],
+});
+const actionCount = cards.filter((c) => c.state === "blocked").length;
+document.getElementById("nav-badge")!.textContent = String(actionCount);

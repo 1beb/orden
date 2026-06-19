@@ -1,5 +1,32 @@
 export * from "@orden/chat-core";
 
+// The lifecycle vocabulary (Lane/Role + LifecycleConfig + DEFAULT_LIFECYCLE) is defined
+// in @orden/workflows — host-api CONSUMES it (host-api → workflows, mirroring host-api →
+// chat-core) and re-exports it so downstream packages (web, mcp, host) import the
+// lifecycle types from host-api and never touch @orden/workflows directly for this.
+// See docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
+//
+// Imported for local use (SessionState alias, Host.lifecycle signature, isExpiredComplete)
+// and re-exported below for the public surface.
+import {
+  DEFAULT_LIFECYCLE,
+  COMPLETE_TTL_MS,
+  DEFAULT_LANES,
+  type Role,
+  type DefaultLane,
+  type LaneDef,
+  type LifecycleConfig,
+} from "@orden/workflows";
+export {
+  DEFAULT_LIFECYCLE,
+  COMPLETE_TTL_MS,
+  DEFAULT_LANES,
+  type Role,
+  type DefaultLane,
+  type LaneDef,
+  type LifecycleConfig,
+} from "@orden/workflows";
+
 import type { ChatBackend, QuestionResponse } from "@orden/chat-core";
 
 export interface HostCapabilities {
@@ -162,11 +189,15 @@ export interface FileSource {
   unwatch(projectId: string, path: string): Promise<void>;
 }
 
-export type SessionState =
-  | "planning"
-  | "in-progress"
-  | "blocked"
-  | "complete";
+/**
+ * A session/card's lifecycle lane (where it sits on the board). An alias for the
+ * default lane set from @orden/workflows — now including the manual `on-hold`
+ * lane. Kept as `SessionState` so existing call sites keep type-checking. The
+ * open LifecycleConfig (workflows can add custom lanes) is keyed by string; this
+ * concrete union is the type-safe default. See
+ * docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
+ */
+export type SessionState = DefaultLane;
 
 export interface Session {
   id: string;
@@ -409,6 +440,15 @@ export interface Host {
    * search index picks up the writes via the change feed. Present on both hosts.
    */
   renamePage?(oldName: string, newName: string): Promise<RenameResult>;
+  /**
+   * The resolved lifecycle config for the board: the default lane set, ordering,
+   * labels, and board policy (which lanes need action, are furled by default, are
+   * non-automatic, and the complete dwell time). First cut returns the global
+   * DEFAULT_LIFECYCLE; once the workflow board projection lands this resolves the
+   * active workflow's lanes over the default, per session/card. Present on both
+   * hosts (the default is pure data; no host capability required).
+   */
+  lifecycle(): LifecycleConfig;
   capabilities(): HostCapabilities;
 }
 
@@ -484,4 +524,25 @@ export async function renamePageInVault(
   }
 
   return { ok: true };
+}
+
+/**
+ * True once a complete card has aged past its TTL and should fall off the board.
+ * Non-complete lanes never expire (on-hold is intentionally parked and never ages
+ * off). A complete card with no `completedAt` (stamped before that field existed)
+ * is treated as already past its TTL. `ttlMs` lets callers override the dwell time
+ * (a user setting); it defaults to COMPLETE_TTL_MS.
+ *
+ * Moved here from @orden/outliner: it is orden board POLICY, not a generic
+ * outliner primitive. See docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
+ */
+export function isExpiredComplete(
+  card: { state: string; completedAt?: number },
+  nowMs: number,
+  ttlMs: number = COMPLETE_TTL_MS,
+): boolean {
+  if (card.state !== "complete") return false;
+  const age =
+    typeof card.completedAt === "number" ? nowMs - card.completedAt : Infinity;
+  return age >= ttlMs;
 }

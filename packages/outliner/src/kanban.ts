@@ -1,50 +1,19 @@
-import type { Card, CardState, Column } from "./types";
-
-/** Column order on the board: the four lifecycle states. */
-export const LIFECYCLE_ORDER: readonly CardState[] = [
-  "planning",
-  "in-progress",
-  "blocked",
-  "complete",
-];
-
-/** States that need the user's attention and feed the Kanban badge. */
-export const NEEDS_ACTION_STATES: readonly CardState[] = ["blocked"];
-
-export function isNeedsAction(state: CardState): boolean {
-  return NEEDS_ACTION_STATES.includes(state);
-}
-
-/** Default dwell time before a completed card drops off the board/list. */
-export const COMPLETE_TTL_MS = 60 * 60 * 1000;
+import type { Card, Column } from "./types";
 
 /**
- * True once a completed card has aged past its TTL and should fall off the
- * view. Non-complete cards never expire. A complete card with no completedAt
- * (stamped before that field existed) is treated as already past its TTL.
- * `ttlMs` lets callers override the dwell time (a user setting); it defaults
- * to COMPLETE_TTL_MS.
+ * Group cards into one column per lane, in the caller's chosen order. Generic
+ * over the lane key `T`: orden passes its `Lane` set (from @orden/host-api); a
+ * generic consumer passes any string key. The outliner carries no opinion about
+ * which lanes exist or their order — that is received as a parameter.
+ *
+ * See docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
  */
-export function isExpiredComplete(
-  card: { state: CardState; completedAt?: number },
-  nowMs: number,
-  ttlMs: number = COMPLETE_TTL_MS,
-): boolean {
-  if (card.state !== "complete") return false;
-  const age =
-    typeof card.completedAt === "number" ? nowMs - card.completedAt : Infinity;
-  return age >= ttlMs;
-}
-
-/** Group cards into one column per state, in lifecycle order. */
-export function buildBoard(cards: Card[]): Column[] {
-  return LIFECYCLE_ORDER.map((state) => ({
+export function buildBoard<T extends string>(
+  cards: Card<T>[],
+  states: readonly T[],
+): Column<T>[] {
+  return states.map((state) => ({
     state,
     cards: cards.filter((c) => c.state === state),
   }));
-}
-
-/** Count of cards in a needs-action state (the left-nav badge number). */
-export function needsActionCount(cards: Card[]): number {
-  return cards.filter((c) => isNeedsAction(c.state)).length;
 }

@@ -4,7 +4,7 @@
  * Warnings are the design's footguns — surfaced at the confirm step so the operator
  * chooses knowingly; they are not walls.
  */
-import { isAction, isGate, isStageRole } from "./catalog";
+import { isAction, isGate, isRole } from "./catalog";
 import type { GateStep, PrimitiveStep, ProseStep, WorkflowSpec } from "./types";
 
 export interface ValidationResult {
@@ -18,7 +18,7 @@ export function validateWorkflow(spec: WorkflowSpec): ValidationResult {
 
   // --- structural errors -------------------------------------------------
   for (const step of spec.steps) {
-    if (!isStageRole(step.role)) {
+    if (!isRole(step.role)) {
       errors.push(`Step "${step.label}" has unknown role "${step.role}".`);
     }
     if (step.kind === "primitive" && !isAction((step as PrimitiveStep).action)) {

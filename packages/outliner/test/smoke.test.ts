@@ -9,6 +9,14 @@ describe("package barrel", () => {
     expect(typeof outliner.buildBacklinkIndex).toBe("function");
     expect(typeof outliner.buildBoard).toBe("function");
     expect(typeof outliner.renderBoard).toBe("function");
-    expect(outliner.LIFECYCLE_ORDER.length).toBe(4);
+  });
+
+  it("no longer carries orden lane/policy constants (moved to @orden/host-api)", () => {
+    // The outliner is a generic primitive: LIFECYCLE_ORDER / NEEDS_ACTION_STATES /
+    // COMPLETE_TTL_MS / isExpiredComplete / CardState were orden board policy and
+    // moved out. None should be reachable from the barrel.
+    expect((outliner as Record<string, unknown>).LIFECYCLE_ORDER).toBeUndefined();
+    expect((outliner as Record<string, unknown>).CardState).toBeUndefined();
+    expect((outliner as Record<string, unknown>).isExpiredComplete).toBeUndefined();
   });
 });

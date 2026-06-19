@@ -1,4 +1,4 @@
-import type { VaultStore } from "@orden/host-api";
+import type { VaultStore, SessionState } from "@orden/host-api";
 
 export interface SessionRec {
   id: string;
@@ -13,7 +13,8 @@ export interface SessionRec {
 export interface CardRec {
   id: string;
   title: string;
-  state: string;
+  /** Lifecycle lane (where the card sits on the board). See @orden/host-api. */
+  state: SessionState;
   projectId?: string;
   sessionIds?: string[];
   sessionId?: string;

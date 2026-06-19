@@ -2,7 +2,8 @@
 // state/project/due-date and its linked AI sessions, with create/remove and an
 // editable per-session summary. A card may have zero sessions (cards are
 // first-class and outlive their sessions).
-import { LIFECYCLE_ORDER, type CardState } from "@orden/outliner";
+import type { SessionState } from "@orden/host-api";
+import { LANE_ORDER, LANE_LABELS } from "./lifecycle";
 import {
   getItem,
   setItemState,
@@ -24,13 +25,6 @@ import {
   setSessionProject,
   type Agent,
 } from "./sessions";
-
-const STATE_LABELS: Record<CardState, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
-};
 
 export interface CardModalDeps {
   // Start a new agent session linked to this card (creates + opens it).
@@ -126,15 +120,15 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
 
     const stateSel = labelled("State", document.createElement("select"));
     const stateInput = stateSel.field as HTMLSelectElement;
-    for (const s of LIFECYCLE_ORDER) {
+    for (const s of LANE_ORDER) {
       const opt = document.createElement("option");
       opt.value = s;
-      opt.textContent = STATE_LABELS[s];
+      opt.textContent = LANE_LABELS[s] ?? s;
       opt.selected = s === item.state;
       stateInput.append(opt);
     }
     stateInput.addEventListener("change", () => {
-      setItemState(item.id, stateInput.value as CardState);
+      setItemState(item.id, stateInput.value as SessionState);
       deps.onChange();
       render();
     });

@@ -6,7 +6,7 @@
 // of the inline pickers via showMeta:false (state lives in the headers, the
 // project is fixed, and both are editable on the card modal).
 
-import type { CardState } from "@orden/outliner";
+import { LANE_LABELS } from "./lifecycle";
 import { setItemProject, cardSessionIds, type Item } from "./cards";
 import { listProjects, getProject } from "./projects";
 import { agentLauncher, markFor } from "./agentMarks";
@@ -18,24 +18,24 @@ import {
 } from "./sessions";
 import { openCardModal } from "./cardModal";
 
-// A list group key: every real card state, plus the web-local DERIVED group
+// A list group key: any lifecycle lane plus the web-local DERIVED group
 // "learnings" (mirrors the kanban board's derived Learnings column — see
 // kanban.ts). No card is ever stored in state "learnings"; a complete card with
-// open learnings is bucketed there at render time when the caller opts in.
-type GroupKey = CardState | "learnings";
+// open learnings is bucketed there at render time when the caller opts in. Kept
+// as `string` because the lifecycle lane set is open (a workflow may add lanes).
+type GroupKey = string;
 
-// Capitalized labels for group headers and the state picker.
-export const STATE_LABELS: Record<GroupKey, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
+// Capitalized labels for group headers and the state picker, read from the
+// lifecycle config (single source of truth) plus the derived "learnings" label.
+export const STATE_LABELS: Record<string, string> = {
+  ...LANE_LABELS,
   learnings: "Learnings",
 };
 
 export interface IssueGroupDeps {
-  // Group order; only states with items get a group.
-  states: CardState[];
+  // Group order; only states with items get a group. Open string set (lanes are
+  // extensible by a workflow); values come from the lifecycle config.
+  states: readonly string[];
   // Re-render after a state/project change (or a card-modal mutation).
   onMutate: () => void;
   onStartSession?: (item: Item, agent: Agent) => void;

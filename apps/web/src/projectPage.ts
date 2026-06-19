@@ -1,7 +1,4 @@
-import {
-  isExpiredComplete,
-  type CardState,
-} from "@orden/outliner";
+import { isExpiredComplete, type SessionState } from "@orden/host-api";
 import type { FileEntry } from "@orden/host-api";
 import {
   itemsByProject,
@@ -24,7 +21,7 @@ import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 // The project page surfaces what needs attention first, so it uses its own
 // group order (blocked → in-progress → planning → complete) rather than the
 // board's lifecycle order.
-const STATES: CardState[] = ["blocked", "in-progress", "planning", "complete"];
+const STATES: SessionState[] = ["blocked", "in-progress", "planning", "complete"];
 
 // The container the page is mounted in, captured each render so focus guards
 // can scope themselves to "is the user typing somewhere on this page".

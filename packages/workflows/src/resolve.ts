@@ -16,7 +16,7 @@ import type {
   ProseStep,
   Step,
   StepKind,
-  StageRole,
+  Role,
   WorkflowSpec,
 } from "./types";
 
@@ -24,7 +24,7 @@ export interface StepOverride {
   id: string;
   kind?: StepKind;
   label?: string;
-  role?: StageRole;
+  role?: Role;
   prose?: string;
   agent?: AgentSettings;
   aggregate?: Aggregation;
@@ -50,7 +50,7 @@ function mergeStep(child: StepOverride, base?: Step): Step {
   const kind: StepKind = child.kind ?? base?.kind ?? "prose";
   const id = child.id;
   const label = child.label ?? base?.label ?? child.id;
-  const role: StageRole = child.role ?? base?.role ?? "active";
+  const role: Role = child.role ?? base?.role ?? "active";
 
   if (kind === "prose") {
     const b = base?.kind === "prose" ? (base as ProseStep) : undefined;

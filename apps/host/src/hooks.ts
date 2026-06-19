@@ -41,10 +41,13 @@
 // Division of labor: the HOOKS drive the automatic working/waiting cycle only
 // (UserPromptSubmit / PostToolUse -> in-progress, Stop / waiting-notification ->
 // blocked) and may set just planning | in-progress | blocked. They NEVER touch a
-// card that is already "complete" — complete is terminal and user-owned, so
+// card that is already in a NON-AUTOMATIC lane (LifecycleConfig.nonAutomatic —
+// complete + on-hold by default). Those lanes are terminal or user-owned, so
 // neither a trailing Stop nor a trailing PostToolUse may knock a just-completed
-// card off complete. Deliberate moves — and the ONLY path to "complete" — come
-// from the LLM via the MCP `card_*` tools (`card_complete`), not from a hook.
+// card off complete, nor release a held card from on-hold. Deliberate moves —
+// and the ONLY path into a non-automatic lane — come from the user (drag/picker)
+// or, for complete, the LLM via `card_complete`. The set is config-driven so
+// adding a future non-automatic lane (or a workflow's own) needs no change here.
 //
 // The orden-launched `claude --session-id <uuid>` writes <uuid> as the session
 // record's conversationId, and Claude's hook payload carries that same id as
@@ -310,9 +313,11 @@ export async function applyState(host: Host, claudeSessionId: string, state: str
   if (!session) return; // not an orden-tracked session
   const card = await cardForSession(host.vault, session.id);
   if (!card) return;
-  // "complete" is terminal and user/LLM-owned: never let an automatic hook
-  // (e.g. a trailing Stop) knock a just-completed card back to blocked.
-  if (card.state === "complete") return;
+  // Terminal + manual lanes are user/LLM-owned: never let an automatic hook (e.g.
+  // a trailing Stop) move a card out of them. The set is config-driven
+  // (LifecycleConfig.nonAutomatic — complete + on-hold by default) so adding a
+  // future non-automatic lane (or a workflow's own) needs no change here.
+  if (host.lifecycle().nonAutomatic.includes(card.state)) return;
   if (card.state !== state) {
     await host.vault.set("cards", card.id, { ...card, state });
   }
@@ -374,7 +379,9 @@ export async function applyStateBySessionId(
   }
   const card = await cardForSession(host.vault, ordenSessionId);
   if (!card) return;
-  if (card.state === "complete") return;
+  // Terminal + manual lanes: never auto-moved (config-driven nonAutomatic set —
+  // complete + on-hold by default). Mirrors the guard in applyState.
+  if (host.lifecycle().nonAutomatic.includes(card.state)) return;
   if (card.state !== state) {
     await host.vault.set("cards", card.id, { ...card, state });
   }

@@ -1,16 +1,3 @@
-/** Session lifecycle states. The four columns on the Kanban board. */
-export type LifecycleState =
-  | "planning"
-  | "in-progress"
-  | "blocked"
-  | "complete";
-
-/**
- * A card's state is exactly its lifecycle state. Kept as an alias so existing
- * call sites that reference `CardState` keep working.
- */
-export type CardState = LifecycleState;
-
 /** A single bullet in the outline. */
 export interface Block {
   id: string;
@@ -26,15 +13,21 @@ export interface Page {
   root: Block;
 }
 
-/** A Kanban card derived from a stateful item (a Session projection). */
-export interface Card {
+/**
+ * A generic board card. `T` is the lane/state key the caller groups by — orden
+ * passes its `Lane` set (from @orden/host-api), a generic consumer passes any
+ * string key. The outliner carries NO opinion about which lanes exist; that is
+ * orden board policy received as a parameter. See
+ * docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.
+ */
+export interface Card<T extends string = string> {
   id: string;
   title: string;
-  state: CardState;
+  state: T;
 }
 
-/** A column on the board: one CardState plus its cards. */
-export interface Column {
-  state: CardState;
-  cards: Card[];
+/** A board column: one lane key plus the cards in it. */
+export interface Column<T extends string = string> {
+  state: T;
+  cards: Card<T>[];
 }

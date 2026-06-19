@@ -1,5 +1,17 @@
+// Lifecycle vocabulary — the shared Lane/Role primitives + default config.
+// @orden/host-api consumes + re-exports these so downstream never imports this
+// package for the lifecycle types. See ./lifecycle.
+export {
+  Role,
+  DefaultLane,
+  DEFAULT_LANES,
+  LaneDef,
+  LifecycleConfig,
+  COMPLETE_TTL_MS,
+  DEFAULT_LIFECYCLE,
+} from "./lifecycle";
+
 export type {
-  StageRole,
   Gate,
   Action,
   Harness,
@@ -15,11 +27,11 @@ export type {
   WorkflowSpec,
 } from "./types";
 export {
-  STAGE_ROLES,
+  ROLES,
   GATES,
   ACTIONS,
   IRREVERSIBLE_ACTIONS,
-  isStageRole,
+  isRole,
   isGate,
   isAction,
 } from "./catalog";

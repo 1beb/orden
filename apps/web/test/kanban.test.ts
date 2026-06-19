@@ -442,3 +442,100 @@ describe("kanban list view — derived Learnings group", () => {
     expect(groupStateOf(container, "Stale done")).toBeUndefined();
   });
 });
+
+describe("kanban — on-hold lane (manual park, furled by default)", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+    // Reset the in-memory settings cache to defaults (board view) — list-view
+    // tests in this file set kanbanView:"list", and localStorage.clear() alone
+    // doesn't clear the cache.
+    await hydrateSettings(host);
+  });
+
+  it("renders an on-hold column, furled by default (no card bodies)", () => {
+    const s = createSession({ title: "Park me", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "on-hold");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    const onHoldCol = columnEl(container, "on-hold");
+    expect(onHoldCol.classList.contains("is-furled")).toBe(true);
+    // Furled: the count is in the header but no card bodies render.
+    expect(onHoldCol.querySelector(".orden-column__count")!.textContent).toBe("1");
+    expect(onHoldCol.querySelector(".orden-card")).toBeNull();
+    // The furled card is NOT visible anywhere on the board.
+    expect(container.querySelector(`.orden-card[data-item-id="${card.id}"]`)).toBeNull();
+  });
+
+  it("unfurls on-hold via the header toggle, then refurls (round-trip)", () => {
+    const s = createSession({ title: "Park me", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "on-hold");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    const onHoldCol = columnEl(container, "on-hold");
+    const toggle = onHoldCol.querySelector<HTMLButtonElement>(".orden-column__furl")!;
+    // Unfurl → the held card's body renders.
+    toggle.click();
+    const reopened = columnEl(container, "on-hold");
+    expect(reopened.classList.contains("is-furled")).toBe(false);
+    expect(reopened.querySelector(`.orden-card[data-item-id="${card.id}"]`)).not.toBeNull();
+    // Refurl → card body hidden again (returns the module state to its default).
+    reopened.querySelector<HTMLButtonElement>(".orden-column__furl")!.click();
+    expect(columnEl(container, "on-hold").classList.contains("is-furled")).toBe(true);
+  });
+
+  it("accepts a drop onto the (furled) on-hold column, parking the card", () => {
+    const s = createSession({ title: "Working", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "in-progress");
+
+    const container = document.createElement("div");
+    renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    // The on-hold column is furled but still accepts drops (drop wiring is on the
+    // column, not the card list).
+    dropOnto(columnEl(container, "on-hold"), card.id);
+    expect(getItem(card.id)?.state).toBe("on-hold");
+  });
+
+  it("does not count an on-hold card as needs-action", () => {
+    const s = createSession({ title: "Park me", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    setItemState(card.id, "on-hold");
+
+    const container = document.createElement("div");
+    const needs = renderKanban(container, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenLearnings: () => {},
+      openLearnings: () => 0,
+    });
+
+    // on-hold is a manual park, not "awaiting the user" — it never feeds the badge.
+    expect(needs).toBe(0);
+    expect(container.querySelector(".orden-board__needs-action")).toBeNull();
+  });
+});

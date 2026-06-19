@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@orden/chat-core": "workspace:*"
+    "@orden/chat-core": "workspace:*",
+    "@orden/workflows": "workspace:*"
   },
   "scripts": {
     "test": "vitest run",

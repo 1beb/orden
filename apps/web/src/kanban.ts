@@ -1,8 +1,10 @@
+import { isExpiredComplete, type SessionState } from "@orden/host-api";
 import {
-  LIFECYCLE_ORDER,
-  isExpiredComplete,
-  type CardState,
-} from "@orden/outliner";
+  LANE_ORDER,
+  LANE_LABELS,
+  NEEDS_ACTION_LANES,
+  FURLED_BY_DEFAULT,
+} from "./lifecycle";
 import {
   listItems,
   setItemState,
@@ -19,34 +21,38 @@ import { openCardModal } from "./cardModal";
 import { renderIssueGroups } from "./issueList";
 import { loadSettings, saveSettings, type KanbanView } from "./settings";
 
-const STATES: CardState[] = [...LIFECYCLE_ORDER];
+// The concrete lane set from the lifecycle config (planning -> in-progress ->
+// blocked -> complete -> on-hold). The web-local DERIVED "learnings" column is
+// appended last; no card is ever stored in it.
+const STATES: string[] = [...LANE_ORDER];
 
-// A board column id: every real card state, plus the web-local DERIVED column
-// "learnings". "learnings" is NOT a CardState — no card is ever stored in it; a
-// complete card with pending learnings is bucketed into this column at render
-// time (see columnFor below). Keeping it out of the shared CardState union is
-// what makes setItemState(id, "learnings") a compile error.
-type BoardColumn = CardState | "learnings";
+// A board column id: any lifecycle lane plus the web-local derived "learnings"
+// column. Kept as `string` because the lifecycle lane set is open (a workflow may
+// add custom lanes); setItemState narrows to SessionState at the write site.
+type BoardColumn = string;
 
-// Column render order, left to right: the four lifecycle states then the
-// derived Learnings column.
-const COLUMN_ORDER: BoardColumn[] = [...LIFECYCLE_ORDER, "learnings"];
+// Column render order, left to right: the lifecycle lanes then the derived
+// Learnings column.
+const COLUMN_ORDER: BoardColumn[] = [...LANE_ORDER, "learnings"];
+
+// Labels from the lifecycle config (single source of truth) plus the derived
+// "learnings" column label.
+const STATE_LABELS: Record<string, string> = {
+  ...LANE_LABELS,
+  learnings: "Learnings",
+};
+
+// Which columns start collapsed. Seeded from the lifecycle config's
+// furledByDefault (on-hold) and kept module-scoped so it survives the full
+// re-render every board mutation triggers (same pattern as `filters` below).
+// Toggling a column header unfurls/refurls it for the session.
+const furledColumns: Set<string> = new Set(FURLED_BY_DEFAULT);
 
 // A one-shot timer that re-renders the board the moment the soonest completed
 // card crosses its TTL and falls off the Complete column (the board otherwise
 // only redraws on a mutation, so a card finished while the board sits open
 // would linger). Module-scoped so it survives the full re-render each call performs.
 let fadeTimer: ReturnType<typeof setTimeout> | undefined;
-
-// Capitalized column titles; the stored state stays lowercase. "Learnings" is a
-// derived column (no card is stored in that state — see columnFor below).
-const STATE_LABELS: Record<BoardColumn, string> = {
-  planning: "Planning",
-  "in-progress": "In-progress",
-  blocked: "Blocked",
-  complete: "Complete",
-  learnings: "Learnings",
-};
 
 // Board filters live at module scope so they survive the full re-render that
 // every board mutation triggers (renderKanban rebuilds the container each call).
@@ -104,12 +110,14 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     i.state === "complete" && deps.openLearnings(i.id) > 0 ? "learnings" : i.state;
 
   // Nav action badge: a card needs the user's attention when its DERIVED column
-  // is Blocked (waiting on the user) OR Learnings (open learnings — pending or
-  // revising). Counted off the derived column, not `state`, so a complete card
-  // with open learnings still counts even though its stored state is "complete".
+  // is a needs-action lane (waiting on the user — blocked, by default) OR the
+  // derived Learnings column (open learnings — pending or revising). Counted off
+  // the derived column, not `state`, so a complete card with open learnings still
+  // counts. on-hold is intentionally NOT a needs-action lane (it's parked, not
+  // awaiting you).
   const needs = allItems.filter((i) => {
     const col = columnFor(i);
-    return col === "blocked" || col === "learnings";
+    return NEEDS_ACTION_LANES.has(col) || col === "learnings";
   }).length;
 
   const rerender = (): number => renderKanban(container, deps);
@@ -277,12 +285,11 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
     col.className = "orden-column";
     col.dataset.state = column;
     // The Learnings column is DERIVED — a card is bucketed there by render
-    // logic, never by user action — so it gets no drop affordance. Skipping the
-    // drop wiring here also narrows `column` to CardState below, which is what
-    // makes setItemState(id, column) type-check (and bars "learnings" from ever
-    // being persisted as a state — the invariant is now compiler-enforced).
+    // logic, never by user action — so it gets no drop affordance. Every real
+    // lane (incl. the manual on-hold lane) accepts drops; the agent cannot reach
+    // on-hold (its cardMove union excludes it), so only a user drag parks a card.
     if (column !== "learnings") {
-      const dropState = column;
+      const dropState = column as SessionState;
       col.addEventListener("dragover", (e) => {
         e.preventDefault();
         col.classList.add("drop-target");
@@ -299,10 +306,44 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
       });
     }
 
+    // Furl state is per-column and survives re-render (module-scoped set above).
+    // Columns flagged furledByDefault in the lifecycle config (on-hold) start
+    // collapsed; the user toggles via the header. A furled column still accepts
+    // drops (so dragging onto it parks a card into it and the user can unfurl).
+    const isFurled = furledColumns.has(column);
+    if (isFurled) col.classList.add("is-furled");
+
     const colHead = document.createElement("div");
     colHead.className = "orden-column__header";
-    colHead.innerHTML = `<span class="orden-column__title">${STATE_LABELS[column]}</span><span class="orden-column__count">${colItems.length}</span>`;
+    colHead.classList.toggle("is-furled", isFurled);
+    // The chevron + title sit in a toggle that furls/unfurls the column; the
+    // count badge rides outside it so it always reads at a glance.
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "orden-column__furl";
+    toggle.setAttribute("aria-expanded", String(!isFurled));
+    toggle.setAttribute(
+      "aria-label",
+      isFurled ? `Expand ${STATE_LABELS[column]}` : `Collapse ${STATE_LABELS[column]}`,
+    );
+    toggle.innerHTML = `<span class="orden-column__chevron" aria-hidden="true">${isFurled ? "▸" : "▾"}</span><span class="orden-column__title">${STATE_LABELS[column]}</span>`;
+    toggle.addEventListener("click", () => {
+      if (furledColumns.has(column)) furledColumns.delete(column);
+      else furledColumns.add(column);
+      rerender();
+    });
+    const countBadge = document.createElement("span");
+    countBadge.className = "orden-column__count";
+    countBadge.textContent = String(colItems.length);
+    colHead.append(toggle, countBadge);
     col.append(colHead);
+
+    if (isFurled) {
+      // Furled: render no card bodies — the header (with count) is the whole
+      // column. The column div above still carries the drop wiring.
+      columns.append(col);
+      continue;
+    }
 
     const cardsEl = document.createElement("div");
     cardsEl.className = "orden-column__cards";

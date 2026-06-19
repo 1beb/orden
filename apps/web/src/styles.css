@@ -3282,6 +3282,33 @@ li.sess-done-head {
   padding: 2px 4px 8px;
 }
 
+/* The furl toggle (chevron + title) sits in the header; the count badge rides
+   outside it so it always reads. A reset button so it inherits the header look. */
+.orden-column__furl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  color: var(--ink);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.orden-column__furl:hover {
+  color: var(--accent, #2563eb);
+}
+.orden-column__chevron {
+  font-size: calc(10px * var(--font-scale));
+  color: var(--muted);
+  line-height: 1;
+}
+/* A furled column narrows to just its header — the deferred pen takes little room. */
+.orden-column.is-furled {
+  flex: 0 0 auto;
+}
+
 .orden-column__title {
   font-size: calc(12px * var(--font-scale));
   font-weight: 600;

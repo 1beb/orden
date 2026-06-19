@@ -29,7 +29,7 @@ import type {
   DeliverCommentResult,
   RenameResult,
 } from "@orden/host-api";
-import { renamePageInVault } from "@orden/host-api";
+import { renamePageInVault, DEFAULT_LIFECYCLE, type LifecycleConfig } from "@orden/host-api";
 import { AdapterRegistry, createChatBackend } from "@orden/chat-core";
 import { relative, join } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -355,5 +355,12 @@ export class NodeHost implements Host {
       docRender: hasQuarto(), // quarto on PATH? gates the doc_render flow
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // host's local zone; web defaults to it
     };
+  }
+
+  // The board's lane set/policy is pure data from @orden/workflows (re-exported
+  // via @orden/host-api). First cut returns the global default; once the workflow
+  // board projection lands this resolves the active workflow's lanes per session.
+  lifecycle(): LifecycleConfig {
+    return DEFAULT_LIFECYCLE;
   }
 }

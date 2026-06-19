@@ -13,7 +13,9 @@ import type {
   SessionManager,
   SessionState,
   LockService,
+  LifecycleConfig,
 } from "../src/index";
+import { DEFAULT_LIFECYCLE } from "../src/index";
 
 class NoopHost implements Host {
   identity: Identity = {
@@ -80,6 +82,10 @@ class NoopHost implements Host {
       spawnSessions: false,
       persistentVault: false,
     };
+  }
+
+  lifecycle(): LifecycleConfig {
+    return DEFAULT_LIFECYCLE;
   }
 }
 

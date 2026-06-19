@@ -1,5 +1,6 @@
 import { describe, test, expect } from "vitest";
 import type { Host, VaultStore } from "@orden/host-api";
+import { DEFAULT_LIFECYCLE } from "@orden/host-api";
 import {
   applyState,
   applyStop,
@@ -34,8 +35,10 @@ function fakeVault(seed: Record<string, Record<string, unknown>> = {}): VaultSto
   };
 }
 
-// applyState only touches host.vault — a vault-only host is enough.
-const hostWith = (vault: VaultStore): Host => ({ vault }) as unknown as Host;
+// applyState touches host.vault and host.lifecycle() (the nonAutomatic guard).
+// A vault-only host with the default lifecycle config is enough.
+const hostWith = (vault: VaultStore): Host =>
+  ({ vault, lifecycle: () => DEFAULT_LIFECYCLE }) as unknown as Host;
 
 describe("applyState (hooks → card state)", () => {
   test("leaves a completed card at 'complete' (terminal, user/LLM-owned)", async () => {
@@ -46,6 +49,23 @@ describe("applyState (hooks → card state)", () => {
     await applyState(hostWith(vault), "uuid-1", "blocked");
     const card = await vault.get<{ state: string }>("cards", "c1");
     expect(card?.state).toBe("complete");
+  });
+
+  // on-hold is a manual lane: once the user parks a card there, the hook-driven
+  // auto-cycle must never release it (a trailing Stop / PostToolUse / waiting
+  // notification can't yank it back to blocked or in-progress). Only a deliberate
+  // user drag/picker moves it. The guard is the config-driven nonAutomatic set.
+  test("leaves an on-hold card at 'on-hold' (manual, hook-driven cycle can't release it)", async () => {
+    const vault = fakeVault({
+      sessions: { s1: { id: "s1", conversationId: "uuid-1" } },
+      cards: { c1: { id: "c1", title: "T", state: "on-hold", sessionIds: ["s1"] } },
+    });
+    const h = hostWith(vault);
+    // A Stop edge and a resumed-tool edge both leave it untouched.
+    await applyState(h, "uuid-1", "blocked");
+    await applyState(h, "uuid-1", "in-progress");
+    const card = await vault.get<{ state: string }>("cards", "c1");
+    expect(card?.state).toBe("on-hold");
   });
 
   test("moves an in-progress card to blocked", async () => {

@@ -9,7 +9,19 @@ describe("public surface", () => {
     expect(wf.DEFAULT_WORKFLOW.name).toBe("default");
     expect([...wf.ACTIONS]).toContain("verify");
     expect([...wf.GATES]).toContain("approve");
-    expect([...wf.STAGE_ROLES]).toContain("terminal");
+    expect([...wf.ROLES]).toContain("terminal");
     expect(wf.isAction("merge")).toBe(true);
+  });
+
+  it("exposes the lifecycle vocabulary (Lane/Role + default config)", () => {
+    expect(wf.DEFAULT_LIFECYCLE.order).toContain("on-hold");
+    expect(wf.DEFAULT_LIFECYCLE.lanes["on-hold"].manual).toBe(true);
+    expect(wf.DEFAULT_LIFECYCLE.lanes["on-hold"].role).toBeUndefined();
+    // on-hold is furled by default and non-automatic (manual park).
+    expect(wf.DEFAULT_LIFECYCLE.furledByDefault).toContain("on-hold");
+    expect(wf.DEFAULT_LIFECYCLE.nonAutomatic).toContain("on-hold");
+    // the four role lanes map onto a Role each.
+    expect(wf.DEFAULT_LIFECYCLE.lanes["planning"].role).toBe("initial");
+    expect(wf.DEFAULT_LIFECYCLE.lanes["complete"].role).toBe("terminal");
   });
 });

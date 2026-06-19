@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
-import {
-  LIFECYCLE_ORDER,
-  COMPLETE_TTL_MS,
-  buildBoard,
-  needsActionCount,
-  isNeedsAction,
-  isExpiredComplete,
-} from "../src/kanban";
+import { buildBoard } from "../src/kanban";
 import type { Card } from "../src/types";
 
-const cards: Card[] = [
+// The board is now generic over the lane key — no lane set is baked in. The
+// caller supplies the order. (The orden-specific constants that used to live
+// here — LIFECYCLE_ORDER, NEEDS_ACTION_STATES, COMPLETE_TTL_MS, isExpiredComplete
+// — moved to @orden/host-api. See docs/plans/2026-06-19-on-hold-and-lifecycle-config.md.)
+
+const STATES = ["planning", "in-progress", "blocked", "complete"] as const;
+type S = (typeof STATES)[number];
+
+const cards: Card<S>[] = [
   { id: "1", title: "alpha", state: "planning" },
   { id: "2", title: "beta", state: "in-progress" },
   { id: "3", title: "gamma", state: "blocked" },
@@ -19,25 +20,14 @@ const cards: Card[] = [
   { id: "7", title: "eta", state: "planning" },
 ];
 
-describe("LIFECYCLE_ORDER", () => {
-  it("is the four lifecycle states in order", () => {
-    expect(LIFECYCLE_ORDER).toEqual([
-      "planning",
-      "in-progress",
-      "blocked",
-      "complete",
-    ]);
-  });
-});
-
 describe("buildBoard", () => {
-  it("creates one column per state, in lifecycle order", () => {
-    const board = buildBoard(cards);
-    expect(board.map((c) => c.state)).toEqual(LIFECYCLE_ORDER);
+  it("creates one column per supplied state, in the given order", () => {
+    const board = buildBoard(cards, STATES);
+    expect(board.map((c) => c.state)).toEqual([...STATES]);
   });
 
   it("groups cards into the right columns", () => {
-    const board = buildBoard(cards);
+    const board = buildBoard(cards, STATES);
     const blocked = board.find((c) => c.state === "blocked")!;
     expect(blocked.cards.map((c) => c.id)).toEqual(["3", "4"]);
     const inProgress = board.find((c) => c.state === "in-progress")!;
@@ -45,61 +35,21 @@ describe("buildBoard", () => {
   });
 
   it("preserves input order within a column", () => {
-    const board = buildBoard([
-      { id: "b", title: "b", state: "planning" },
-      { id: "a", title: "a", state: "planning" },
-    ]);
+    const board = buildBoard(
+      [
+        { id: "b", title: "b", state: "planning" },
+        { id: "a", title: "a", state: "planning" },
+      ] as Card<S>[],
+      STATES,
+    );
     const planning = board.find((c) => c.state === "planning")!;
     expect(planning.cards.map((c) => c.id)).toEqual(["b", "a"]);
   });
-});
 
-describe("needs-action badge", () => {
-  it("isNeedsAction is true only for blocked", () => {
-    expect(isNeedsAction("blocked")).toBe(true);
-    expect(isNeedsAction("planning")).toBe(false);
-    expect(isNeedsAction("complete")).toBe(false);
-    expect(isNeedsAction("in-progress")).toBe(false);
-  });
-
-  it("counts cards in needs-action states", () => {
-    // blocked(2)
-    expect(needsActionCount(cards)).toBe(2);
-  });
-
-  it("is zero with no actionable cards", () => {
-    expect(
-      needsActionCount([{ id: "x", title: "x", state: "planning" }]),
-    ).toBe(0);
-  });
-});
-
-describe("isExpiredComplete", () => {
-  const now = 1_000 * COMPLETE_TTL_MS; // an arbitrary "now" well past the TTL
-
-  it("is false for non-complete cards regardless of age", () => {
-    expect(isExpiredComplete({ state: "blocked" }, now)).toBe(false);
-    expect(isExpiredComplete({ state: "planning", completedAt: 0 }, now)).toBe(
-      false,
-    );
-  });
-
-  it("is false for a complete card still within its TTL", () => {
-    expect(
-      isExpiredComplete({ state: "complete", completedAt: now - 1 }, now),
-    ).toBe(false);
-  });
-
-  it("is true once a complete card crosses its TTL", () => {
-    expect(
-      isExpiredComplete(
-        { state: "complete", completedAt: now - COMPLETE_TTL_MS },
-        now,
-      ),
-    ).toBe(true);
-  });
-
-  it("treats a complete card with no completedAt as already expired", () => {
-    expect(isExpiredComplete({ state: "complete" }, now)).toBe(true);
+  it("omits a column when no cards match and the caller didn't list it", () => {
+    // The caller controls the column set: an unlisted state simply has no column.
+    const board = buildBoard(cards, ["planning", "complete"]);
+    expect(board.map((c) => c.state)).toEqual(["planning", "complete"]);
+    expect(board.find((c) => c.state === "planning")!.cards).toHaveLength(2);
   });
 });

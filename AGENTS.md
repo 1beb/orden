@@ -255,10 +255,18 @@ for every agent by `sessionLaunchEnv` (`terminal.ts`).
 
 **Kanban card-state semantics** (enforced across MCP tools and hooks):
 `planning`=idle, `in-progress`=working, `blocked`=done-with-turn/waiting-on-user,
-`complete`=user-only. `card_move` cannot reach `complete`; only `card_complete` can,
-and only on the user's explicit say-so. The auto-cycle between states is driven by
-agent **hooks** (`apps/host/src/hooks.ts`), not MCP, because MCP can't observe the
-session lifecycle.
+`complete`=user/LLM-only, `on-hold`=user-only manual park (furled by default).
+`card_move` cannot reach `complete` (use `card_complete`) NOR `on-hold` (the agent
+must never park a card); on-hold is reachable only by the user (board drag / card
+modal). The hook-driven auto-cycle (planning/in-progress/blocked) never moves a card
+out of a **non-automatic** lane — `LifecycleConfig.nonAutomatic` (default `complete`
++ `on-hold`) — so a held card stays held until the user releases it. The lane set,
+order, labels, and this policy live in `@orden/workflows` (`DEFAULT_LIFECYCLE`),
+re-exported via `@orden/host-api` (`Host.lifecycle()`); the `@orden/outliner` board
+primitives are generic and receive lanes as a parameter (no orden policy baked in).
+The auto-cycle between states is driven by agent **hooks** (`apps/host/src/hooks.ts`),
+not MCP, because MCP can't observe the session lifecycle. See
+`docs/plans/2026-06-19-on-hold-and-lifecycle-config.md`.
 
 **Learnings on completion.** Right before `card_complete`, the completing agent distills
 what the session changed into **learnings** via `learning_propose` — one per proposed
