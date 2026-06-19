@@ -5,9 +5,11 @@
 import { EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { keymap } from "prosemirror-keymap";
-import { baseKeymap } from "prosemirror-commands";
+import { baseKeymap, chainCommands } from "prosemirror-commands";
 import { history, undo, redo } from "prosemirror-history";
 import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
+import { tableEditing, columnResizing, goToNextCell } from "prosemirror-tables";
+import "prosemirror-tables/style/tables.css";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { wikiLinkPlugin } from "./wikilink";
@@ -42,11 +44,16 @@ export function makeOutlineEditor(
         Enter: splitListItem(schema.nodes.list_item),
         "Mod-[": liftListItem(schema.nodes.list_item),
         "Mod-]": sinkListItem(schema.nodes.list_item),
-        Tab: sinkListItem(schema.nodes.list_item),
-        "Shift-Tab": liftListItem(schema.nodes.list_item),
+        // Inside a table, Tab/Shift-Tab move between cells; everywhere else they
+        // indent/outdent the outline. goToNextCell only fires within a table, so
+        // the list command runs as the fallback.
+        Tab: chainCommands(goToNextCell(1), sinkListItem(schema.nodes.list_item)),
+        "Shift-Tab": chainCommands(goToNextCell(-1), liftListItem(schema.nodes.list_item)),
       }),
       keymap(baseKeymap),
       wikiLinkPlugin(onWikiLink, widgetForSession),
+      columnResizing(),
+      tableEditing(),
     ],
   });
   const view = new EditorView(host, {
