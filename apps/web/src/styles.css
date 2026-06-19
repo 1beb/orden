@@ -2335,6 +2335,29 @@ li.sess-done-head {
   margin: 8px 0;
 }
 
+/* GFM tables (prosemirror-tables). The package CSS handles layout, column-resize
+   handles and cell selection; here we add the visible borders, padding and
+   header styling. Per-column alignment rides on each cell's inline text-align. */
+.ProseMirror .tableWrapper {
+  margin: 16px 0;
+}
+
+.ProseMirror table {
+  font-size: calc(14px * var(--font-scale));
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.ProseMirror th {
+  background: var(--panel-bg);
+  font-weight: 600;
+}
+
 /* annotation highlight: underline at rest, soft fill on hover/active */
 .annotation {
   border-bottom: 2px solid var(--accent);
