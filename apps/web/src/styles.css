@@ -2358,6 +2358,105 @@ li.sess-done-head {
   font-weight: 600;
 }
 
+/* highlight mark (==text==) */
+.ProseMirror mark {
+  background: color-mix(in srgb, #fde047 55%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* task-list items (- [ ] / - [x]): the li carries the checkbox + body inline */
+.ProseMirror li.task-list-item {
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: -20px;
+}
+
+.ProseMirror li.task-list-item > input[type="checkbox"] {
+  margin: 0;
+  transform: translateY(1px);
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.ProseMirror li.task-list-item > .task-list-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ProseMirror li.task-list-item[data-checked="true"] > .task-list-item-body {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* callouts / GitHub alerts (> [!NOTE] …) */
+.ProseMirror .markdown-alert {
+  --alert: var(--muted);
+  border-left: 3px solid var(--alert);
+  background: color-mix(in srgb, var(--alert) 8%, transparent);
+  border-radius: 4px;
+  margin: 16px 0;
+  padding: 8px 16px;
+}
+
+.ProseMirror .markdown-alert-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  font-size: calc(13px * var(--font-scale));
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--alert);
+}
+
+.ProseMirror .markdown-alert-body > :first-child { margin-top: 0; }
+.ProseMirror .markdown-alert-body > :last-child { margin-bottom: 0; }
+
+.ProseMirror .markdown-alert-note { --alert: #3b82f6; }
+.ProseMirror .markdown-alert-tip { --alert: #22c55e; }
+.ProseMirror .markdown-alert-important { --alert: #8b5cf6; }
+.ProseMirror .markdown-alert-warning { --alert: #f59e0b; }
+.ProseMirror .markdown-alert-caution { --alert: #ef4444; }
+
+/* mermaid blocks: rendered diagram over the editable source */
+.ProseMirror .mermaid-block {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ProseMirror .mermaid-render {
+  padding: 16px;
+  text-align: center;
+  background: #fff;
+}
+
+.ProseMirror .mermaid-render svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.ProseMirror .mermaid-render.mermaid-error {
+  text-align: left;
+  color: #ef4444;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(12px * var(--font-scale));
+}
+
+.ProseMirror .mermaid-source {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(12px * var(--font-scale));
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
 /* annotation highlight: underline at rest, soft fill on hover/active */
 .annotation {
   border-bottom: 2px solid var(--accent);

@@ -13,6 +13,8 @@ import "prosemirror-tables/style/tables.css";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
 import { wikiLinkPlugin } from "./wikilink";
+import { taskListPlugin } from "./taskList";
+import { isMermaidBlock, MermaidNodeView } from "./mermaidNodeView";
 import { setPageMarkdown } from "./pages";
 
 // ProseMirror's markdown serializer escapes "[" / "]"; restore [[wiki links]].
@@ -51,6 +53,7 @@ export function makeOutlineEditor(
         "Shift-Tab": chainCommands(goToNextCell(-1), liftListItem(schema.nodes.list_item)),
       }),
       keymap(baseKeymap),
+      taskListPlugin(),
       wikiLinkPlugin(onWikiLink, widgetForSession),
       columnResizing(),
       tableEditing(),
@@ -58,6 +61,9 @@ export function makeOutlineEditor(
   });
   const view = new EditorView(host, {
     state,
+    nodeViews: {
+      code_block: (node) => (isMermaidBlock(node) ? new MermaidNodeView(node) : (null as never)),
+    },
     dispatchTransaction(tr) {
       view.updateState(view.state.apply(tr));
       if (tr.docChanged) setPageMarkdown(name, serializePage(view.state.doc));
