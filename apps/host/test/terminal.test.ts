@@ -12,6 +12,18 @@ vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => osHome.dir || actual.homedir() };
 });
+// opencodeSessionInCwd / discoverOpencodeSession shell out to the opencode CLI;
+// mock the module so the opencode buildCommand tests can control what's "live in
+// cwd" (the Set) and what discovery would find (the string) without a real binary.
+const oc = vi.hoisted(() => ({ inCwd: new Set<string>(), discover: null as string | null }));
+vi.mock("../src/opencodeSession", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/opencodeSession")>();
+  return {
+    ...actual,
+    opencodeSessionInCwd: async (_cwd: string, id: string) => oc.inCwd.has(id),
+    discoverOpencodeSession: async () => oc.discover,
+  };
+});
 import {
   mcpConfigArg,
   settingsArg,
@@ -666,6 +678,109 @@ describe("buildCommand (claude resume vs mint)", () => {
     const rec = { agent: "claude" } as never;
     const cmd = await buildCommand(host, rec, "sess_1", CWD);
     expect(cmd).not.toContain("--model");
+  });
+});
+
+describe("buildCommand (opencode resume vs recover)", () => {
+  const CWD = "/work/wt"; // a session's own worktree
+
+  // An in-memory vault mirroring the claude suite's fakeVault, seeded per test.
+  function fakeVault(seed: Record<string, Record<string, unknown>> = {}) {
+    const store = new Map<string, Map<string, unknown>>();
+    for (const [ns, kv] of Object.entries(seed)) store.set(ns, new Map(Object.entries(kv)));
+    const nsMap = (ns: string) => store.get(ns) ?? store.set(ns, new Map()).get(ns)!;
+    return {
+      get: async <T>(ns: string, key: string) => (nsMap(ns).get(key) ?? null) as T | null,
+      set: async (ns: string, key: string, value: unknown) => void nsMap(ns).set(key, value),
+      list: async (ns: string) => [...nsMap(ns).keys()],
+      delete: async (ns: string, key: string) => void nsMap(ns).delete(key),
+    };
+  }
+  function vaultHost(seed: Record<string, Record<string, unknown>> = {}) {
+    const vault = fakeVault(seed);
+    return { host: { vault } as unknown as Host, vault };
+  }
+
+  afterEach(() => {
+    oc.inCwd.clear();
+    oc.discover = null;
+  });
+
+  test("resumes a valid persisted id and refreshes the recovery index", async () => {
+    oc.inCwd.add("ses_a");
+    const { host, vault } = vaultHost();
+    const rec = { agent: "opencode", conversationId: "ses_a", workdir: CWD, touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--session ses_a");
+    // The host-owned index is (re)written so a later record clobber can recover it.
+    const idx = await vault.get<{ conversationId?: string }>("convindex", "sess_1");
+    expect(idx?.conversationId).toBe("ses_a");
+  });
+
+  test("recovers a lost id from the host-owned index and heals the record", async () => {
+    oc.inCwd.add("ses_b"); // the recovered id is still live in cwd
+    const { host, vault } = vaultHost({ convindex: { sess_1: { conversationId: "ses_b" } } });
+    // Record lost its conversationId (capture missed / clobbered) but has run.
+    const rec = { agent: "opencode", workdir: CWD, touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--session ses_b");
+    const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+    expect(saved?.conversationId).toBe("ses_b");
+  });
+
+  test("reopen with no id discovers the session in its worktree and resumes it", async () => {
+    // The reported bug: id was never captured, so a reopen used to launch bare =
+    // a brand-new session. Now it discovers the conversation sitting in the worktree.
+    oc.discover = "ses_live";
+    const { host, vault } = vaultHost();
+    const rec = { agent: "opencode", workdir: CWD, touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--session ses_live");
+    // Discovered id is persisted to BOTH the record and the recovery index.
+    const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+    expect(saved?.conversationId).toBe("ses_live");
+    const idx = await vault.get<{ conversationId?: string }>("convindex", "sess_1");
+    expect(idx?.conversationId).toBe("ses_live");
+  });
+
+  test("a stale persisted id (not in cwd) is dropped in favour of the worktree's session", async () => {
+    oc.discover = "ses_live"; // ses_stale is NOT in oc.inCwd → not resumable
+    const { host, vault } = vaultHost();
+    const rec = { agent: "opencode", conversationId: "ses_stale", workdir: CWD, touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).toContain("--session ses_live");
+    expect(cmd).not.toContain("ses_stale");
+    const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+    expect(saved?.conversationId).toBe("ses_live");
+  });
+
+  test("a true first launch (never run) launches bare without attempting recovery", async () => {
+    // A card-spawned session carries the card's TITLE from creation, so the gate
+    // must be touched/prompted — not the title — or every first launch would
+    // wrongly resume. discovery would return a session, but with touched=false it
+    // is never consulted, so the command stays bare.
+    oc.discover = "ses_should_not_be_used";
+    const { host } = vaultHost();
+    const rec = {
+      agent: "opencode",
+      workdir: CWD,
+      title: "Investigate the thing", // a pre-set card title, but touched=false
+      initialPrompt: "Investigate the thing",
+    } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).not.toContain("--session"); // discovery gated off → no resume
+    expect(cmd).not.toContain("ses_should_not_be_used");
+    expect(cmd).toContain("--prompt"); // seeds the card text on first launch
+  });
+
+  test("does not recover in a shared checkout (workdir != cwd) — match would be ambiguous", async () => {
+    oc.discover = "ses_unrelated";
+    const { host } = vaultHost();
+    // No workdir (legacy / shared checkout): many unrelated opencode sessions can
+    // share the dir, so directory-matching is unsafe — launch bare instead.
+    const rec = { agent: "opencode", touched: true } as never;
+    const cmd = await buildCommand(host, rec, "sess_1", CWD);
+    expect(cmd).not.toContain("--session");
   });
 });
 

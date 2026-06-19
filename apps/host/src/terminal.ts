@@ -473,9 +473,13 @@ export async function buildCommand(
   if (rec.agent === "opencode") {
     // opencode's TUI has no --session-id to MINT a chosen id (only -s/--session to
     // RESUME an existing one), so we can't pre-persist an id the way Claude allows.
-    // Reattach: resume the id we discovered after the first launch (conversationId
-    // is persisted either by the kanban plugin's first event or by the poller).
-    // First open: launch bare; the id is captured shortly after.
+    // Instead the id is DISCOVERED after the TUI creates its session — by the kanban
+    // plugin's first event or the title poller. That capture is best-effort and
+    // races (the poller only runs while a terminal socket is attached; the plugin
+    // event can be missed), so an opencode record can end up with NO conversationId
+    // even after a real, multi-turn session. Without it, a reopen would launch bare
+    // = a brand-new session that silently orphans the conversation. So resume
+    // defensively rather than trusting the record's id alone.
     //
     // Kanban state hooks are wired via a generated opencode plugin (see
     // opencodePluginSource / ensureOpencodePluginDir in opencodePlugin.ts), pointed at via
@@ -483,23 +487,50 @@ export async function buildCommand(
     // state transitions to /hooks/session-state, mapping through ORDEN_SESSION_ID
     // so the host doesn't need the opencode session id pre-registered.
     //
-    // Guard: a stale conversationId (e.g. discovered in the shared repo before
-    // worktree isolation was on) can silently resume an unrelated session. Verify
-    // the session still lives in the current cwd; if not, clear the id and fall
-    // through to first-launch behaviour so a fresh id is discovered correctly.
-    if (rec.conversationId) {
-      if (await opencodeSessionInCwd(cwd, rec.conversationId)) {
-        return `${bin} --session ${rec.conversationId}`;
+    // 1. Recover the id from the record, or the host-owned convindex (the web never
+    //    writes convindex, so it survives a record clobber — mirrors the claude path).
+    let convId = rec.conversationId;
+    if (!convId) {
+      const idx = await host.vault.get<{ conversationId?: string }>("convindex", sessionId);
+      if (idx?.conversationId) convId = idx.conversationId;
+    }
+    // 2. Resume only if it still lives in this cwd: a stale id (discovered in the
+    //    shared checkout before worktree isolation, or displaced by the tmux
+    //    cwd-pinning bug) must not silently resume an unrelated session.
+    if (convId && (await opencodeSessionInCwd(cwd, convId))) {
+      await persistOpencodeConvId(host, sessionId, rec, convId);
+      return `${bin} --session ${convId}`;
+    }
+    // 3. No usable id. If this session has genuinely RUN before AND runs in its OWN
+    //    git worktree (dedicated to this one orden session, so at most one opencode
+    //    session lives in cwd — the match is unambiguous), the conversation it
+    //    created is sitting in that worktree: recover + resume it instead of
+    //    starting fresh. This self-heals a session whose id capture was missed.
+    //    Gate on touched/prompted, NOT the title: a card-spawned session carries the
+    //    card's title from creation, so a title can't tell a first launch from a
+    //    reopen — but a keystroke (touched) or a real human turn (prompted) means it
+    //    actually ran and has history worth resuming.
+    const hasRun = !!(rec.touched || rec.prompted);
+    if (rec.workdir && rec.workdir === cwd && hasRun) {
+      const recovered = await discoverOpencodeSession(cwd);
+      if (recovered) {
+        await persistOpencodeConvId(host, sessionId, rec, recovered);
+        return `${bin} --session ${recovered}`;
       }
       // eslint-disable-next-line no-console
       console.warn(
-        `orden: opencode conversationId ${rec.conversationId} not found in cwd ${cwd} — ` +
-          `clearing stale id for session ${sessionId}`,
+        `orden: opencode session ${sessionId} ran before but no resumable session was ` +
+          `found in cwd ${cwd} — starting a NEW conversation (any history is orphaned)`,
       );
+    }
+    // Clear a stale persisted id so the record reflects reality (we are not resuming it).
+    if (rec.conversationId) {
       rec.conversationId = undefined;
       await host.vault.set("sessions", sessionId, rec);
     }
-    // First open: launch the TUI, seeding the card's text as the initial prompt.
+    // First open (or unrecoverable): launch the TUI bare, seeding the card's text as
+    // the initial prompt. The id is captured shortly after by the poller/plugin, and
+    // a later reopen self-heals via step 3 above.
     // envPrefix carries inline VAR=val assignments so the plugin's env vars survive
     // even if the shell init files clear inherited environment (see sessionLaunchEnv).
     let cmd = envPrefix ? `${envPrefix} ${bin}` : bin;
@@ -571,6 +602,23 @@ export async function buildCommand(
   await host.vault.set("sessions", sessionId, rec);
   await host.vault.set("convindex", sessionId, { conversationId: id });
   return cmd;
+}
+
+// Persist a (re)discovered opencode session id onto the record AND the host-owned
+// recovery index (ns "convindex"), mirroring how the claude path persists its minted
+// id. Re-uses the record object in hand and only writes the record when the id
+// actually changed, so a healthy resume (id already correct) touches only convindex.
+async function persistOpencodeConvId(
+  host: Host,
+  sessionId: string,
+  rec: SessionRecord,
+  id: string,
+): Promise<void> {
+  if (rec.conversationId !== id) {
+    rec.conversationId = id;
+    await host.vault.set("sessions", sessionId, rec);
+  }
+  await host.vault.set("convindex", sessionId, { conversationId: id });
 }
 
 // Has this session already done real work? A session that has been interacted
