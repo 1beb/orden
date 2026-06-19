@@ -631,6 +631,63 @@ function hasPriorActivity(rec: SessionRecord): boolean {
   return title !== "" && title !== "Untitled" && title !== "Untitled session";
 }
 
+// One attempt to capture a DETACHED opencode session's id. opencode can't be
+// pre-assigned an id, so a detached launch (no attached terminal socket, hence no
+// title poller) would otherwise rely solely on the kanban plugin's session.created
+// event to persist the conversationId — and if that's missed, a session that runs
+// and then completes (reaping its worktree) before the user ever opens its terminal
+// loses the id for good. This polls opencode for the id it minted and persists it.
+// Returns:
+//   "stop"    — record gone, or it already has an id (plugin/poller beat us); halt.
+//   "captured"— discovered + persisted the id; halt.
+//   "pending" — opencode hasn't created its session yet; keep polling.
+export async function captureOpencodeIdOnce(
+  host: Host,
+  sessionId: string,
+  cwd: string,
+  preLaunch: ReadonlySet<string>,
+): Promise<"stop" | "captured" | "pending"> {
+  const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
+  if (!rec || rec.conversationId) return "stop";
+  const id = await discoverOpencodeSession(cwd, preLaunch);
+  if (!id) return "pending";
+  await persistOpencodeConvId(host, sessionId, rec, id);
+  return "captured";
+}
+
+// ~2 minutes at 5s — opencode mints its session within seconds of launch, but the
+// window is generous for a slow start. A miss past the window is still recoverable
+// on the next reopen (buildCommand step 3), as long as the worktree survives.
+const DETACHED_OC_CAPTURE_TRIES = 24;
+const DETACHED_OC_CAPTURE_INTERVAL_MS = 5000;
+
+// Schedule the bounded, best-effort id-capture poller for a detached opencode
+// launch. Silent and unref'd (never holds the process open); swallows all errors.
+function scheduleOpencodeIdCapture(
+  host: Host,
+  sessionId: string,
+  cwd: string,
+  preLaunch: ReadonlySet<string>,
+): void {
+  let tries = 0;
+  const timer = setInterval(() => {
+    void (async () => {
+      tries += 1;
+      try {
+        const r = await captureOpencodeIdOnce(host, sessionId, cwd, preLaunch);
+        if (r !== "pending") {
+          clearInterval(timer);
+          return;
+        }
+      } catch {
+        /* best-effort — ignore and let the try counter end it */
+      }
+      if (tries >= DETACHED_OC_CAPTURE_TRIES) clearInterval(timer);
+    })();
+  }, DETACHED_OC_CAPTURE_INTERVAL_MS);
+  timer.unref?.();
+}
+
 // Launch-on-create: spawn a DETACHED tmux session running the agent, with no
 // client attached. Used by the host's pendingLaunch reactor so a session created
 // via the MCP tool starts working immediately, before any browser opens its panel.
@@ -655,6 +712,16 @@ export async function launchDetached(
     const cwd = await resolveSessionCwd(host, rec, sessionId, defaultCwd, { launch: true });
     const ocEnv = sessionLaunchEnv(rec, sessionId, !!rec.workdir && rec.workdir === cwd);
     const cmd = await buildCommand(host, rec, sessionId, cwd, ocEnv.cmdPrefix);
+    // For an opencode launch that buildCommand left without an id (a genuine first
+    // open), snapshot the sessions that already exist in cwd BEFORE the tmux runs
+    // the command, so the post-launch poller only grabs the one opencode is about
+    // to create. buildCommand mutates rec.conversationId in place, so a resume
+    // (id recovered/resumed) leaves it set and skips capture. buildCommand does not
+    // itself spawn opencode, so nothing is created between this snapshot and launch.
+    const preLaunch =
+      rec.agent === "opencode" && !rec.conversationId
+        ? await existingOpencodeSessions(cwd)
+        : null;
     const tmuxName = tmuxNameFor(sessionId);
     // (no pty needed to merely create). `cmd` is a single shell string and is
     // passed as the trailing positional arg, exactly as handle() does.
@@ -685,6 +752,10 @@ export async function launchDetached(
       child.on("exit", () => resolve());
       child.unref();
     });
+    // A detached opencode first-launch has no attached title poller to discover the
+    // id opencode mints — capture it here so the conversation survives a complete +
+    // worktree-reap that happens before the user ever opens the terminal.
+    if (preLaunch) scheduleOpencodeIdCapture(host, sessionId, cwd, preLaunch);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(`orden: launchDetached failed for ${sessionId}:`, err);
