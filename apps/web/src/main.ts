@@ -7,6 +7,8 @@ import { splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-li
 import { assignBlockIds } from "@orden/annotation-core";
 import { schema, markdownParser, markdownSerializer } from "./schema";
 import { buildInputRules } from "./inputrules";
+import { taskListPlugin } from "./taskList";
+import { isMermaidBlock, MermaidNodeView } from "./mermaidNodeView";
 import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState, hydrateDocs } from "./persist";
 import { hydrateOutbox } from "./sink-local";
@@ -303,11 +305,15 @@ const state = EditorState.create({
       "Shift-Tab": liftListItem(schema.nodes.list_item),
     }),
     keymap(baseKeymap),
+    taskListPlugin(),
   ],
 });
 
 const view = new EditorView(document.querySelector<HTMLElement>("#editor")!, {
   state,
+  nodeViews: {
+    code_block: (node) => (isMermaidBlock(node) ? new MermaidNodeView(node) : (null as never)),
+  },
   dispatchTransaction(tr) {
     view.updateState(view.state.apply(tr));
     onUpdate();
