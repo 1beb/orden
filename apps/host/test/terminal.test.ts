@@ -32,6 +32,7 @@ import {
   resolveSessionCwd,
   resolveAgentBin,
   buildCommand,
+  captureOpencodeIdOnce,
   killSessionTmux,
   tmuxSessionPath,
   shouldRelocateSession,
@@ -781,6 +782,50 @@ describe("buildCommand (opencode resume vs recover)", () => {
     const rec = { agent: "opencode", touched: true } as never;
     const cmd = await buildCommand(host, rec, "sess_1", CWD);
     expect(cmd).not.toContain("--session");
+  });
+
+  // Early capture for a DETACHED launch (no attached title poller). One attempt of
+  // the bounded poller scheduleOpencodeIdCapture runs.
+  describe("captureOpencodeIdOnce", () => {
+    const PRE = new Set<string>(); // pre-launch ids the mock ignores
+
+    test("captures a freshly-minted id and persists it to record + index", async () => {
+      oc.discover = "ses_new";
+      const { host, vault } = vaultHost({ sessions: { sess_1: { id: "sess_1", agent: "opencode" } } });
+      const r = await captureOpencodeIdOnce(host, "sess_1", CWD, PRE);
+      expect(r).toBe("captured");
+      const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+      expect(saved?.conversationId).toBe("ses_new");
+      const idx = await vault.get<{ conversationId?: string }>("convindex", "sess_1");
+      expect(idx?.conversationId).toBe("ses_new");
+    });
+
+    test("stops without writing when the record already has an id", async () => {
+      oc.discover = "ses_late"; // would be discovered, but we must not overwrite
+      const { host, vault } = vaultHost({
+        sessions: { sess_1: { id: "sess_1", agent: "opencode", conversationId: "ses_existing" } },
+      });
+      const r = await captureOpencodeIdOnce(host, "sess_1", CWD, PRE);
+      expect(r).toBe("stop");
+      const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+      expect(saved?.conversationId).toBe("ses_existing");
+      expect(await vault.get("convindex", "sess_1")).toBeNull();
+    });
+
+    test("stops when the session record is gone", async () => {
+      oc.discover = "ses_x";
+      const { host } = vaultHost();
+      expect(await captureOpencodeIdOnce(host, "sess_gone", CWD, PRE)).toBe("stop");
+    });
+
+    test("pending (keep polling) when opencode has not created its session yet", async () => {
+      oc.discover = null;
+      const { host, vault } = vaultHost({ sessions: { sess_1: { id: "sess_1", agent: "opencode" } } });
+      const r = await captureOpencodeIdOnce(host, "sess_1", CWD, PRE);
+      expect(r).toBe("pending");
+      const saved = await vault.get<{ conversationId?: string }>("sessions", "sess_1");
+      expect(saved?.conversationId).toBeUndefined();
+    });
   });
 });
 
