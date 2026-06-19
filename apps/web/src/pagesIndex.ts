@@ -32,8 +32,10 @@ export async function renderPagesIndex(
     return;
   }
 
-  // One batched call for every row's badge, keyed by lowercased target.
-  const counts = await backlinkCounts();
+  // One batched call for every row's badge, keyed by lowercased target. Backlink
+  // counts are non-essential enrichment — never let a search/index failure abort
+  // the render and leave the Pages nav on an empty page.
+  const counts = await backlinkCounts().catch(() => ({}) as Record<string, number>);
 
   const table = document.createElement("table");
   table.className = "pages-table";

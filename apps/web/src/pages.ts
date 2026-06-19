@@ -248,7 +248,11 @@ export function journalIndex(): PageInfo[] {
 // [[AI Suspects]] in today's journal still backlinks the page. Served by the
 // host's link index (case-insensitive) rather than scanning resident bodies.
 export async function backlinksTo(name: string): Promise<BacklinkHit[]> {
-  if (!host?.search) return [];
+  // Gate on the CAPABILITY flag, not `host.search` truthiness: the RPC client
+  // attaches a `search` proxy for every capability name, so over a NodeHost that
+  // lacks search the proxy is present but every call throws "unknown capability:
+  // search". capabilities().search is the real contract (host-api index.ts).
+  if (!host?.search || !host.capabilities().search) return [];
   return host.search.backlinks(name);
 }
 
@@ -256,6 +260,6 @@ export async function backlinksTo(name: string): Promise<BacklinkHit[]> {
 // host call — the Pages index badges each row from this map instead of a
 // per-row scan.
 export async function backlinkCounts(): Promise<Record<string, number>> {
-  if (!host?.search) return {};
+  if (!host?.search || !host.capabilities().search) return {};
   return host.search.backlinkCounts();
 }

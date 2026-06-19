@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Host } from "@orden/host-api";
 import { BrowserHost } from "../src/host/browserHost";
 import {
   backlinkCounts,
@@ -13,6 +14,7 @@ import {
   renamePage,
   setPageMarkdown,
 } from "../src/pages";
+import { renderPagesIndex } from "../src/pagesIndex";
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
@@ -276,5 +278,68 @@ describe("renamePage", () => {
       ok: false,
       reason: "This page can't be renamed.",
     });
+  });
+});
+
+// Reproduces the live NodeHost-over-RPC condition behind "the Pages nav leads to
+// an empty page": the RPC client attaches a `search` proxy for EVERY capability
+// name (apps/host/src/rpc.ts), so `host.search` is always a truthy object even
+// when the server lacks the capability — invoking a method then throws "unknown
+// capability: search". `capabilities().search` is the real gate, and it is falsy
+// here. Guarding on `host.search` truthiness lets that throw blank the whole
+// Pages list; gating on the capability flag (and not letting an optional backlink
+// badge abort the render) keeps the list visible.
+function makeHostWithoutSearch(seed: Record<string, string>): Host {
+  const store = new Map<string, Map<string, unknown>>();
+  const nsMap = (ns: string): Map<string, unknown> => {
+    let m = store.get(ns);
+    if (!m) store.set(ns, (m = new Map()));
+    return m;
+  };
+  for (const [name, body] of Object.entries(seed)) nsMap("pages").set(name, body);
+
+  const throwingSearch = new Proxy(
+    {},
+    { get: () => async () => { throw new Error("unknown capability: search"); } },
+  );
+
+  return {
+    capabilities: () => ({ search: false }),
+    search: throwingSearch,
+    vault: {
+      async list(ns: string) {
+        return [...nsMap(ns).keys()];
+      },
+      async get(ns: string, key: string) {
+        return (nsMap(ns).get(key) as unknown) ?? null;
+      },
+      async set(ns: string, key: string, v: unknown) {
+        nsMap(ns).set(key, v);
+      },
+      async delete(ns: string, key: string) {
+        nsMap(ns).delete(key);
+      },
+    },
+  } as unknown as Host;
+}
+
+describe("pages list resilience when host search is unavailable", () => {
+  beforeEach(async () => {
+    await hydratePages(makeHostWithoutSearch({ Alpha: "# Alpha [[Beta]]", Beta: "# Beta" }));
+  });
+
+  it("backlinkCounts degrades to empty instead of throwing", async () => {
+    await expect(backlinkCounts()).resolves.toEqual({});
+  });
+
+  it("backlinksTo degrades to empty instead of throwing", async () => {
+    await expect(backlinksTo("Beta")).resolves.toEqual([]);
+  });
+
+  it("renderPagesIndex still renders the page rows when search throws", async () => {
+    const container = document.createElement("div");
+    await renderPagesIndex(container, () => {});
+    const rows = container.querySelectorAll("table.pages-table tbody tr");
+    expect(rows.length).toBe(2);
   });
 });

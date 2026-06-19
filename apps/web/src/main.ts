@@ -2513,7 +2513,10 @@ const searchSources: SearchSource[] = [
     // surfaces too — no resident body scan. card:/notes: derived pages are
     // indexed by the host but stay out of omnisearch (mirrors pagesIndex()).
     search: async (q) => {
-      if (!q || !host.search) {
+      // Gate on the capability flag, not proxy truthiness — see pages.ts
+      // backlinksTo: over RPC `host.search` is always a present-but-throwing proxy
+      // when the server lacks the capability. Fall back to a resident-name fuzzy.
+      if (!q || !host.search || !host.capabilities().search) {
         const pages = fuzzyRank(q, pagesIndex(), (p) => p.name).map((r) => r.item);
         return pages.map((p) => ({ id: `page:${p.name}`, title: p.name, open: () => openPage(p.name) }));
       }
@@ -2532,7 +2535,7 @@ const searchSources: SearchSource[] = [
     id: "journal",
     label: "Journal",
     search: async (q) => {
-      if (!q || !host.search) {
+      if (!q || !host.search || !host.capabilities().search) {
         const days = fuzzyRank(q, journalIndex(), (p) => p.name).map((r) => r.item);
         return days.map((p) => ({ id: `journal:${p.name}`, title: p.name, open: () => openPage(p.name) }));
       }
