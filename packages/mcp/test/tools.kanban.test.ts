@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fromMarkdown, toMarkdown } from "@orden/outliner";
-import { journalKey } from "@orden/outliner/page";
+import { fromMarkdown, toMarkdown, journalKey } from "@orden/host-api";
 import { fakeVault } from "./fakeVault";
 import {
   resolveProject,

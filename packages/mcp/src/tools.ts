@@ -4,9 +4,9 @@
 // raw access to any namespace.
 
 import type { Host, VaultStore, PublishResult } from "@orden/host-api";
-// Deep import the DOM-free ./page subpath, not the barrel: the barrel re-exports
-// kanbanView (DOM-typed), which non-DOM consumers like apps/host can't compile.
-import { journalKey } from "@orden/outliner/page";
+// journalKey flows through the host-api spine (which re-exports the DOM-free
+// outliner helper), so mcp doesn't depend on @orden/outliner directly.
+import { journalKey } from "@orden/host-api";
 import { findCard, cardSessionIds, type CardRec, type SessionRec } from "./sessionLink";
 import { putLearning, getLearning, type Learning, type LearningType } from "./learnings";
 
@@ -151,7 +151,7 @@ const cardLogKey = (id: string): string => `card:${id}`;
 // The zone auto-log entries are dated in: the user's timeZone override (vault
 // settings/app), else the host process's own zone. Mirrors the web's
 // effectiveTimeZone so a host-side auto-log and a web edit file under the same
-// local day. The shared journalKey (from @orden/outliner) does the formatting.
+// local day. The shared journalKey (re-exported by @orden/host-api) does the formatting.
 async function journalZone(vault: VaultStore): Promise<string | undefined> {
   const s = await vault.get<{ timeZone?: unknown }>("settings", "app");
   if (typeof s?.timeZone === "string" && s.timeZone !== "") return s.timeZone;
@@ -181,7 +181,7 @@ async function appendToPage(vault: VaultStore, key: string, line: string): Promi
 }
 
 // The outliner nests bullets by indentation (2 spaces per level; see
-// @orden/outliner markdown.ts). Auto-written entries are filed as children of a
+// @orden/outliner's markdown.ts). Auto-written entries are filed as children of a
 // single top-level "Automatic Logging" bullet so they read plainly as a machine
 // log, separate from anything the user writes at the top level of the page.
 const AUTO_SECTION = "Automatic Logging";

@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@orden/chat-core": "workspace:*",
+    "@orden/outliner": "workspace:*",
     "@orden/workflows": "workspace:*"
   },
   "scripts": {

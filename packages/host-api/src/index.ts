@@ -27,6 +27,14 @@ export {
   type LifecycleConfig,
 } from "@orden/workflows";
 
+// Re-export the DOM-free outliner helpers downstream packages need (e.g. @orden/mcp),
+// so they depend on the host-api spine rather than reaching back into the generic
+// @orden/outliner package directly. Imported via the ./page and ./markdown subpaths
+// (not the barrel) to stay DOM-free — the barrel re-exports DOM-typed kanbanView,
+// which non-DOM consumers like apps/host can't compile.
+export { journalKey } from "@orden/outliner/page";
+export { fromMarkdown, toMarkdown } from "@orden/outliner/markdown";
+
 import type { ChatBackend, QuestionResponse } from "@orden/chat-core";
 
 export interface HostCapabilities {

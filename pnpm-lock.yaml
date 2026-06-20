@@ -209,6 +209,9 @@ importers:
       '@orden/chat-core':
         specifier: workspace:*
         version: link:../chat-core
+      '@orden/outliner':
+        specifier: workspace:*
+        version: link:../outliner
       '@orden/workflows':
         specifier: workspace:*
         version: link:../workflows
@@ -228,9 +231,6 @@ importers:
       '@orden/host-api':
         specifier: workspace:*
         version: link:../host-api
-      '@orden/outliner':
-        specifier: workspace:*
-        version: link:../outliner
       zod:
         specifier: ^4.4.2
         version: 4.4.2
