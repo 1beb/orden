@@ -316,3 +316,23 @@ export async function removeSessionWorktree(
   await exec(repo, ["worktree", "prune"]);
   return r.code === 0;
 }
+
+/**
+ * Has a session's branch been merged into the main checkout's HEAD? Used by the
+ * reaper to detect a LOCAL merge (the user ran `git merge orden/<slug>` in the
+ * main checkout without pushing or going through the coordinator). Must run
+ * against the project's main checkout — worktrees are project-dependent, so
+ * HEAD there reflects the user's merge target, not the session's isolated state.
+ *
+ * `git merge-base --is-ancestor <branch> HEAD` exits 0 when branch is an
+ * ancestor of HEAD (merged), 1 when not, other = error. Conservative on error:
+ * returns false (never reap on a failed probe).
+ */
+export async function isBranchMerged(
+  repo: string,
+  branch: string,
+  exec: GitExec = defaultGitExec,
+): Promise<boolean> {
+  const r = await exec(repo, ["merge-base", "--is-ancestor", branch, "HEAD"]);
+  return r.code === 0;
+}

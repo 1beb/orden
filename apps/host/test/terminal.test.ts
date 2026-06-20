@@ -446,6 +446,64 @@ describe("resolveSessionCwd worktree isolation", () => {
     const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: gitExec([]) });
     expect(cwd).toBe(dir);
   });
+
+  // Fix B: when isolation is ON but worktree creation fails, stamp a
+  // sharedFallback marker so the publish gate can detect "ran in main."
+  test("stamps sharedFallback when isolation ON but worktree creation fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const vaultRoot = join(dir, "vault");
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot },
+    );
+    // worktree add fails (code 128) — a genuine error, not a lock retry.
+    const failExec = (cwd: string, args: string[]) => {
+      if (args.includes("--is-inside-work-tree")) return Promise.resolve({ stdout: "true\n", code: 0 });
+      if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+      if (args[0] === "rev-parse") return Promise.resolve({ stdout: "", code: 1 });
+      if (args[0] === "worktree") return Promise.resolve({ stdout: "", stderr: "fatal: bad ref", code: 128 });
+      return Promise.resolve({ stdout: "", code: 1 });
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: failExec });
+      expect(cwd).toBe(dir); // fell back to the shared checkout
+      const persisted = host.written["sessions/s1"] as { sharedFallback?: boolean };
+      expect(persisted).toBeDefined();
+      expect(persisted.sharedFallback).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("clears sharedFallback when a retry successfully creates the worktree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const vaultRoot = join(dir, "vault");
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot },
+    );
+    // Record carries a stale sharedFallback from a prior failed attempt.
+    const rec = recFor("p1", { sharedFallback: true });
+    const cwd = await resolveSessionCwd(host, rec, "s1", DEFAULT, { launch: true, exec: gitExec([]) });
+    const expected = join(vaultRoot, "..", "worktrees", "p1", "s1");
+    expect(cwd).toBe(expected);
+    const persisted = host.written["sessions/s1"] as { sharedFallback?: boolean; workdir?: string };
+    expect(persisted).toBeDefined();
+    expect(persisted.sharedFallback).toBeUndefined(); // marker cleared
+    expect(persisted.workdir).toBe(expected);
+  });
+
+  test("does NOT stamp sharedFallback when isolation is OFF (plain shared checkout)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orden-iso-"));
+    const host = hostWithProjects(
+      { p1: { id: "p1", name: "Repo", source: { kind: "local", path: dir } } },
+      { vaultRoot: join(dir, "vault"), settings: { worktreeIsolation: false } },
+    );
+    const cwd = await resolveSessionCwd(host, recFor("p1"), "s1", DEFAULT, { launch: true, exec: gitExec([]) });
+    expect(cwd).toBe(dir);
+    expect(host.written["sessions/s1"]).toBeUndefined(); // no write at all
+  });
 });
 
 describe("resolveAgentBin", () => {

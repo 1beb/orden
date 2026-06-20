@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PublishResult } from "@orden/host-api";
-import { defaultGitExec, type GitExec } from "./worktrees";
+import { defaultGitExec, defaultBaseRef, type GitExec } from "./worktrees";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,6 +62,13 @@ export interface PublishInput {
   prForge: string;
   /** Verify the tree is clean and report the branch WITHOUT pushing or opening a PR. */
   checkOnly?: boolean;
+  /**
+   * The worktreeBaseRef setting ("" = resolve the repo's default). Used in
+   * checkOnly mode to verify the branch has commits beyond the base ref — an
+   * empty branch (0 commits beyond base) means the worktree never held the
+   * session's real work, which is the clean-check tautology this guards against.
+   */
+  baseRefSetting?: string;
 }
 
 export async function publishWorktree(
@@ -80,7 +87,19 @@ export async function publishWorktree(
   // checkOnly: the merge coordinator owns the actual push/PR (ordered, combined),
   // so completion only VERIFIES the tree is clean and reports the branch. No
   // per-session push happens; the branch is integrated later by the coordinator.
-  if (input.checkOnly) return { state: "clean", branch };
+  if (input.checkOnly) {
+    // Guard against the clean-check tautology: the worktree is clean BECAUSE
+    // the work landed in the shared checkout, not because it's committed. If
+    // the branch has zero commits beyond its base ref, the agent never
+    // committed anything to THIS worktree — stamp ran-in-shared so completion
+    // can refuse (the work, if any, is elsewhere).
+    const base = input.baseRefSetting || (await defaultBaseRef(workdir, exec));
+    const rev = await exec(workdir, ["rev-list", "--count", `${base}..HEAD`]);
+    if (rev.code === 0 && Number.parseInt(rev.stdout.trim(), 10) === 0) {
+      return { state: "ran-in-shared", branch };
+    }
+    return { state: "clean", branch };
+  }
 
   const remote = await exec(workdir, ["remote", "get-url", "origin"]);
   if (remote.code !== 0 || !remote.stdout.trim()) return { state: "no-remote", branch };
