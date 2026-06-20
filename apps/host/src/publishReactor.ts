@@ -17,6 +17,7 @@ const PUBLISH_RANK: Record<PublishResult["state"], number> = {
   "push-failed": 3,
   "no-remote": 2,
   dirty: 1,
+  "ran-in-shared": 1, // session ran in the shared checkout — surfaced as a warning stamp
   "no-worktree": 0,
 };
 

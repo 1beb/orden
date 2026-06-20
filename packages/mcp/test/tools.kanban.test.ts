@@ -286,6 +286,27 @@ describe("cardComplete", () => {
     expect(card?.branch).toBe("orden/fix-login");
   });
 
+  // Fix C: ran-in-shared refuses completion like dirty — the worktree is clean
+  // BECAUSE the work landed in main, not because it's committed.
+  it("refuses to complete when publish detects ran-in-shared (no force)", async () => {
+    const v = seed();
+    const { publish } = publishOf({ s1: { state: "ran-in-shared", branch: "orden/fix-login" } });
+    const t = out(await cardComplete(v, "c1", "done", { publish }));
+    expect(t).toContain("shared checkout");
+    expect(t).toContain("orden/fix-login");
+    expect((await v.get<Record<string, unknown>>("cards", "c1"))?.state).toBe("in-progress");
+  });
+
+  it("force completes past ran-in-shared, stamping the publish state", async () => {
+    const v = seed();
+    const { publish } = publishOf({ s1: { state: "ran-in-shared", branch: "orden/fix-login" } });
+    const t = out(await cardComplete(v, "c1", "done", { publish, force: true }));
+    expect(t).toContain("-> complete");
+    const card = await v.get<Record<string, unknown>>("cards", "c1");
+    expect(card?.state).toBe("complete");
+    expect(card?.publishState).toBe("ran-in-shared");
+  });
+
   it("stamps branch + PR url on the card when publish opens a PR", async () => {
     const v = seed();
     const { publish, calls } = publishOf({

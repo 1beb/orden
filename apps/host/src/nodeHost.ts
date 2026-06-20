@@ -45,7 +45,8 @@ import { deliverLearningComment } from "./deliverLearningComment";
 import { queueToSession, defaultPaneOps } from "./annotationDelivery";
 import type { RenderResult, PublishResult } from "@orden/host-api";
 import { publishWorktree } from "./publishSession";
-import { readWorktreeSettings } from "./worktrees";
+import { readWorktreeSettings, defaultBaseRef } from "./worktrees";
+import { claudeTranscriptExists } from "./transcriptTitle";
 import { hasDirectoryPicker } from "./pickDirectory";
 import { NodeSessions } from "./nodeSessions";
 import { makeClaudeAdapter } from "./chat/adapters/claude";
@@ -325,12 +326,56 @@ export class NodeHost implements Host {
    * ordered push/merge of the combined integration (checkOnly), so completion
    * only gates on a clean tree. "no-worktree" for sessions that never got an
    * isolated worktree — there is nothing to integrate for them.
+   *
+   * ran-in-shared guard: before the clean-check, detect that the agent actually
+   * ran in the shared checkout instead of its worktree. Two signals, layered:
+   *   1. sharedFallback marker — stamped by resolveSessionCwd when isolation was
+   *      ON but worktree creation failed (Fix B). The direct signal.
+   *   2. Transcript-location mismatch (claude only) — claude keys transcripts by
+   *      cwd; if the transcript for this conversationId lives under the PROJECT
+   *      path's encoded cwd but NOT under the worktree's, the agent ran in main.
+   *      Belt-and-suspenders that catches it even without the marker (e.g. a
+   *      session from before the marker existed, or a pinning bug that bypassed
+   *      the launch path). Project-dependent: resolves the main checkout path
+   *      from the session's projectId.
    */
   async publish(sessionId: string, meta: { title: string; summary?: string }): Promise<PublishResult> {
-    const rec = await this.vault.get<{ workdir?: string; branch?: string }>("sessions", sessionId);
+    const rec = await this.vault.get<{
+      workdir?: string;
+      branch?: string;
+      sharedFallback?: boolean;
+      agent?: "claude" | "opencode";
+      conversationId?: string;
+      projectId?: string;
+    }>("sessions", sessionId);
     if (!rec || typeof rec.workdir !== "string" || !rec.workdir || typeof rec.branch !== "string" || !rec.branch) {
       return { state: "no-worktree" };
     }
+
+    // Signal 1: the sharedFallback marker (Fix B). Direct — resolveSessionCwd
+    // stamped it when isolation was ON but creation failed.
+    if (rec.sharedFallback) {
+      return { state: "ran-in-shared", branch: rec.branch };
+    }
+
+    // Signal 2: transcript-location mismatch (claude). The agent's transcript
+    // should live under the worktree's encoded cwd; if it's under the PROJECT
+    // path instead, the agent ran in main. Resolving the project from the
+    // session's projectId keeps this correct per-project (each project has its
+    // own main checkout path).
+    if (rec.agent === "claude" && rec.conversationId && rec.projectId) {
+      const project = await this.vault.get<Project>("projects", rec.projectId);
+      if (project && project.source.kind === "local") {
+        const inWorktree = claudeTranscriptExists(rec.workdir, rec.conversationId);
+        if (!inWorktree) {
+          const inMain = claudeTranscriptExists(project.source.path, rec.conversationId);
+          if (inMain) {
+            return { state: "ran-in-shared", branch: rec.branch };
+          }
+        }
+      }
+    }
+
     const settings = await readWorktreeSettings(this.vault);
     return publishWorktree({
       workdir: rec.workdir,
@@ -339,6 +384,7 @@ export class NodeHost implements Host {
       summary: meta.summary,
       prForge: settings.prForge,
       checkOnly: true,
+      baseRefSetting: settings.baseRef,
     });
   }
 

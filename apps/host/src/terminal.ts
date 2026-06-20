@@ -313,6 +313,15 @@ export interface SessionCwdRec {
   /** Pinned to a host-managed worktree (e.g. the merge integration worktree):
    *  run THERE, never in a session worktree of its own. */
   fixedWorkdir?: boolean;
+  /**
+   * HOST_OWNED. Set when isolation was ON but the worktree couldn't be created
+   * (transient git lock, bad baseRef, etc.), so the session fell back to the
+   * SHARED checkout. The publish gate reads this to refuse stamping "clean" on
+   * a worktree that never held the session's real work — the silent fallback
+   * that made the tmux-cwd-pinning defect chain possible. Cleared on a retry
+   * that successfully creates the worktree.
+   */
+  sharedFallback?: boolean;
 }
 
 export async function resolveSessionCwd(
@@ -371,14 +380,37 @@ export async function resolveSessionCwd(
     },
     opts?.exec,
   );
-  if (!wt) return path; // non-git dir or creation failed: shared checkout
+  if (!wt) {
+    // Isolation was ON but the worktree couldn't be created — the agent will
+    // run in the shared checkout. Stamp a sharedFallback marker so the publish
+    // gate (Host.publish) refuses to stamp "clean" on a worktree that never
+    // held the session's real work. Without this, a failed first launch is
+    // indistinguishable from a clean one — the trigger condition that made the
+    // tmux-cwd-pinning defect chain possible.
+    if (!rec.sharedFallback) {
+      rec.sharedFallback = true;
+      await host.vault.set("sessions", sessionId, rec);
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+      `orden: isolation ON but worktree creation failed for session ${sessionId}; ` +
+        `running in the SHARED checkout ${path}`,
+    );
+    return path;
+  }
   // A reaped worktree recreated at the SAME path comes back on a NEW branch
   // (the old one usually still exists, so pickBranch suffixed it) — the
   // unchanged path must not skip the persist, or the record keeps naming the
   // old (often already-merged) branch and publish pushes the wrong one.
-  if (rec.workdir !== wt.workdir || (wt.branch && rec.branch !== wt.branch)) {
+  // Also clear a stale sharedFallback marker when a retry succeeds.
+  if (
+    rec.workdir !== wt.workdir ||
+    (wt.branch && rec.branch !== wt.branch) ||
+    rec.sharedFallback
+  ) {
     rec.workdir = wt.workdir;
     if (wt.branch) rec.branch = wt.branch;
+    delete rec.sharedFallback;
     await host.vault.set("sessions", sessionId, rec);
   }
   // Pre-seed claude's workspace trust for the worktree (inheriting the repo's

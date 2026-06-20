@@ -22,6 +22,11 @@ function makeHost(vaultRoot?: string) {
         if (ns === "projects") return (projects.get(key) as T) ?? null;
         return null;
       },
+      async set(ns: string, key: string, value: unknown): Promise<void> {
+        if (ns === "cards") cards.set(key, value);
+        else if (ns === "sessions") sessions.set(key, value);
+        else if (ns === "projects") projects.set(key, value);
+      },
     },
     sessions: {
       async kill(id: string): Promise<void> {
@@ -103,6 +108,10 @@ describe("reapCompletedCard worktree cleanup", () => {
     const gitCalls: string[][] = [];
     const exec = (cwd: string, args: string[]) => {
       gitCalls.push([cwd, ...args]);
+      // merge-base --is-ancestor exits 0 = merged, 1 = not merged. Default: not
+      // merged, so tests that don't override stay "keep the worktree" unless they
+      // script a local-merge scenario.
+      if (args[0] === "merge-base") return Promise.resolve({ stdout: "", code: 1 });
       return Promise.resolve({ stdout: "", code: 0 });
     };
     return { host, killed, gitCalls, exec, repo, workdir };
@@ -128,11 +137,13 @@ describe("reapCompletedCard worktree cleanup", () => {
     ]);
   });
 
-  test("keeps the worktree when the branch is not pushed", async () => {
+  test("keeps the worktree when the branch is not pushed (and not locally merged, not stale)", async () => {
     for (const state of [undefined, "dirty", "no-remote", "push-failed"]) {
       const { host, gitCalls, exec } = setup(state);
       await reapCompletedCard(host, "c1", new Set(), { exec });
-      expect(gitCalls).toEqual([]);
+      // The reaper probes merge-base to check for a local merge, but must NOT
+      // remove the worktree (unpushed, unmerged, fresh).
+      expect(gitCalls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(false);
     }
   });
 
@@ -152,5 +163,69 @@ describe("reapCompletedCard worktree cleanup", () => {
     ses.workdir = workdir + "-gone";
     await reapCompletedCard(host, "c1", new Set(), { exec });
     expect(gitCalls).toEqual([]);
+  });
+
+  // Fix D: local-merge reap. The user merged the branch into the main checkout
+  // manually (without pushing or using the coordinator), so neither publishState
+  // nor mergeStatus reflects it. The ancestor check catches this.
+  test("reaps when the branch is locally merged (ancestor of main checkout HEAD)", async () => {
+    const { host, gitCalls, exec, repo, workdir } = setup(undefined);
+    // merge-base --is-ancestor returns 0 = branch IS an ancestor of HEAD (merged)
+    const mergeExec = (cwd: string, args: string[]) => {
+      gitCalls.push([cwd, ...args]);
+      if (args[0] === "merge-base") return Promise.resolve({ stdout: "", code: 0 });
+      return Promise.resolve({ stdout: "", code: 0 });
+    };
+    await reapCompletedCard(host, "c1", new Set(), { exec: mergeExec });
+    expect(gitCalls).toContainEqual([repo, "merge-base", "--is-ancestor", "orden/x", "HEAD"]);
+    expect(gitCalls).toEqual([
+      [repo, "merge-base", "--is-ancestor", "orden/x", "HEAD"],
+      [repo, "worktree", "remove", workdir],
+      [repo, "worktree", "prune"],
+    ]);
+  });
+
+  test("keeps an unpushed, unmerged, fresh worktree (no local merge, not stale)", async () => {
+    // The default setup exec returns code 1 for merge-base (not merged).
+    // No completedAt → not stale.
+    const { host, gitCalls, exec } = setup(undefined);
+    await reapCompletedCard(host, "c1", new Set(), { exec });
+    expect(gitCalls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(false);
+    expect(gitCalls.some((c) => c[1] === "merge-base")).toBe(true); // probed but not merged
+  });
+
+  test("reaps a stale unpushed worktree (completed > 14 days ago)", async () => {
+    const { host, gitCalls, exec, repo, workdir } = setup(undefined);
+    // Stamp a completion time 15 days ago.
+    const card = (await host.vault.get<Record<string, unknown>>("cards", "c1"))!;
+    card.completedAt = Date.now() - 15 * 24 * 60 * 60 * 1000;
+    await host.vault.set("cards", "c1", card);
+    await reapCompletedCard(host, "c1", new Set(), { exec });
+    // merge-base probe ran (returned not-merged), but staleness reaped it anyway.
+    expect(gitCalls.some((c) => c[1] === "merge-base")).toBe(true);
+    expect(gitCalls).toContainEqual([repo, "worktree", "remove", workdir]);
+  });
+
+  test("does NOT reap a recently-completed unpushed worktree (within staleness window)", async () => {
+    const { host, gitCalls, exec } = setup(undefined);
+    const card = (await host.vault.get<Record<string, unknown>>("cards", "c1"))!;
+    card.completedAt = Date.now() - 3 * 24 * 60 * 60 * 1000; // 3 days ago
+    await host.vault.set("cards", "c1", card);
+    await reapCompletedCard(host, "c1", new Set(), { exec });
+    expect(gitCalls.some((c) => c[1] === "worktree" && c[2] === "remove")).toBe(false);
+  });
+
+  test("local-merge check runs against the project's main checkout, not the worktree", async () => {
+    const { host, gitCalls, repo } = setup(undefined);
+    const mergeExec = (cwd: string, args: string[]) => {
+      gitCalls.push([cwd, ...args]);
+      if (args[0] === "merge-base") return Promise.resolve({ stdout: "", code: 0 });
+      return Promise.resolve({ stdout: "", code: 0 });
+    };
+    await reapCompletedCard(host, "c1", new Set(), { exec: mergeExec });
+    // The merge-base call must target the project repo path, not the worktree.
+    const mb = gitCalls.find((c) => c[1] === "merge-base");
+    expect(mb).toBeDefined();
+    expect(mb![0]).toBe(repo);
   });
 });

@@ -309,6 +309,9 @@ function integrationRow(item: Item): HTMLElement | null {
     case "dirty":
       wrap.append("not published — uncommitted work in the session worktree");
       break;
+    case "ran-in-shared":
+      wrap.append("not published — session ran in the shared checkout, not its worktree");
+      break;
     case "no-remote":
       wrap.append("local branch only (no remote to push to)");
       break;

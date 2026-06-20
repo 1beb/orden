@@ -377,6 +377,7 @@ const PUBLISH_RANK: Record<PublishResult["state"], number> = {
   "push-failed": 3,
   "no-remote": 2,
   dirty: 1,
+  "ran-in-shared": 1, // session ran in the shared checkout — refuses completion like dirty
   "no-worktree": 0,
 };
 
@@ -414,6 +415,16 @@ export async function cardComplete(
         `cannot complete: session worktree has uncommitted changes on branch ${dirty.branch ?? "(unknown)"}.\n` +
           `Commit your work (git add <files> && git commit) in the worktree, then call card_complete again.\n` +
           `Pass force:true ONLY if the user explicitly said to complete without publishing.`,
+      );
+    }
+    const ranInShared = real.find((r) => r.state === "ran-in-shared");
+    if (ranInShared && !opts.force) {
+      return text(
+        `cannot complete: session appears to have run in the shared checkout, not its worktree ` +
+          `(branch ${ranInShared.branch ?? "(unknown)"}).\n` +
+          `The worktree is clean because the work landed in main, not because it's committed. ` +
+          `Investigate where the session actually ran before completing.\n` +
+          `Pass force:true ONLY if the user explicitly said to complete anyway.`,
       );
     }
     best = real.sort((a, b) => PUBLISH_RANK[b.state] - PUBLISH_RANK[a.state])[0];

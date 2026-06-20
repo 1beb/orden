@@ -320,6 +320,10 @@ export interface RenderResult {
  * - "no-worktree": the session has no isolated worktree; nothing to publish.
  * - "dirty": uncommitted changes in the worktree; completion should be refused
  *   until the agent commits (or the user explicitly forces).
+ * - "ran-in-shared": the session ran in the shared checkout, not its worktree
+ *   (the sharedFallback marker or a transcript-location mismatch detected it).
+ *   The worktree is clean BECAUSE the work landed in main, not because it's
+ *   committed — completion should be refused so the defect chain can't hide.
  * - "no-remote": committed but the repo has no origin; the local branch stays.
  * - "pushed": branch pushed; compareUrl set when the forge is recognized.
  * - "pr-opened": branch pushed and a PR created (prUrl).
@@ -328,7 +332,15 @@ export interface RenderResult {
  *   coordinator owns the ordered push/merge (checkOnly mode).
  */
 export interface PublishResult {
-  state: "no-worktree" | "dirty" | "no-remote" | "pushed" | "pr-opened" | "push-failed" | "clean";
+  state:
+    | "no-worktree"
+    | "dirty"
+    | "ran-in-shared"
+    | "no-remote"
+    | "pushed"
+    | "pr-opened"
+    | "push-failed"
+    | "clean";
   branch?: string;
   prUrl?: string;
   compareUrl?: string;

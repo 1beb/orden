@@ -143,4 +143,65 @@ describe("publishWorktree", () => {
     expect(r.compareUrl).toBeUndefined();
     expect(forgeCalls.length).toBe(0);
   });
+
+  // Fix C: commit-beyond-base check. In checkOnly mode, a clean tree on a
+  // branch with ZERO commits beyond the base ref means the worktree never held
+  // the session's real work — the clean-check tautology. Stamp ran-in-shared
+  // so completion can refuse.
+  describe("checkOnly commit-beyond-base guard (Fix C)", () => {
+    const checkInput = (over: Partial<Parameters<typeof publishWorktree>[0]> = {}) => ({
+      ...input({ prForge: "none" }),
+      checkOnly: true,
+      baseRefSetting: "origin/main",
+      ...over,
+    });
+
+    it("stamps ran-in-shared when the branch has 0 commits beyond the base", async () => {
+      // rev-list --count origin/main..HEAD returns 0 → no work on this branch.
+      const exec: GitExec = (_cwd, args) => {
+        if (args[0] === "status") return Promise.resolve({ stdout: "", code: 0 });
+        if (args[0] === "rev-list") return Promise.resolve({ stdout: "0\n", code: 0 });
+        return Promise.resolve({ stdout: "", code: 1 });
+      };
+      const r = await publishWorktree(checkInput(), exec);
+      expect(r.state).toBe("ran-in-shared");
+      expect(r.branch).toBe("orden/fix-it");
+    });
+
+    it("stamps clean when the branch has commits beyond the base", async () => {
+      const exec: GitExec = (_cwd, args) => {
+        if (args[0] === "status") return Promise.resolve({ stdout: "", code: 0 });
+        if (args[0] === "rev-list") return Promise.resolve({ stdout: "3\n", code: 0 });
+        return Promise.resolve({ stdout: "", code: 1 });
+      };
+      const r = await publishWorktree(checkInput(), exec);
+      expect(r.state).toBe("clean");
+    });
+
+    it("stamps clean when the rev-list probe fails (conservative: don't false-positive)", async () => {
+      const exec: GitExec = (_cwd, args) => {
+        if (args[0] === "status") return Promise.resolve({ stdout: "", code: 0 });
+        if (args[0] === "rev-list") return Promise.resolve({ stdout: "", code: 128 }); // bad ref
+        return Promise.resolve({ stdout: "", code: 1 });
+      };
+      const r = await publishWorktree(checkInput(), exec);
+      expect(r.state).toBe("clean");
+    });
+
+    it("resolves the default base ref when baseRefSetting is empty", async () => {
+      const calls: string[][] = [];
+      const exec: GitExec = (cwd, args) => {
+        calls.push([cwd, ...args]);
+        if (args[0] === "status") return Promise.resolve({ stdout: "", code: 0 });
+        if (args[0] === "symbolic-ref") return Promise.resolve({ stdout: "origin/main\n", code: 0 });
+        if (args[0] === "rev-list") return Promise.resolve({ stdout: "0\n", code: 0 });
+        return Promise.resolve({ stdout: "", code: 1 });
+      };
+      const r = await publishWorktree(checkInput({ baseRefSetting: "" }), exec);
+      expect(r.state).toBe("ran-in-shared");
+      // defaultBaseRef was resolved via symbolic-ref before rev-list was called.
+      expect(calls.some((c) => c[1] === "symbolic-ref")).toBe(true);
+      expect(calls.some((c) => c[1] === "rev-list")).toBe(true);
+    });
+  });
 });
