@@ -1,8 +1,16 @@
 # @orden/outliner
 
-A framework-agnostic model layer for Orden's Logseq-style daily-journal outliner
-and its Kanban board. Pure TypeScript, no runtime dependencies, TDD'd with
-Vitest. Independent of `@orden/annotation-core` (does not import or depend on it).
+A framework-agnostic model layer for Orden's Logseq-style daily-journal outliner,
+plus generic Kanban board primitives. Pure TypeScript, no runtime dependencies,
+TDD'd with Vitest. Independent of `@orden/annotation-core` (does not import or
+depend on it).
+
+The board primitives here carry **no orden policy**: which lanes exist, their
+order, their labels, and which count as "needs action" are all received as
+parameters. Orden's actual lifecycle (the `planning → in-progress → blocked →
+complete` lanes, the manual `on-hold` lane, completed-card TTL, needs-action set)
+lives in `@orden/workflows` and `@orden/host-api`, not here. See
+`docs/plans/2026-06-19-on-hold-and-lifecycle-config.md`.
 
 ## What's here
 
@@ -44,18 +52,23 @@ makes a named non-journal page (e.g. a project page).
 - `buildBacklinkIndex(pages)` — walks every block of every page and returns
   `target -> BacklinkRef[]` (page name, block id, block text for preview).
 
-### Kanban model + view (`src/kanban.ts`, `src/kanbanView.ts`)
+### Generic board primitives (`src/kanban.ts`, `src/kanbanView.ts`)
 
-Cards carry a `CardState`: the design-doc lifecycle
-`backlog → todo → in-progress → blocked → ready → complete`, plus `broken` (an
-error state for a crashed process, pinned last).
+A `Card<T>` / `Column<T>` is generic over the lane key `T` (`{ id, title, state:
+T }`). The package has no opinion about which lanes exist — the caller supplies
+the lane set, order, labels, and action lanes. Orden passes its `Lane` set (from
+`@orden/host-api`); a generic consumer passes any string keys.
 
-- `buildBoard(cards)` — groups into one `Column` per state in `LIFECYCLE_ORDER`.
-- `needsActionCount(cards)` / `isNeedsAction(state)` — the left-nav badge count;
-  needs-action = `blocked`, `ready`, `broken`.
-- `renderBoard(host, cards, doc?)` — vanilla-DOM board: columns in order, a
-  per-column count, a board-level needs-action badge, and a `--action` modifier
-  class on actionable columns. `doc` is injectable for testing/SSR.
+- `buildBoard<T>(cards, states)` — groups cards into one `Column` per lane, in the
+  order the caller passes in `states`. A card whose `state` isn't in `states` is
+  dropped.
+- `renderBoard<T>(host, cards, opts)` — vanilla-DOM board (framework-agnostic).
+  `RenderBoardOptions<T>` carries all policy: `states` (lane keys in display
+  order), `labels` (display text per lane), optional `actionStates` (lanes that
+  get the `orden-column--action` modifier and feed the board-level "needs action"
+  badge; default none), optional `title` (default `"Board"`), and optional `doc`
+  (injectable `Document` for testing/SSR; defaults to ambient `document`). Columns
+  render in order, each with a per-column count badge.
 
 ## Run it
 
@@ -68,28 +81,32 @@ npm run demo     # vite dev server for the standalone demo in ./demo
 
 The demo (`demo/`) parses a journal markdown sample, applies an outline
 operation, renders it back to markdown, shows backlinks for one target, and
-renders a Kanban board with mock cards plus the nav badge. It imports the package
-source directly and is self-contained (not part of `apps/web`).
+renders a board with mock cards — the demo defines its own lane set, labels, and
+action lanes to pass into `renderBoard`, illustrating that the package bakes in
+none of them. It imports the package source directly and is self-contained (not
+part of `apps/web`).
 
-## Tested (57 tests)
+## Tested (58 tests)
 
 - `blockTree.test.ts` (21): create, indent/outdent edge cases, move, split,
   merge, collapse, find.
 - `markdown.test.ts` (10): rendering, parsing (spaces/tabs, `*`, blanks),
   collapsed marker, full round-trip.
-- `links.test.ts` (12): link extraction (dedupe, trim, empty), backlink index
-  (nested, multi-page), journal keys.
-- `kanban.test.ts` (7): lifecycle order, grouping, badge counting.
-- `kanbanView.test.ts` (6): DOM structure, counts, badge, modifier class,
-  re-render — runs under happy-dom.
-- `smoke.test.ts` (1): barrel exports.
+- `links.test.ts` (13): link extraction (dedupe, trim, empty), backlink index
+  (nested, multi-page), journal keys (local-calendar-day filing).
+- `kanban.test.ts` (4): `buildBoard` over a caller-supplied lane set — column
+  order, grouping, within-column order, dropping unlisted lanes.
+- `kanbanView.test.ts` (8): DOM structure, supplied labels, per-column counts,
+  cards as list items, the `actionStates`-derived needs-action badge, the
+  action-column modifier class, re-render — runs under happy-dom.
+- `smoke.test.ts` (2): barrel exports.
 
 ## What's stubbed / simplified
 
 - Backlink index is rebuilt from scratch each call — no incremental update.
 - IDs are in-memory (timestamp + counter); a persisted scheme is needed once
   blocks are written to disk.
-- The Kanban view is read-only: no drag-and-drop, no state-transition wiring.
+- The board view is read-only: no drag-and-drop, no state-transition wiring.
 - `Card`s here are mock/standalone; in the real app they are projections of a
   Session and would be derived from session state.
 - No editor: this is the model layer. The WYSIWYG surface is ProseMirror in
@@ -110,8 +127,10 @@ source directly and is self-contained (not part of `apps/web`).
    annotation anchor (annotation-core uses marks).
 3. Backlinks at scale: incremental index updates as blocks change, and resolving
    a `[[link]]` to a page vs. creating it on click.
-4. Kanban writes: drag-to-reorder and column moves must emit lifecycle
-   transitions (validated against the state machine) and route through MCP per the
-   design doc, not mutate cards directly.
+4. Board writes: drag-to-reorder and column moves emit lifecycle transitions, but
+   the transition rules and lane set are orden policy (`@orden/host-api` /
+   `@orden/workflows`), not this package — `renderBoard` only paints whatever lane
+   set it's handed. Wiring writes through MCP, validated against that state
+   machine, stays an `apps/web` + host concern.
 5. Persistence: where pages live on disk (one markdown file per page / per day),
    and how `collapsed::` and other properties serialize alongside real content.
