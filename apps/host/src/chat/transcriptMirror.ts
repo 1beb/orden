@@ -34,6 +34,15 @@ export class TranscriptMirror {
   private count = 0;
   // Prune orphaned vault keys once per process. See refresh().
   private pruned = false;
+  // Single-flight guard. A refresh holds a full parse of the (multi-MB)
+  // transcript in memory while it awaits per-message vault writes; the fs watcher
+  // fires again as the agent keeps appending, so without this guard the bodies
+  // run concurrently and N full parses pile up at once (observed in prod as
+  // multi-GB RSS with GC pegging several cores on a busy streaming session). At
+  // most one body runs; a trigger that arrives mid-run sets `dirty`, and the body
+  // re-runs exactly once afterward to pick up whatever was appended.
+  private running = false;
+  private dirty = false;
 
   constructor(
     private readonly vault: ChatVault,
@@ -71,6 +80,24 @@ export class TranscriptMirror {
   }
 
   private async refresh(): Promise<void> {
+    if (this.running) {
+      // A body is already running; mark that it must re-run once more rather than
+      // starting a second concurrent parse.
+      this.dirty = true;
+      return;
+    }
+    this.running = true;
+    try {
+      do {
+        this.dirty = false;
+        await this.refreshOnce();
+      } while (this.dirty);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async refreshOnce(): Promise<void> {
     let raw: string;
     try {
       raw = readFileSync(this.file, "utf8");

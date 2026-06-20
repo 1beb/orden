@@ -16,6 +16,23 @@ vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, homedir: () => process.env.HOME ?? actual.homedir() };
 });
+
+// Count whole-transcript reads so we can assert refresh() is single-flight: a
+// refresh holds a full parse of the (multi-MB) transcript in memory while it
+// awaits per-message vault writes, so overlapping bodies pile up N parses at
+// once (observed in prod as multi-GB RSS + GC pegging cores). Wrapping
+// readFileSync lets the test see how many bodies actually ran.
+const fsSpy = vi.hoisted(() => ({ reads: 0 }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+      fsSpy.reads++;
+      return actual.readFileSync(...args);
+    },
+  };
+});
 import { encodeCwd } from "../../src/transcriptTitle";
 import { TranscriptMirror } from "../../src/chat/transcriptMirror";
 
@@ -93,5 +110,28 @@ describe("TranscriptMirror prune", () => {
     expect(keys).toEqual(["msg:0000", "msg:0001", "msg:0002"]);
     const last = await vault.get<ChatMessage>(ns, "msg:0002");
     expect(last?.parts[0]).toMatchObject({ type: "text", text: "second prompt" });
+  });
+
+  it("single-flights refresh: overlapping calls don't re-parse concurrently", async () => {
+    // A vault whose writes are slow, so a refresh stays in-flight (holding its
+    // full parse) long enough for the fs watcher to fire again mid-run.
+    class SlowVault extends MemVault {
+      async set<T>(ns: string, key: string, value: T): Promise<void> {
+        await new Promise((r) => setTimeout(r, 15));
+        return super.set(ns, key, value);
+      }
+    }
+    const vault = new SlowVault();
+    const mirror = new TranscriptMirror(vault, SESSION, CWD, CONV);
+    const r = mirror as unknown as { refresh(): Promise<void> };
+
+    fsSpy.reads = 0;
+    // Five near-simultaneous triggers (what a streaming turn produces). With no
+    // single-flight guard all five bodies run, each re-reading + re-parsing the
+    // whole transcript and piling its parse up in memory. Single-flight collapses
+    // them to one active run plus at most one coalesced re-run.
+    await Promise.all([r.refresh(), r.refresh(), r.refresh(), r.refresh(), r.refresh()]);
+
+    expect(fsSpy.reads).toBeLessThanOrEqual(2);
   });
 });
