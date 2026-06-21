@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
-import { hydrateCards, listItems, setItemState, cardSessionIds, type Item } from "../src/cards";
-import { hydrateSessions, createSession } from "../src/sessions";
+import { hydrateCards, listItems, getItem, setItemState, cardSessionIds, type Item } from "../src/cards";
+import { hydrateSessions, createSession, getSession, onSessionsChange } from "../src/sessions";
 import { openCardModal } from "../src/cardModal";
 
 // Find the card a session was linked to (createSession drops a linked card).
@@ -45,6 +45,56 @@ describe("card modal — resume affordance", () => {
     expect(resume).toBeDefined();
     resume!.click();
     expect(opened).toEqual([s.id]);
+  });
+});
+
+describe("card modal — title rename propagation", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll(".card-modal-overlay").forEach((n) => n.remove());
+  });
+
+  function renameInModal(cardId: string, onChange: () => void): void {
+    openCardModal(cardId, { onStartSession: () => {}, onOpenSession: () => {}, onChange });
+    const input = document.querySelector<HTMLInputElement>(".card-modal__title")!;
+    input.value = "Renamed title";
+    input.dispatchEvent(new Event("change"));
+  }
+
+  it("updates the card title (board/list view stays in sync via onChange)", () => {
+    const s = createSession({ title: "Old title", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    let changed = 0;
+    renameInModal(card.id, () => {
+      changed++;
+    });
+    expect(getItem(card.id)?.title).toBe("Renamed title");
+    expect(changed).toBeGreaterThan(0); // board/list re-render fired
+  });
+
+  it("renames the card's linked session(s) so the sessions UI matches", () => {
+    const s = createSession({ title: "Old title", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    renameInModal(card.id, () => {});
+    expect(getSession(s.id)?.title).toBe("Renamed title");
+  });
+
+  it("notifies session listeners so the sessions panel re-renders live", () => {
+    const s = createSession({ title: "Old title", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    let panelRefreshes = 0;
+    const off = onSessionsChange(() => {
+      panelRefreshes++;
+    });
+    renameInModal(card.id, () => {});
+    off();
+    expect(panelRefreshes).toBeGreaterThan(0);
   });
 });
 

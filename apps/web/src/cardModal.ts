@@ -23,6 +23,7 @@ import {
   ensureSummary,
   setSessionSummary,
   setSessionProject,
+  setSessionTitle,
   type Agent,
 } from "./sessions";
 
@@ -76,6 +77,11 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
     const commitTitle = (): void => {
       if (h.value.trim() && h.value.trim() !== item.title) {
         setItemTitle(item.id, h.value);
+        // Keep the linked session(s) in sync so the sessions UI (right pane,
+        // active-session header) shows the new name too — mirrors the project
+        // reassignment handler below. setSessionTitle notifies the panel to
+        // re-render (a self-write doesn't echo through the change feed).
+        for (const s of sessionsForCard(item)) setSessionTitle(s.id, h.value);
         deps.onChange();
         render(); // refresh the modal's captured item (e.g. so delete-confirm is current)
       } else {
