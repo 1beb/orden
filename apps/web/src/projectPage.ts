@@ -19,9 +19,17 @@ import { renderIssueGroups } from "./issueList";
 import { buildFileTree, matchesSearch, type FileTreeNode } from "./fileTree";
 
 // The project page surfaces what needs attention first, so it uses its own
-// group order (blocked → in-progress → planning → complete) rather than the
-// board's lifecycle order.
-const STATES: SessionState[] = ["blocked", "in-progress", "planning", "complete"];
+// group order (blocked → in-progress → planning → on-hold → complete) rather
+// than the board's lifecycle order. on-hold (manually parked, "come back to
+// this") sits just above complete: deprioritized like done work, but still
+// shown so parked cards stay findable here, not only on the board.
+const STATES: SessionState[] = [
+  "blocked",
+  "in-progress",
+  "planning",
+  "on-hold",
+  "complete",
+];
 
 // The container the page is mounted in, captured each render so focus guards
 // can scope themselves to "is the user typing somewhere on this page".
