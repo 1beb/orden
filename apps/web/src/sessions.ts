@@ -228,6 +228,37 @@ export function setSessionProject(id: string, projectId: string): void {
   persist(session);
 }
 
+// Local re-render hook: a self-originated vault write does NOT echo back through
+// the host change feed (the "sessions" handler only fires for REMOTE writes), so
+// a session mutation made on THIS client must poke its dependent views itself.
+// main.ts registers the sessions-panel + project-page refresh here.
+type SessionsChangeListener = () => void;
+const sessionsChangeListeners = new Set<SessionsChangeListener>();
+export function onSessionsChange(cb: SessionsChangeListener): () => void {
+  sessionsChangeListeners.add(cb);
+  return () => void sessionsChangeListeners.delete(cb);
+}
+function notifySessionsChange(): void {
+  for (const cb of sessionsChangeListeners) cb();
+}
+
+/**
+ * Rename a session. Mirrors cards.setItemTitle so renaming a card propagates to
+ * its linked session(s) (the card-modal handler does the dual update — cards.ts
+ * must not import this module, to avoid a cycle). Empty/whitespace titles are
+ * ignored (a session keeps its name); notifies listeners so the sessions panel
+ * re-renders live despite the no-echo self-write.
+ */
+export function setSessionTitle(id: string, title: string): void {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  const session = cache.find((s) => s.id === id);
+  if (!session || session.title === trimmed) return;
+  session.title = trimmed;
+  persist(session);
+  notifySessionsChange();
+}
+
 export function createSession(opts: {
   title: string;
   agent: Agent;

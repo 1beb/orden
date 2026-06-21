@@ -58,6 +58,7 @@ import {
   archiveSession,
   deleteSession,
   setSessionProject,
+  onSessionsChange,
   isAbandoned,
   isSessionComplete,
   markSessionTouched,
@@ -2305,6 +2306,13 @@ const sessionsPanel = mountSessionsPanel({
     syncBottomNavSessions();
   },
   isMobile: () => mobile.matches,
+});
+
+// A local session mutation (e.g. renaming a card propagates to its session)
+// doesn't echo through the change feed, so refresh the dependent views directly.
+onSessionsChange(() => {
+  sessionsPanel.refresh();
+  refreshProject(); // the project page's active-sessions widget
 });
 
 // Wire [[Session: <id>]] wiki links from the journal to open sessions here.
