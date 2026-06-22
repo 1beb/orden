@@ -2487,6 +2487,11 @@ li.sess-done-head {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Without this, a flex item's min-width defaults to its content's min-content
+     width; a long unbreakable token in an annotation (an s3:// path, a code
+     run) would then push the panel past its 320px basis and squish the main
+     view. Pin it to the well width and let the content wrap/clip inside. */
+  min-width: 0;
 }
 
 #panel header {
@@ -2756,6 +2761,9 @@ li.sess-done-head {
 
 #annotation-list .note {
   font-size: calc(14px * var(--font-scale));
+  /* Notes can carry long unbreakable tokens (URLs, code, s3:// paths). Break
+     them so a note never widens the panel past its well. */
+  overflow-wrap: anywhere;
 }
 
 /* row header: status chip + hover action */

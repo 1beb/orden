@@ -64,4 +64,29 @@ describe("resolveSelectors", () => {
     expect(range).not.toBeNull();
     expect(range!.toString()).toBe("stats:dbExecute(con, x)");
   });
+
+  // A triple-clicked heading captures "Title\n" — the trailing newline has no
+  // counterpart in the <h2>'s textContent, nor anywhere if the render has no
+  // inter-block whitespace text node — so the raw quote orphans. The resolver
+  // must fall back to the trimmed quote and anchor on the real content.
+  it("resolves a quote with a trailing newline when no whitespace node follows", () => {
+    const root = rendered("<section><h2>Executive Summary</h2><p>Body text.</p></section>");
+    const sel: Selector = {
+      type: "text-quote",
+      exact: "Executive Summary\n",
+      prefix: "",
+      suffix: "",
+    };
+    const range = resolveSelectors(sel, root);
+    expect(range).not.toBeNull();
+    expect(range!.toString()).toBe("Executive Summary");
+  });
+
+  it("resolves a quote with leading/trailing whitespace", () => {
+    const root = rendered("<section><p>alpha beta gamma</p></section>");
+    const sel: Selector = { type: "text-quote", exact: "  beta \n", prefix: "", suffix: "" };
+    const range = resolveSelectors(sel, root);
+    expect(range).not.toBeNull();
+    expect(range!.toString()).toBe("beta");
+  });
 });
