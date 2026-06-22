@@ -6,16 +6,19 @@
 // doesn't need the opencode session id to be pre-registered — the first event
 // (session.created) carries the opencode id and the host persists it then.
 //
-// Event mapping:
-//   session.created / session.updated / tool.execute.after -> in-progress
-//   session.idle (ROOT session only)                      -> blocked
+// Event mapping (driven by opencode's authoritative session.status enum):
+//   session.status{busy|retry} / tool.execute.after / permission.replied -> in-progress
+//   session.status{idle} (ROOT session only) / permission.{asked,updated} -> blocked
+//   session.created (root, no parentID)                                   -> in-progress (+ carries the id)
 //
 // Subagent gating: opencode runs subagents as separate CHILD sessions (each
-// carries a parentID), and EACH session emits its own session.idle when it
-// finishes. Blocking on any idle would knock the card to blocked the moment a
-// subagent's turn ends, while the parent is still working. So we remember the
-// ROOT session (the first session.created with no parentID) and only treat ITS
-// idle as a real turn boundary — the opencode analogue of Claude's gated Stop.
+// carries a parentID), and EACH session emits its own idle when it finishes.
+// Blocking on any idle would knock the card to blocked the moment a subagent's
+// turn ends, while the parent is still working. So we remember the ROOT session
+// (seeded from ORDEN_OPENCODE_ROOT on resume, else the first session.created with
+// no parentID) and only treat ITS status{idle} as a real turn boundary — the
+// opencode analogue of Claude's gated Stop. retry (provider stall) stays
+// in-progress: it is waiting on tokens, not the user.
 //
 // The plugin also carries the destructive-git guardrail (tool.execute.before):
 // in a SHARED checkout (ORDEN_WORKTREE != 1) it throws on the git commands
@@ -37,7 +40,7 @@ export const OrdenKanban = async () => {
   const ORDEN_SID = process.env.ORDEN_SESSION_ID || ""
   const DESTRUCTIVE_GIT = ${destructiveGitArrayLiteral()}
 
-  let rootId = ""
+  let rootId = process.env.ORDEN_OPENCODE_ROOT || ""
 
   const post = async (path, extra) => {
     try {
@@ -54,28 +57,54 @@ export const OrdenKanban = async () => {
   return {
     event: async ({ event }) => {
       if (!event?.type) return
-      if (event.type === "session.created") {
-        // The root session (no parentID) drives the card. Only its id is the
-        // conversationId — child/subagent sessions must not overwrite it.
+      const t = event.type
+      if (t === "session.created") {
+        // The root session (no parentID) drives the card and IS the conversationId.
+        // Send its id so the host can persist the mapping. Child sessions are not
+        // posted here — mid-turn the root is already busy (so the card is
+        // in-progress), and a post-turn title/compaction child must not re-open it.
         const info = event.properties?.info
         if (info && !info.parentID) {
           rootId = info.id
           await post("session-state?state=in-progress", { session_id: info.id })
-        } else {
+        }
+        return
+      }
+      if (t === "session.status") {
+        // opencode's authoritative work state. busy and retry both mean "working"
+        // (retry = waiting to receive more tokens after a provider stall — NOT
+        // waiting on the user). Only a turn-ending idle blocks, and only for the
+        // ROOT session: every child/subagent (and title/compaction) session emits
+        // its own idle, which must not block the card. rootId is seeded from
+        // ORDEN_OPENCODE_ROOT on resume, else learned from the root's
+        // session.created above; before it is known we block (degrade safely).
+        const st = event.properties?.status?.type
+        if (st === "busy" || st === "retry") {
           await post("session-state?state=in-progress")
+        } else if (st === "idle") {
+          if (!rootId || event.properties?.sessionID === rootId) {
+            await post("session-state?state=blocked")
+          }
         }
+        return
       }
-      if (event.type === "session.idle") {
-        // A child/subagent going idle must NOT block the parent's card; only the
-        // root session's idle is a real turn boundary. Before we've seen the root
-        // (rootId unset), fall back to blocking so behavior degrades safely.
-        if (!rootId || event.properties?.sessionID === rootId) {
-          await post("session-state?state=blocked")
-        }
+      if (t === "permission.asked" || t === "permission.updated") {
+        // A real prompt is up (auto-allowed tools emit no permission event) =>
+        // genuinely waiting on the user. ("asked" is current opencode; "updated"
+        // is the older SDK name — handle both.) Deliberately NOT root-gated
+        // (unlike session.status{idle}): a child/subagent's permission prompt
+        // still needs the user, so any permission event blocks the card.
+        await post("session-state?state=blocked")
+        return
       }
-      if (event.type === "session.updated") {
+      if (t === "permission.replied") {
         await post("session-state?state=in-progress")
+        return
       }
+      // session.idle is intentionally ignored: session.status{idle} is the turn
+      // boundary and carries the sessionID we gate on. session.updated is ignored:
+      // status{busy} already covers liveness, and a post-turn metadata update
+      // (title/summary) must never un-block a blocked card.
     },
     "tool.execute.before": async (input, output) => {
       if (process.env.ORDEN_WORKTREE === "1") return
@@ -85,6 +114,9 @@ export const OrdenKanban = async () => {
         throw new Error(${JSON.stringify(DESTRUCTIVE_GIT_DENY_REASON)})
       }
     },
+    // Intentionally un-gated (no root/sessionID check): any tool finishing —
+    // root OR child/subagent — means the tree is actively working, so it is safe
+    // to (re)assert in-progress regardless of which session ran the tool.
     "tool.execute.after": async () => {
       await post("session-state?state=in-progress")
     },

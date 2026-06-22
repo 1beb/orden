@@ -6,8 +6,11 @@ import { pathToFileURL } from "node:url";
 import { opencodePluginSource } from "../src/opencodePlugin";
 
 // The generated opencode kanban plugin maps opencode lifecycle events to card
-// state. The contract under test: a CHILD/subagent session going idle must NOT
-// block the card — only the ROOT session's idle is a turn boundary.
+// state. The contract under test: the turn boundary is the ROOT session's
+// session.status{idle} — only that blocks the card. A CHILD/subagent session's
+// status{idle} must NOT block. session.idle and session.updated are ignored
+// entirely, and child/subagent session.created events post nothing (so they can
+// never overwrite the root's persisted conversation id).
 
 interface Posted {
   path: string;
@@ -53,7 +56,10 @@ describe("opencode plugin: card-state event mapping", () => {
     type: "session.created",
     properties: { info: { id, parentID } },
   });
-  const idle = (sessionID: string) => ({ type: "session.idle", properties: { sessionID } });
+  const statusIdle = (sessionID: string) => ({
+    type: "session.status",
+    properties: { sessionID, status: { type: "idle" } },
+  });
   const states = (posts: Posted[]) =>
     posts.map((p) => new URLSearchParams(p.path.split("?")[1]).get("state"));
 
@@ -65,36 +71,38 @@ describe("opencode plugin: card-state event mapping", () => {
     expect(posts[0].body.orden_session_id).toBe("orden-sid");
   });
 
-  test("root session.idle blocks the card", async () => {
+  test("root session.status idle blocks the card", async () => {
     const { event, posts } = await makePlugin();
     await event({ event: created("root-1") });
-    await event({ event: idle("root-1") });
+    await event({ event: statusIdle("root-1") });
     expect(states(posts)).toEqual(["in-progress", "blocked"]);
   });
 
   test("a child/subagent session idle does NOT block the card", async () => {
     const { event, posts } = await makePlugin();
     await event({ event: created("root-1") });
-    await event({ event: created("child-1", "root-1") }); // subagent spawned
-    await event({ event: idle("child-1") }); // subagent finishes its turn
-    // Only the two in-progress posts — no blocked from the child's idle.
-    expect(states(posts)).toEqual(["in-progress", "in-progress"]);
+    await event({ event: created("child-1", "root-1") }); // subagent spawned (posts nothing)
+    await event({ event: statusIdle("child-1") }); // subagent finishes its turn
+    // Only the root's in-progress post — the child created nothing and its
+    // status-idle is not the root, so no block.
+    expect(states(posts)).toEqual(["in-progress"]);
   });
 
   test("a child session.created does not overwrite the conversation id", async () => {
     const { event, posts } = await makePlugin();
     await event({ event: created("root-1") });
     await event({ event: created("child-1", "root-1") });
+    // The child created posts nothing, so the id can never be overwritten.
+    expect(posts.length).toBe(1);
     expect(posts[0].body.session_id).toBe("root-1");
-    expect(posts[1].body.session_id).toBeUndefined();
   });
 
   test("subagent finishes, then root goes idle -> blocked once", async () => {
     const { event, posts } = await makePlugin();
     await event({ event: created("root-1") });
     await event({ event: created("child-1", "root-1") });
-    await event({ event: idle("child-1") }); // no block here
-    await event({ event: idle("root-1") }); // real turn boundary
-    expect(states(posts)).toEqual(["in-progress", "in-progress", "blocked"]);
+    await event({ event: statusIdle("child-1") }); // no block here
+    await event({ event: statusIdle("root-1") }); // real turn boundary
+    expect(states(posts)).toEqual(["in-progress", "blocked"]);
   });
 });
