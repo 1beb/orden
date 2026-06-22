@@ -72,4 +72,25 @@ describe("reanchorQuote", () => {
     );
     expect(result).toBeNull();
   });
+
+  // A selection dragged from a paragraph into a following code block is captured
+  // by addAnnotation as doc.textBetween(from, to) — which concatenates the two
+  // blocks' text with no separator ("…stats:dbExecute(…"). On reload this quote
+  // lives in no single textblock, so a per-block search orphans it. The resolver
+  // must span block boundaries the same way capture did.
+  it("re-anchors a quote spanning a paragraph and a following code block", () => {
+    const doc = parse("alpha\n\n```\nbeta\n```");
+    // "alpha" (paragraph) + "beta" (code block) concatenate to "alphabeta";
+    // "phabe" straddles the boundary (a|b).
+    const exact = "phabe";
+    const result = reanchorQuote(doc, { exact, prefix: "al", suffix: "ta" });
+    expect(result).not.toBeNull();
+    expect(doc.textBetween(result!.from, result!.to)).toBe(exact);
+  });
+
+  it("still orphans a cross-block quote whose text is genuinely absent", () => {
+    const doc = parse("alpha\n\n```\nbeta\n```");
+    const result = reanchorQuote(doc, { exact: "phaXXbe", prefix: "", suffix: "" });
+    expect(result).toBeNull();
+  });
 });

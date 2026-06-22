@@ -44,4 +44,24 @@ describe("resolveSelectors", () => {
     const sel: Selector = { type: "text-quote", exact: "nope", prefix: "", suffix: "" };
     expect(resolveSelectors(sel, root)).toBeNull();
   });
+
+  // A selection that starts in one stamped block and ends in another (e.g. a
+  // paragraph dragged into a following code block) captures `range.toString()`,
+  // which concatenates text across the block boundary with no separator. The
+  // per-block resolver can't find that string in any single block, so it must
+  // fall back to a document-wide search or the annotation orphans on re-render.
+  it("resolves a quote that spans two blocks", () => {
+    const root = rendered(
+      "<section><p>via manifest stats:</p><pre><code>dbExecute(con, x)</code></pre></section>",
+    );
+    const sel: Selector = {
+      type: "text-quote",
+      exact: "stats:dbExecute(con, x)",
+      prefix: "",
+      suffix: "",
+    };
+    const range = resolveSelectors(sel, root);
+    expect(range).not.toBeNull();
+    expect(range!.toString()).toBe("stats:dbExecute(con, x)");
+  });
 });
