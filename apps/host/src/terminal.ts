@@ -155,7 +155,7 @@ export async function killSessionTmux(sessionId: string, ops?: KillOps): Promise
 // when the MCP transport drops; opencode additionally carries its generated
 // kanban/MCP plugin dir and the worktree flag.
 export function sessionLaunchEnv(
-  rec: { agent: "claude" | "opencode" },
+  rec: { agent: "claude" | "opencode"; conversationId?: string },
   sessionId: string,
   // True when the session launches in its own orden worktree: the plugin's
   // destructive-git guard stands down there (the blast radius is the session's
@@ -175,11 +175,22 @@ export function sessionLaunchEnv(
   args.push("-e", `OPENCODE_CONFIG_DIR=${pluginDir}`, "-e", `ORDEN_WORKTREE=${wt}`);
   env.OPENCODE_CONFIG_DIR = pluginDir;
   env.ORDEN_WORKTREE = wt;
+  // Seed the ROOT opencode session id on RESUME so the plugin can ignore
+  // child/subagent idles. session.created (which otherwise sets the plugin's
+  // rootId) never fires on resume, so without this rootId stays empty and any
+  // child idle blocks the card. On first launch conversationId is unset and the
+  // plugin learns rootId from the root's session.created.
+  const rootSeed = rec.conversationId ?? "";
+  if (rootSeed) {
+    args.push("-e", `ORDEN_OPENCODE_ROOT=${rootSeed}`);
+    env.ORDEN_OPENCODE_ROOT = rootSeed;
+  }
   // Also set the vars inline on the command line. Shell init files (.bashrc,
   // .zshrc) can clear inherited env, but inline VAR=val cmd assignments survive
   // regardless — so the opencode plugin always has ORDEN_SESSION_ID and can post
   // back with a truthy value.
-  const cmdPrefix = `ORDEN_SESSION_ID=${shquote(sessionId)} OPENCODE_CONFIG_DIR=${shquote(pluginDir)} ORDEN_PORT=${shquote(String(port))} ORDEN_WORKTREE=${wt}`;
+  const rootPrefix = rootSeed ? `ORDEN_OPENCODE_ROOT=${shquote(rootSeed)} ` : "";
+  const cmdPrefix = `${rootPrefix}ORDEN_SESSION_ID=${shquote(sessionId)} OPENCODE_CONFIG_DIR=${shquote(pluginDir)} ORDEN_PORT=${shquote(String(port))} ORDEN_WORKTREE=${wt}`;
   return { args, env, cmdPrefix };
 }
 
