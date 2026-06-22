@@ -1293,11 +1293,17 @@ li.sess-done-head {
    ONLY the .xterm child's own padding — never the parent's. Padding on the
    container is invisible to FitAddon, so it overestimates cols and the
    rightmost column gets clipped by .sess-detail-body's overflow:hidden. On .xterm
-   the strip still reads as orden's bg: the viewport is already themed to --bg
-   (#fbfbfa, see terminalView.ts), so xterm.css's hardcoded black never shows.
+   the strip still reads as orden's bg: the viewport is themed to --bg
+   (#fbfbfa, see terminalView.ts). xterm.js applies that theme to the viewport
+   via inline style, but not reliably across every open/resize race — so we ALSO
+   pin it in CSS (higher specificity than xterm.css's hardcoded #000) so the
+   padding strip never flashes black between the terminal and the panel chrome.
    The :has guard keeps the Chat view — also hosted in .sess-detail-body — flush. */
 .sess-detail-body:has(> .xterm) {
   background: var(--bg);
+}
+.sess-detail-body .xterm .xterm-viewport {
+  background-color: var(--bg);
 }
 .sess-scratch-body > .xterm {
   padding: 8px 10px;
