@@ -34,7 +34,7 @@ export class OpencodeMirror {
     // meta (slashCommands are empty because the TUI has no chat-side commands).
     void reducer.apply({ kind: "session", sessionId: this.opencodeSessionId, slashCommands: [] });
 
-    const translator = new OpencodeTranslator();
+    const translator = new OpencodeTranslator(this.opencodeSessionId);
 
     this.running = (async () => {
       let conn: OpencodeConnection | null = null;

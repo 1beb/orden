@@ -43,8 +43,11 @@ function toolPart(
   } as unknown as Event;
 }
 
-const idle = (): Event =>
-  ({ type: "session.idle", properties: { sessionID: "s1" } }) as unknown as Event;
+const status = (sessionID: string, type: "idle" | "busy" | "retry"): Event =>
+  ({
+    type: "session.status",
+    properties: { sessionID, status: { type } },
+  }) as unknown as Event;
 
 const messageUpdated = (id: string, role: "user" | "assistant"): Event =>
   ({ type: "message.updated", properties: { info: { id, role } } }) as unknown as Event;
@@ -141,9 +144,45 @@ describe("OpencodeTranslator", () => {
     expect(t.translate(completed)).toEqual([]);
   });
 
-  it("maps session.idle to a turn-end", () => {
+  it("maps the ROOT session's status{idle} to a turn-end when no root id is set (safe fallback)", () => {
     const t = new OpencodeTranslator();
-    expect(t.translate(idle())).toEqual([{ kind: "turn-end" }]);
+    expect(t.translate(status("s1", "idle"))).toEqual([{ kind: "turn-end" }]);
+  });
+
+  it("maps the ROOT session's status{idle} to a turn-end", () => {
+    const t = new OpencodeTranslator("root-1");
+    expect(t.translate(status("root-1", "idle"))).toEqual([{ kind: "turn-end" }]);
+  });
+
+  it("does NOT end the turn on a child/subagent status{idle}", () => {
+    const t = new OpencodeTranslator("root-1");
+    expect(t.translate(status("child-1", "idle"))).toEqual([]);
+  });
+
+  it("does NOT end the turn on a title/compaction session status{idle}", () => {
+    const t = new OpencodeTranslator("root-1");
+    expect(t.translate(status("compact-1", "idle"))).toEqual([]);
+  });
+
+  it("after a child status{idle}, the root status{idle} still ends the turn", () => {
+    const t = new OpencodeTranslator("root-1");
+    expect(t.translate(status("child-1", "idle"))).toEqual([]);
+    expect(t.translate(status("root-1", "idle"))).toEqual([{ kind: "turn-end" }]);
+  });
+
+  it("does NOT end the turn on status{busy} or status{retry} (agent still working)", () => {
+    const t = new OpencodeTranslator("root-1");
+    expect(t.translate(status("root-1", "busy"))).toEqual([]);
+    expect(t.translate(status("root-1", "retry"))).toEqual([]);
+  });
+
+  it("ignores the coarser session.idle (status{idle} is the canonical boundary)", () => {
+    const t = new OpencodeTranslator("root-1");
+    const idle = {
+      type: "session.idle",
+      properties: { sessionID: "root-1" },
+    } as unknown as Event;
+    expect(t.translate(idle)).toEqual([]);
   });
 
   it("ignores unrelated events", () => {
