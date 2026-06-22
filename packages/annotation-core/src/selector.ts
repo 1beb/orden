@@ -24,18 +24,19 @@ function commonPrefixLength(a: string, b: string): number {
 function occurrencesIn(
   scope: Element,
   text: string,
+  exact: string,
   sel: TextQuoteSelector,
 ): { scope: Element; at: number; score: number }[] {
   const out: { scope: Element; at: number; score: number }[] = [];
   let from = 0;
-  let at = text.indexOf(sel.exact, from);
+  let at = text.indexOf(exact, from);
   while (at !== -1) {
     const before = text.slice(0, at);
-    const after = text.slice(at + sel.exact.length);
+    const after = text.slice(at + exact.length);
     const score = commonSuffixLength(before, sel.prefix) + commonPrefixLength(after, sel.suffix);
     out.push({ scope, at, score });
     from = at + 1;
-    at = text.indexOf(sel.exact, from);
+    at = text.indexOf(exact, from);
   }
   return out;
 }
@@ -55,15 +56,16 @@ function chooseAndRange(
   return rangeFromOffsets(chosen.scope, chosen.at, chosen.at + exactLen);
 }
 
-function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
-  if (sel.exact.length === 0) return null;
-  // Prefer a within-a-single-block match: it keeps the range tight to its
-  // block and matches how same-block selections were captured.
+// Resolve one candidate `exact` against the document: prefer a within-a-single-
+// block match (keeps the range tight and matches same-block capture), else search
+// `root` as one text run so a cross-block quote still resolves.
+function resolveExact(exact: string, sel: TextQuoteSelector, root: Element): Range | null {
+  if (exact.length === 0) return null;
   const perBlock: { scope: Element; at: number; score: number }[] = [];
   for (const block of Array.from(root.querySelectorAll(`[${BLOCK_ID_ATTR}]`))) {
-    perBlock.push(...occurrencesIn(block, block.textContent ?? "", sel));
+    perBlock.push(...occurrencesIn(block, block.textContent ?? "", exact, sel));
   }
-  if (perBlock.length > 0) return chooseAndRange(perBlock, sel.exact.length);
+  if (perBlock.length > 0) return chooseAndRange(perBlock, exact.length);
 
   // No single block holds the quote. A cross-block selection (e.g. a paragraph
   // dragged into a following code block) captured `range.toString()`, which
@@ -71,7 +73,22 @@ function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
   // in the document-wide text. Search `root` as one text run and build a Range
   // that spans the blocks. `rangeFromOffsets` walks the same text nodes in the
   // same order `textContent` concatenates them, so the offsets line up.
-  return chooseAndRange(occurrencesIn(root, root.textContent ?? "", sel), sel.exact.length);
+  return chooseAndRange(occurrencesIn(root, root.textContent ?? "", exact, sel), exact.length);
+}
+
+function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
+  if (sel.exact.length === 0) return null;
+  const raw = resolveExact(sel.exact, sel, root);
+  if (raw) return raw;
+
+  // A selection that ran to a block boundary often captures trailing/leading
+  // whitespace (a triple-clicked heading stores "Title\n"); that newline has no
+  // counterpart in a block's textContent, nor anywhere if the render has no
+  // inter-block whitespace text node — so the raw quote orphans. Retry on the
+  // trimmed text, anchoring to the real content the user meant.
+  const trimmed = sel.exact.trim();
+  if (trimmed && trimmed !== sel.exact) return resolveExact(trimmed, sel, root);
+  return null;
 }
 
 function resolvePosition(sel: TextPositionSelector, root: Element): Range | null {
