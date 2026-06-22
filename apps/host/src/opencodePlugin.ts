@@ -91,7 +91,9 @@ export const OrdenKanban = async () => {
       if (t === "permission.asked" || t === "permission.updated") {
         // A real prompt is up (auto-allowed tools emit no permission event) =>
         // genuinely waiting on the user. ("asked" is current opencode; "updated"
-        // is the older SDK name — handle both.)
+        // is the older SDK name — handle both.) Deliberately NOT root-gated
+        // (unlike session.status{idle}): a child/subagent's permission prompt
+        // still needs the user, so any permission event blocks the card.
         await post("session-state?state=blocked")
         return
       }
@@ -112,6 +114,9 @@ export const OrdenKanban = async () => {
         throw new Error(${JSON.stringify(DESTRUCTIVE_GIT_DENY_REASON)})
       }
     },
+    // Intentionally un-gated (no root/sessionID check): any tool finishing —
+    // root OR child/subagent — means the tree is actively working, so it is safe
+    // to (re)assert in-progress regardless of which session ran the tool.
     "tool.execute.after": async () => {
       await post("session-state?state=in-progress")
     },
