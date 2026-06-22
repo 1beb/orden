@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import { hydrateCards, listItems, getItem, setItemState, cardSessionIds, type Item } from "../src/cards";
 import { hydrateSessions, createSession, getSession, onSessionsChange } from "../src/sessions";
+import { hydrateProjects, ensureDefaultProject, addProject } from "../src/projects";
 import { openCardModal } from "../src/cardModal";
 
 // Find the card a session was linked to (createSession drops a linked card).
@@ -93,6 +94,92 @@ describe("card modal — title rename propagation", () => {
       panelRefreshes++;
     });
     renameInModal(card.id, () => {});
+    off();
+    expect(panelRefreshes).toBeGreaterThan(0);
+  });
+});
+
+describe("card modal — project reassignment propagation", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+    await hydrateProjects(host);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll(".card-modal-overlay").forEach((n) => n.remove());
+  });
+
+  // The Project field is one of several labelled selects; find it by caption.
+  function fieldByLabel(label: string): HTMLSelectElement | undefined {
+    const labels = [...document.querySelectorAll<HTMLLabelElement>(".card-modal__field")];
+    const match = labels.find(
+      (l) => l.querySelector(".card-modal__field-label")?.textContent?.trim() === label,
+    );
+    return match?.querySelector(".card-modal__field-input") as HTMLSelectElement | undefined;
+  }
+
+  it("reassigns the card's linked session(s) to the chosen project", () => {
+    const home = ensureDefaultProject();
+    const other = addProject("Other");
+    const s = createSession({ title: "Move me", agent: "claude", projectId: home.id });
+    const card = cardFor(s.id);
+    openCardModal(card.id, { onStartSession: () => {}, onOpenSession: () => {}, onChange: () => {} });
+    const select = fieldByLabel("Project")!;
+    select.value = other.id;
+    select.dispatchEvent(new Event("change"));
+    expect(getSession(s.id)?.projectId).toBe(other.id);
+  });
+
+  it("notifies session listeners so the sessions panel re-renders live", () => {
+    const home = ensureDefaultProject();
+    const other = addProject("Other");
+    const s = createSession({ title: "Move me", agent: "claude", projectId: home.id });
+    const card = cardFor(s.id);
+    let panelRefreshes = 0;
+    const off = onSessionsChange(() => {
+      panelRefreshes++;
+    });
+    openCardModal(card.id, { onStartSession: () => {}, onOpenSession: () => {}, onChange: () => {} });
+    const select = fieldByLabel("Project")!;
+    select.value = other.id;
+    select.dispatchEvent(new Event("change"));
+    off();
+    expect(panelRefreshes).toBeGreaterThan(0);
+  });
+});
+
+describe("card modal — session removal propagation", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    const host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll(".card-modal-overlay").forEach((n) => n.remove());
+  });
+
+  it("removes the session from the cache so the panel stays in sync", () => {
+    const s = createSession({ title: "Bye", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    openCardModal(card.id, { onStartSession: () => {}, onOpenSession: () => {}, onChange: () => {} });
+    buttonByText(document.body, "Remove")!.click();
+    expect(getSession(s.id)).toBeUndefined();
+  });
+
+  it("notifies session listeners so the sessions panel re-renders live", () => {
+    const s = createSession({ title: "Bye", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    let panelRefreshes = 0;
+    const off = onSessionsChange(() => {
+      panelRefreshes++;
+    });
+    openCardModal(card.id, { onStartSession: () => {}, onOpenSession: () => {}, onChange: () => {} });
+    buttonByText(document.body, "Remove")!.click();
     off();
     expect(panelRefreshes).toBeGreaterThan(0);
   });

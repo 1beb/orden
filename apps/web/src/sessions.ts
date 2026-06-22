@@ -178,7 +178,8 @@ export function archiveSession(id: string): void {
 /**
  * Permanently remove a session and unlink it from its card. The card is KEPT
  * (cards are first-class and can have zero sessions) — use removeItem to delete
- * the card itself.
+ * the card itself. Notifies listeners so the sessions panel + project-page
+ * widget drop the session live despite the no-echo self-write.
  */
 export function deleteSession(id: string): void {
   cache = cache.filter((s) => s.id !== id);
@@ -190,6 +191,7 @@ export function deleteSession(id: string): void {
   }
   const cardId = linkedCardId(id);
   if (cardId) removeItemSession(cardId, id);
+  notifySessionsChange();
 }
 
 // Fields the HOST authors and the web only ever reads: they flow
@@ -219,13 +221,16 @@ function persist(session: Session): void {
 /**
  * Reassign a session to a different project. Mirrors cards.setItemProject so a
  * session and its linked card can be moved together (the UI handlers do the dual
- * update — cards.ts must not import this module, to avoid a cycle).
+ * update — cards.ts must not import this module, to avoid a cycle). Notifies
+ * listeners so the sessions panel + project-page widget re-render live despite
+ * the no-echo self-write.
  */
 export function setSessionProject(id: string, projectId: string): void {
   const session = cache.find((s) => s.id === id);
   if (!session) return;
   session.projectId = projectId;
   persist(session);
+  notifySessionsChange();
 }
 
 // Local re-render hook: a self-originated vault write does NOT echo back through
