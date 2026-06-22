@@ -19,22 +19,31 @@ function commonPrefixLength(a: string, b: string): number {
   return n;
 }
 
-function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
-  if (sel.exact.length === 0) return null;
-  const occurrences: { block: Element; at: number; score: number }[] = [];
-  for (const block of Array.from(root.querySelectorAll(`[${BLOCK_ID_ATTR}]`))) {
-    const text = block.textContent ?? "";
-    let from = 0;
-    let at = text.indexOf(sel.exact, from);
-    while (at !== -1) {
-      const before = text.slice(0, at);
-      const after = text.slice(at + sel.exact.length);
-      const score = commonSuffixLength(before, sel.prefix) + commonPrefixLength(after, sel.suffix);
-      occurrences.push({ block, at, score });
-      from = at + 1;
-      at = text.indexOf(sel.exact, from);
-    }
+// Find every occurrence of `exact` inside `text`, scored by how much of the
+// captured prefix/suffix still surrounds it (a tie-break for duplicate quotes).
+function occurrencesIn(
+  scope: Element,
+  text: string,
+  sel: TextQuoteSelector,
+): { scope: Element; at: number; score: number }[] {
+  const out: { scope: Element; at: number; score: number }[] = [];
+  let from = 0;
+  let at = text.indexOf(sel.exact, from);
+  while (at !== -1) {
+    const before = text.slice(0, at);
+    const after = text.slice(at + sel.exact.length);
+    const score = commonSuffixLength(before, sel.prefix) + commonPrefixLength(after, sel.suffix);
+    out.push({ scope, at, score });
+    from = at + 1;
+    at = text.indexOf(sel.exact, from);
   }
+  return out;
+}
+
+function chooseAndRange(
+  occurrences: { scope: Element; at: number; score: number }[],
+  exactLen: number,
+): Range | null {
   if (occurrences.length === 0) return null;
   let chosen = occurrences[0];
   if (occurrences.length > 1) {
@@ -43,7 +52,26 @@ function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
     if (top.length !== 1) return null; // ambiguous -> orphan
     chosen = top[0];
   }
-  return rangeFromOffsets(chosen.block, chosen.at, chosen.at + sel.exact.length);
+  return rangeFromOffsets(chosen.scope, chosen.at, chosen.at + exactLen);
+}
+
+function resolveQuote(sel: TextQuoteSelector, root: Element): Range | null {
+  if (sel.exact.length === 0) return null;
+  // Prefer a within-a-single-block match: it keeps the range tight to its
+  // block and matches how same-block selections were captured.
+  const perBlock: { scope: Element; at: number; score: number }[] = [];
+  for (const block of Array.from(root.querySelectorAll(`[${BLOCK_ID_ATTR}]`))) {
+    perBlock.push(...occurrencesIn(block, block.textContent ?? "", sel));
+  }
+  if (perBlock.length > 0) return chooseAndRange(perBlock, sel.exact.length);
+
+  // No single block holds the quote. A cross-block selection (e.g. a paragraph
+  // dragged into a following code block) captured `range.toString()`, which
+  // concatenates text across the boundary with no separator — so it only exists
+  // in the document-wide text. Search `root` as one text run and build a Range
+  // that spans the blocks. `rangeFromOffsets` walks the same text nodes in the
+  // same order `textContent` concatenates them, so the offsets line up.
+  return chooseAndRange(occurrencesIn(root, root.textContent ?? "", sel), sel.exact.length);
 }
 
 function resolvePosition(sel: TextPositionSelector, root: Element): Range | null {

@@ -21,6 +21,55 @@ function commonPrefixLength(a: string, b: string): number {
   return n;
 }
 
+// A selection can start in one textblock and end in another (e.g. dragged from a
+// paragraph into a following code block). addAnnotation captures such a quote with
+// doc.textBetween, which concatenates the blocks' text with no separator — so the
+// quote exists in no single textblock and a per-block search orphans it. This
+// searches the document as one concatenated text run (matching how capture joined
+// it) and maps the hit's offsets back to ProseMirror positions. addMark spans the
+// intervening block boundaries on its own, so only the start/end need mapping.
+function reanchorCrossBlock(
+  doc: PMNode,
+  quote: TextQuoteSelector,
+): { from: number; to: number; score: number }[] {
+  const blocks: { start: number; pos: number; len: number }[] = [];
+  let concat = "";
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true;
+    blocks.push({ start: concat.length, pos, len: node.textContent.length });
+    concat += node.textContent;
+    return false;
+  });
+
+  // Map a concat offset to a ProseMirror position. `atEnd` picks the block that
+  // *ends* at a boundary offset (exclusive end), so a hit ending exactly at a
+  // block's last char maps to that block, not the start of the next one.
+  const toPos = (offset: number, atEnd: boolean): number | null => {
+    for (const b of blocks) {
+      const end = b.start + b.len;
+      const inside = atEnd ? offset > b.start && offset <= end : offset >= b.start && offset < end;
+      if (inside) return b.pos + 1 + (offset - b.start);
+    }
+    return null;
+  };
+
+  const occ: { from: number; to: number; score: number }[] = [];
+  let i = concat.indexOf(quote.exact);
+  while (i !== -1) {
+    const from = toPos(i, false);
+    const to = toPos(i + quote.exact.length, true);
+    if (from !== null && to !== null) {
+      const before = concat.slice(0, i);
+      const after = concat.slice(i + quote.exact.length);
+      const score =
+        commonSuffixLength(before, quote.prefix) + commonPrefixLength(after, quote.suffix);
+      occ.push({ from, to, score });
+    }
+    i = concat.indexOf(quote.exact, i + 1);
+  }
+  return occ;
+}
+
 export function reanchorQuote(
   doc: PMNode,
   quote: TextQuoteSelector,
@@ -43,6 +92,9 @@ export function reanchorQuote(
     }
     return false;
   });
+
+  // No single textblock held the quote — try spanning block boundaries.
+  if (occ.length === 0) occ.push(...reanchorCrossBlock(doc, quote));
 
   if (occ.length === 0) return null;
   if (occ.length === 1) return { from: occ[0].from, to: occ[0].to };
