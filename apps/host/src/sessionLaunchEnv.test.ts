@@ -9,13 +9,14 @@ describe("sessionLaunchEnv ORDEN_OPENCODE_ROOT seeding", () => {
     );
     expect(r.env.ORDEN_OPENCODE_ROOT).toBe("ses_root123");
     expect(r.args).toContain("ORDEN_OPENCODE_ROOT=ses_root123");
-    expect(r.cmdPrefix).toContain("ORDEN_OPENCODE_ROOT=");
+    expect(r.cmdPrefix).toContain("ORDEN_OPENCODE_ROOT='ses_root123'");
   });
 
   it("omits the root id on first launch (no conversationId yet)", () => {
     const r = sessionLaunchEnv({ agent: "opencode" }, "sess_1");
     expect(r.env.ORDEN_OPENCODE_ROOT).toBeUndefined();
     expect(r.cmdPrefix).not.toContain("ORDEN_OPENCODE_ROOT");
+    expect(r.args.some((a) => a.startsWith("ORDEN_OPENCODE_ROOT="))).toBe(false);
   });
 
   it("does not add the var for claude sessions", () => {
