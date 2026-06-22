@@ -182,7 +182,7 @@ function makeHarness() {
           time: { start: 1, end: 2 },
         }),
       );
-      fake.sse.push({ type: "session.idle", properties: { sessionID: SESSION_ID } } as unknown as Event);
+      fake.sse.push({ type: "session.status", properties: { sessionID: SESSION_ID, status: { type: "idle" } } } as unknown as Event);
     },
     async emitPermission(): Promise<{ allow: boolean }> {
       const posted = fake.nextPermissionResponse();

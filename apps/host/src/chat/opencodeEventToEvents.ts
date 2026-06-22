@@ -15,7 +15,14 @@ import type { DriverEvent } from "@orden/chat-core";
 //
 // Permission events are NOT handled here — the adapter intercepts them and runs
 // the out-of-band onPermission round-trip (like claude's canUseTool). The only
-// turn-boundary signal we translate is `session.idle` -> `turn-end`.
+// turn-boundary signal we translate is the ROOT session's
+// `session.status{idle}` -> `turn-end`. This mirrors the kanban plugin
+// (opencodePlugin.ts), which drives card state off the same authoritative edge
+// and ignores the coarser `session.idle` (both fire at turn-end; status{idle}
+// is the canonical one). busy/retry do not segment the transcript (the agent is
+// still working — retry is a provider stall, not a wait on the user), and a
+// child/subagent/title/compaction session's idle is ignored (see rootSessionId)
+// — the opencode analogue of Claude's gated Stop.
 
 interface TextState {
   emittedLen: number;
@@ -36,9 +43,32 @@ export class OpencodeTranslator {
   // prompt time, before any part, so the role is known by the time parts arrive.
   private role = new Map<string, "user" | "assistant">();
 
+  // The ROOT opencode session id, supplied by the caller (which already knows
+  // it: the adapter/mirror both subscribe AFTER session.create, so the root's
+  // session.created has already fired and cannot be learned from the stream).
+  // opencode runs subagents and title/compaction sessions as separate CHILD
+  // sessions, each its own id, and EACH emits its own status{idle} when its
+  // turn ends. Mapping any status{idle} to a turn-end would close the turn the
+  // moment a child finishes — while the parent is still working. So only the
+  // ROOT session's idle is a real turn boundary. While undefined we still emit
+  // turn-end so behavior degrades safely (matching the plugin's
+  // `!rootId || sessionID === rootId` fallback).
+  constructor(private readonly rootSessionId?: string) {}
+
   translate(event: Event): DriverEvent[] {
-    if (event.type === "session.idle") {
-      return [{ kind: "turn-end" }];
+    if (event.type === "session.status") {
+      // opencode's authoritative work state. Only a turn-ending idle segments
+      // the transcript — busy/retry mean the agent is still working (retry is a
+      // provider stall, not a wait). And only the ROOT session's idle is a real
+      // turn boundary: a child/subagent going idle must NOT end the parent's
+      // turn. session.idle (the coarser edge) is intentionally NOT mapped —
+      // status{idle} is the canonical boundary, same as the kanban plugin.
+      if (event.properties.status.type !== "idle") return [];
+      const sid = event.properties.sessionID;
+      if (!this.rootSessionId || sid === this.rootSessionId) {
+        return [{ kind: "turn-end" }];
+      }
+      return [];
     }
 
     if (event.type === "message.updated") {

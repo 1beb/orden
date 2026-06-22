@@ -81,7 +81,6 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
     },
 
     open({ cwd, model: initialModel }: { cwd: string; model?: string }): HarnessDriver {
-      const translator = new OpencodeTranslator();
       let model = initialModel;
       let permissionCb: PermissionCb | null = null;
       let closed = false;
@@ -139,6 +138,9 @@ export function makeOpencodeAdapter(deps?: { connect?: ConnectFn }): HarnessAdap
           out.push({ kind: "session", sessionId, slashCommands: [] });
           wake();
 
+          // Root-gate the turn boundary: only the root session's idle ends the
+          // turn (subagents/title/compaction sessions each emit their own).
+          const translator = new OpencodeTranslator(sessionId);
           const sub = await conn.client.event.subscribe();
           for await (const event of sub.stream as AsyncIterable<Event>) {
             if (closed) break;
