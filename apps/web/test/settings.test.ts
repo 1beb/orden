@@ -23,6 +23,7 @@ const DEFAULTS = {
   integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
   defaultModel: { claude: "", opencode: "" },
+  workflowsEnabled: false,
 };
 
 describe("settings store (host-backed)", () => {
@@ -83,6 +84,7 @@ describe("settings store (host-backed)", () => {
       integrationMode: "fast",
       learningPrompt: DEFAULT_LEARNING_PROMPT,
       defaultModel: { claude: "", opencode: "" },
+      workflowsEnabled: false,
     });
   });
 

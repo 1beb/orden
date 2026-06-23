@@ -1729,6 +1729,20 @@ document.querySelector("#bn-projects")?.addEventListener("click", () => {
 });
 document.querySelector("#bn-sessions")?.addEventListener("click", toggleRight);
 
+// The Workflows extension: when disabled (the default), its nav entries are
+// hidden and the view is unreachable. Toggling it off while viewing Workflows
+// falls back to the journal so the user isn't stranded on a hidden view.
+const workflowsNavEls = [
+  document.querySelector<HTMLElement>("#nav-workflows"),
+  document.querySelector<HTMLElement>("#bn-workflows"),
+];
+function applyWorkflowsExtension(): void {
+  const on = loadSettings().workflowsEnabled;
+  for (const el of workflowsNavEls) if (el) el.hidden = !on;
+  if (!on && viewStore.get() === "workflows") viewStore.set("journal");
+}
+applyWorkflowsExtension();
+
 // --- Settings: cog popover + startup preference ---
 const settingsCog = document.querySelector<HTMLElement>("#settings-cog")!;
 const settingsView = document.querySelector<HTMLElement>("#view-settings")!;
@@ -2219,7 +2233,8 @@ if (settings.startup === "last") {
       }
     }
   } else if (lastView && !ANNOTATABLE_VIEWS.has(lastView)) {
-    viewStore.set(lastView);
+    // The Workflows extension can be off; don't restore into its hidden view.
+    viewStore.set(lastView === "workflows" && !settings.workflowsEnabled ? "journal" : lastView);
   } else {
     const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
       "ui",
@@ -2403,6 +2418,10 @@ bindCheckbox("html-render", "htmlRender", () => {
 // Scratch terminal: show (or hide) the plain-shell scratch button in the
 // session pane. Refresh the panel so the button appears/disappears at once.
 bindCheckbox("show-scratch-terminal", "showScratchTerminal", () => sessionsPanel.refresh());
+
+// Workflows extension toggle: show/hide its nav entries (and leave the view if
+// it's being disabled while open).
+bindCheckbox("workflows-enabled", "workflowsEnabled", applyWorkflowsExtension);
 
 // Default session mode: one TUI/GUI segmented row per tool (Claude Code,
 // opencode) picking which surface a newly spawned session opens in. Selecting
