@@ -40,6 +40,8 @@ export interface IssueGroupDeps {
   onMutate: () => void;
   onStartSession?: (item: Item, agent: Agent) => void;
   onOpenSession?: (id: string) => void;
+  // Open an associated document in the main panel (card modal Documents list).
+  onOpenDoc?: (path: string, projectId: string) => void;
   // Show the per-row inline state + project pickers. Default true (the kanban
   // list view). The project page passes false: state is already conveyed by the
   // group headers and every row shares the page's project, so changing either
@@ -138,6 +140,7 @@ export function renderIssueGroups(list: HTMLElement, items: Item[], deps: IssueG
         openCardModal(item.id, {
           onStartSession: (it, agent) => deps.onStartSession?.(it, agent),
           onOpenSession: (id) => deps.onOpenSession?.(id),
+          onOpenDoc: (path, projectId) => deps.onOpenDoc?.(path, projectId),
           onChange: deps.onMutate,
         });
       });

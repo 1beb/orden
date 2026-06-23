@@ -1536,6 +1536,7 @@ function refreshBoard(): void {
   const count = renderKanban(viewEls.kanban, {
     onStartSession: startSessionForItem,
     onOpenSession: openSessionInPanel,
+    onOpenDoc: (path, pid) => void openRepoFile(pid, path),
     openLearnings: (id) => openForCard(id),
     // Clicking a Learnings-column card opens the review stepper for THAT card.
     // Set the active card first, then switch views — viewStore's subscribe
@@ -1621,6 +1622,7 @@ function renderProject(projectId: string): void {
     openSessionInPanel,
     startProjectSession,
     (path) => void openRepoFile(projectId, path),
+    (path, pid) => void openRepoFile(pid, path),
     (id) => host.files.list(id),
     () => openProjectSettings(projectId),
   );
@@ -2839,6 +2841,7 @@ vaultChanges.register("ui", async (key) => {
       openCardModal(id, {
         onStartSession: startSessionForItem,
         onOpenSession: openSessionInPanel,
+        onOpenDoc: (path, pid) => void openRepoFile(pid, path),
         onChange: refreshBoard,
       });
       return true;

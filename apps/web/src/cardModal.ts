@@ -12,6 +12,7 @@ import {
   setItemDueDate,
   setItemDescription,
   removeItem,
+  cardDocuments,
   type Item,
 } from "./cards";
 import { listProjects } from "./projects";
@@ -32,6 +33,8 @@ export interface CardModalDeps {
   onStartSession: (item: Item, agent: Agent) => void;
   // Open an existing session in the sessions panel.
   onOpenSession: (sessionId: string) => void;
+  // Open an associated document in the main panel (routes through openRepoFile).
+  onOpenDoc: (path: string, projectId: string) => void;
   // Re-render the board after any mutation.
   onChange: () => void;
 }
@@ -252,6 +255,18 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
     );
     bodyEl.append(add);
 
+    // Documents: the card's associated docs — the explicit planDoc plus any doc
+    // its sessions surfaced via panel_open. Loaded async (doclinks aren't in the
+    // card cache), so reserve the slot here in DOM order and fill it once read;
+    // the section stays empty/hidden when the card has no docs.
+    const docsSection = document.createElement("div");
+    docsSection.className = "card-modal__docs";
+    bodyEl.append(docsSection);
+    void renderDocuments(docsSection, item, (path, projectId) => {
+      close();
+      deps.onOpenDoc(path, projectId);
+    });
+
     // Footer: delete the whole card (and its sessions). Cards outlive their
     // sessions, so this is the only path to remove a session-less card.
     const footer = document.createElement("div");
@@ -281,6 +296,48 @@ export function openCardModal(itemId: string, deps: CardModalDeps): void {
 
   render();
   document.body.append(overlay);
+}
+
+// Fill the Documents section: the card's planDoc and the docs its sessions
+// surfaced. Clears and re-populates `el` (so a re-render is idempotent); when
+// the card has no docs the section is left empty (renders nothing). Clicking a
+// row opens that doc in the main panel (the caller's `onOpen` also closes the
+// modal, matching how a session resume hands off to another surface).
+async function renderDocuments(
+  el: HTMLElement,
+  item: Item,
+  onOpen: (path: string, projectId: string) => void,
+): Promise<void> {
+  const docs = await cardDocuments(item);
+  el.replaceChildren();
+  if (docs.length === 0) return;
+
+  const head = document.createElement("div");
+  head.className = "card-modal__section-head";
+  head.textContent = "Documents";
+  el.append(head);
+
+  for (const doc of docs) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "card-modal__doc";
+    row.title = doc.path;
+
+    const name = document.createElement("span");
+    name.className = "card-modal__doc-name";
+    name.textContent = doc.path.split("/").pop() || doc.path;
+    row.append(name);
+
+    if (doc.source === "plan") {
+      const badge = document.createElement("span");
+      badge.className = "card-modal__doc-badge";
+      badge.textContent = "plan";
+      row.append(badge);
+    }
+
+    row.addEventListener("click", () => onOpen(doc.path, doc.projectId));
+    el.append(row);
+  }
 }
 
 // The integration row: the card's branch and where it went (PR / pushed /

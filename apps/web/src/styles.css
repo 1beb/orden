@@ -4751,6 +4751,46 @@ li.sess-done-head {
   font-size: calc(12px * var(--font-scale));
   color: var(--muted);
 }
+/* Documents: the card's planDoc + docs its sessions surfaced. Each row is a
+   full-width clickable button that opens the doc in the main panel. */
+.card-modal__docs {
+  margin-top: 4px;
+}
+.card-modal__doc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--ink);
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.card-modal__doc:hover {
+  border-color: var(--accent);
+}
+.card-modal__doc-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-modal__doc-badge {
+  flex: none;
+  font-size: calc(10px * var(--font-scale));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
 .card-modal__footer {
   display: flex;
   justify-content: flex-end;
