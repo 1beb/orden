@@ -15,10 +15,12 @@ function firstBlockId(sel: Selector | Selector[]): string | undefined {
 
 // Map stored source annotations into the host's annotationSend input. planDoc is
 // the source's vaultPath (file) or url (web); the host matches it against a
-// card's plan doc / file.
+// card's plan doc / doc link / owning worktree. projectId lets a created session
+// land in the right project instead of the ephemeral default.
 export function toAnnotationSendInput(
   source: Source,
   anns: OrdenAnnotation[],
+  projectId?: string,
 ): AnnotationSendInput {
   const planDoc = source.kind === "file" ? source.vaultPath : source.url;
   const annotations: AnnotationRef[] = anns.map((a) => ({
@@ -28,5 +30,5 @@ export function toAnnotationSendInput(
     note: a.body.text,
     blockId: firstBlockId(a.target.selector),
   }));
-  return { planDoc, annotations };
+  return { planDoc, annotations, ...(projectId ? { projectId } : {}) };
 }

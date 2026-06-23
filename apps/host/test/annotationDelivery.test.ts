@@ -106,6 +106,28 @@ describe("annotationSend", () => {
     expect(link?.sessionId).toBe(r.target);
   });
 
+  test("creates the session in the caller's project when projectId is supplied", async () => {
+    // A relative docPath (as the web sends) can't match any absolute project
+    // root, so without the hint this would fall to "homeroom". The hint — which
+    // the web knows because it opened the file — lands it in the right project.
+    const host = hostWith({ cards: {}, sessions: {}, projects: {} });
+    const { ops } = fakeOps(true);
+    const docPath = "analysis/model-review/rule_search_us.html";
+    const r = await annotationSend(
+      host,
+      {
+        planDoc: docPath,
+        annotations: [{ id: "a1", planDoc: docPath, note: "n", quote: "q" }],
+        projectId: "proj_research",
+      },
+      ops,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("expected ok");
+    const rec = await host.vault.get<Record<string, unknown>>("sessions", r.target);
+    expect(rec?.projectId).toBe("proj_research");
+  });
+
   test("delivers to the session that owns the doc's worktree when no card matches", async () => {
     const host = hostWith({
       cards: {},
