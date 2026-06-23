@@ -37,7 +37,12 @@ export function agentLauncher(
     const b = document.createElement("button");
     b.className = "agent-launch__btn";
     if (agent === defaultAgent) b.classList.add("is-default");
-    b.innerHTML = svg; // static, author-controlled literal
+    // A leading "+" marks this as START-A-NEW-session, so it never reads as the
+    // bare brand glyph the kanban/card "Resume" button uses to REOPEN an existing
+    // one — the two were visually identical, so a card that had lost its session
+    // link silently launched a fresh agent on what looked like a resume click.
+    b.innerHTML =
+      '<span class="agent-launch__plus" aria-hidden="true">+</span>' + svg; // static, author-controlled literals
     const label =
       agent === defaultAgent ? `Start ${name} session (default)` : `Start ${name} session`;
     b.title = label;

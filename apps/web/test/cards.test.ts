@@ -71,6 +71,53 @@ describe("cards store (host-backed)", () => {
     expect(cardSessionIds(listItems().find((x) => x.id === i.id)!)).toEqual(["sess_b"]);
   });
 
+  it("a web persist UNIONS sessionIds — never drops a link the host added while the cache lagged", async () => {
+    // Repro for the "claude mark starts a NEW session instead of resuming" bug:
+    // the host links a session straight to the vault (session_create / an MCP
+    // tool) before the web change-feed roundtrip updates our cache. A web card
+    // edit in that window writes the whole (link-less) cached record. Without the
+    // union it clobbers the host's link to empty, and the card then shows the
+    // start-new launcher where Resume should be. The persist must merge, not drop.
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    const i = addItem("p1", "x", { sessionId: "sess_web" });
+    await settle();
+    const rec = (await h.vault.get<{ sessionIds: string[] }>("cards", i.id))!;
+    await h.vault.set("cards", i.id, { ...rec, sessionIds: [...rec.sessionIds, "sess_host"] });
+    // A web edit persists the cached record, which never saw sess_host.
+    setItemState(i.id, "in-progress");
+    await settle();
+    const after = await h.vault.get<{ sessionIds: string[]; state: string }>("cards", i.id);
+    expect(after?.sessionIds.slice().sort()).toEqual(["sess_host", "sess_web"]);
+    expect(after?.state).toBe("in-progress"); // the web's own change still landed
+  });
+
+  it("removeItemSession drops exactly one link on disk and the union persist can't resurrect it", async () => {
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    const i = addItem("p1", "x", { sessionId: "sess_a" });
+    addItemSession(i.id, "sess_b");
+    await settle();
+    removeItemSession(i.id, "sess_a");
+    await settle();
+    const after = await h.vault.get<{ sessionIds: string[] }>("cards", i.id);
+    expect(after?.sessionIds).toEqual(["sess_b"]);
+  });
+
+  it("a web persist preserves host-stamped integration fields (publishState/prUrl)", async () => {
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    const i = addItem("p1", "x");
+    await settle();
+    const rec = (await h.vault.get<Record<string, unknown>>("cards", i.id))!;
+    await h.vault.set("cards", i.id, { ...rec, publishState: "pr-opened", prUrl: "https://x/pr/1" });
+    setItemState(i.id, "complete"); // a web edit that rewrites the whole record
+    await settle();
+    const after = await h.vault.get<Record<string, unknown>>("cards", i.id);
+    expect(after?.publishState).toBe("pr-opened");
+    expect(after?.prUrl).toBe("https://x/pr/1");
+  });
+
   it("stamps completedAt entering complete, preserves it on re-set, clears it on leaving", () => {
     const i = addItem("p1", "x");
     expect(listItems().find((x) => x.id === i.id)?.completedAt).toBeUndefined();
