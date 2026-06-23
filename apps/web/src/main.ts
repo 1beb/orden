@@ -228,14 +228,25 @@ function notifyOS(text: string, onClick: () => void): void {
 
 declare const __BUILD_TIME__: number;
 
+let updateToastShown = false;
 function checkForUpdates(): void {
   const btn = document.querySelector<HTMLButtonElement>("#new-build-available");
-  if (!btn) return;
   fetch("/build-info")
     .then((r) => r.json())
     .then((info: { buildTime: number }) => {
-      if (info.buildTime > __BUILD_TIME__) {
-        btn.hidden = false;
+      if (info.buildTime <= __BUILD_TIME__) return;
+      if (btn) btn.hidden = false;
+      // The nav button is easy to miss, and a tab left open across a rebuild keeps
+      // running stale code — e.g. an old panel-intent resolver that silently fails
+      // to open docs. Nag once with a prominent, clickable toast so the user
+      // actually reloads onto the current bundle. Once is enough; the 30s poll
+      // would otherwise re-toast forever.
+      if (!updateToastShown) {
+        updateToastShown = true;
+        showToast("A new build of orden is available — click to reload", {
+          duration: 60_000,
+          onClick: () => location.reload(),
+        });
       }
     })
     .catch(() => {}); // silently ignore fetch failures
@@ -1964,6 +1975,25 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   if (path.startsWith("/")) projectId = "host";
   const title = path.split("/").pop() ?? path;
   const kind = viewerFor(path, effectiveHtmlRender(path));
+
+  // Read the file's text up front (images stream as bytes via /repo-file/, so
+  // they skip this). If the read fails — wrong root, missing file, permissions —
+  // surface a toast and STOP before touching any view/watch state, instead of
+  // silently leaving the panel on whatever it showed before. A panel_open whose
+  // target the web can't read otherwise looks like a no-op: the user sees no
+  // change and the agent gets `ok` back (the tool only wrote the intent). This
+  // is the dead-end that left a rendered review doc unopened. See the panel
+  // intent handler and panelIntent.ts.
+  let content = "";
+  if (kind !== "image") {
+    try {
+      content = await host.files.read(projectId, path);
+    } catch {
+      showToast(`Couldn't open ${title} — file not found or unreadable`);
+      return;
+    }
+  }
+
   // Watch only the doc that's open: tell the host to start watching this file
   // (so an external edit live-reloads it) and release the previously-open one.
   // The host watches nothing until we ask, so this pairing is what keeps an
@@ -1978,17 +2008,15 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   currentDocTitle = title;
 
   if (kind === "prose") {
-    // markdown read happens inside loadReviewDoc's funnel
-    const content = await host.files.read(projectId, path);
     loadReviewDoc({ key: `review:${path}`, title, markdown: content });
     viewStore.set("review");
   } else {
     if (kind === "image") {
       await showImageFile(projectId, path, title); // bytes load via /repo-file/<projectId>/
     } else if (kind === "html") {
-      await showHtmlFile(path, title, await host.files.read(projectId, path));
+      await showHtmlFile(path, title, content);
     } else {
-      await showCodeFile(path, title, await host.files.read(projectId, path));
+      await showCodeFile(path, title, content);
     }
     viewStore.set(kind as View);
   }
