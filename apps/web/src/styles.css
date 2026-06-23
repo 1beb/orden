@@ -2326,6 +2326,14 @@ li.sess-done-head {
   outline: none;
 }
 
+/* The review editor (#main) sits under the left-aligned breadcrumb, so its
+   reading column anchors left rather than centering — centering in a wide
+   column (right pane closed) left a large empty gutter under the breadcrumb.
+   Journal/Pages keep centering: their headers center too, so they stay aligned. */
+#editor .ProseMirror {
+  margin: 0;
+}
+
 .ProseMirror h1 {
   font-size: calc(28px * var(--font-scale));
   margin: 0 0 16px;
