@@ -1304,16 +1304,50 @@ function renderBreadcrumb(crumbs: Crumb[]): void {
   });
 }
 
-// Breadcrumb for a project file (review/code/image/html views): the project
-// name (clickable → its page) followed by each path segment, current file last.
-function fileCrumbs(): Crumb[] {
-  const path = currentDocKey.startsWith("review:")
+// Resolve the current doc to its owning project + the path from that project's
+// root. Worktree docs arrive as absolute paths under
+// ~/.orden/worktrees/<projectId>/<sessionId>/… — strip that scratch-checkout
+// prefix so the crumb reads as the project's own tree, not the session's. Any
+// other absolute path under a known local project's root is made relative too.
+function docLocation(): { projId: string; projName?: string; segments: string[] } {
+  let path = currentDocKey.startsWith("review:")
     ? currentDocKey.slice("review:".length)
     : currentDocKey;
-  const projName = getProject(currentDocProjectId)?.name;
+  let projId = currentDocProjectId;
+
+  const wt = path.match(/\/\.orden\/worktrees\/([^/]+)\/[^/]+\/(.*)$/);
+  if (wt) {
+    projId = wt[1];
+    path = wt[2];
+  } else if (path.startsWith("/")) {
+    for (const p of listProjects()) {
+      const root = p.source.kind === "local" ? p.source.path : undefined;
+      if (root && (path === root || path.startsWith(root + "/"))) {
+        projId = p.id;
+        path = path.slice(root.length).replace(/^\/+/, "");
+        break;
+      }
+    }
+  }
+
+  return {
+    projId,
+    projName: getProject(projId)?.name,
+    segments: path.split("/").filter(Boolean),
+  };
+}
+
+// Breadcrumb for a project file: the project name (clickable → its page) followed
+// by the path from the project root. Document views (review/html) render their
+// own title, so the crumb stops at the containing folder — including the filename
+// would just repeat the doc's heading. Raw views (code/image) keep the filename,
+// since nothing else names the file.
+function fileCrumbs(dropFilename: boolean): Crumb[] {
+  const { projId, projName, segments } = docLocation();
+  const segs = dropFilename ? segments.slice(0, -1) : segments;
   const crumbs: Crumb[] = [];
-  if (projName) crumbs.push({ label: projName, go: () => openProject(currentDocProjectId) });
-  for (const seg of path.split("/").filter(Boolean)) crumbs.push({ label: seg });
+  if (projName) crumbs.push({ label: projName, go: () => openProject(projId) });
+  for (const seg of segs) crumbs.push({ label: seg });
   if (crumbs.length === 0) crumbs.push({ label: currentDocTitle });
   return crumbs;
 }
@@ -1323,10 +1357,11 @@ function fileCrumbs(): Crumb[] {
 function breadcrumbForView(v: View): Crumb[] {
   switch (v) {
     case "review":
+    case "html":
+      return fileCrumbs(true);
     case "code":
     case "image":
-    case "html":
-      return fileCrumbs();
+      return fileCrumbs(false);
     case "journal":
       return journalTitle && journalTitle !== "Journal"
         ? [{ label: "Journal", go: () => { journal.showJournal(); viewStore.set("journal"); } }, { label: journalTitle }]
@@ -2747,6 +2782,17 @@ vaultChanges.register("pages", async () => {
   if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
   else if (v === "journal") journal.refresh();
   else if (v === "project") refreshProject(); // notes page may have changed
+});
+
+// Page timestamps live in a sidecar ns. An agent's page_write stamps the body
+// (pages ns) and the sidecar (pagemeta) in separate writes, so the pages-ns
+// refresh can race ahead of the sidecar landing. Re-hydrate on the sidecar write
+// too, so a row's created/updated date shows up live rather than only on reload.
+vaultChanges.register("pagemeta", async () => {
+  await hydratePages(host);
+  const v = viewStore.get();
+  if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
+  else if (v === "journal") journal.refresh();
 });
 
 // Journal day-pages live in their own ns; a remote write (e.g. card-completion

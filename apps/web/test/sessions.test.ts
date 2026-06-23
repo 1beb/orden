@@ -213,6 +213,32 @@ describe("sessions store (host-backed)", () => {
     expect(isSessionComplete(s)).toBe(true);
   });
 
+  it("reapDeadSessions spares an Untitled session parked on a blocked card (the resume target)", () => {
+    // The bug: a session blocks its card but never self-titled and the host's
+    // `prompted` flag hadn't caught up, so the boot reap deleted it and UNLINKED
+    // the card. The user's claude-mark click then started a NEW session instead
+    // of resuming the one that blocked the card. A worked card's session is real.
+    const ghost = createSession({ title: "Untitled", agent: "claude" }); // planning stub -> reaped
+    const working = createSession({ title: "Untitled", agent: "claude" });
+    const card = listItems().find((i) => cardSessionIds(i).includes(working.id))!;
+    setItemState(card.id, "blocked");
+
+    const reaped = reapDeadSessions();
+    expect(reaped).toContain(ghost.id);
+    expect(reaped).not.toContain(working.id);
+    expect(getSession(working.id)?.id).toBe(working.id);
+    // The card keeps its link, so the mark resumes rather than launches anew.
+    expect(cardSessionIds(listItems().find((i) => i.id === card.id)!)).toEqual([working.id]);
+  });
+
+  it("reapDeadSessions also spares an Untitled session on an in-progress card", () => {
+    const working = createSession({ title: "Untitled", agent: "claude" });
+    const card = listItems().find((i) => cardSessionIds(i).includes(working.id))!;
+    setItemState(card.id, "in-progress");
+    expect(reapDeadSessions()).not.toContain(working.id);
+    expect(getSession(working.id)?.id).toBe(working.id);
+  });
+
   it("reapDeadSessions spares an Untitled session the host flagged `prompted`", () => {
     const ghost = createSession({ title: "Untitled", agent: "claude" });
     const prompted = createSession({ title: "Untitled", agent: "claude" });

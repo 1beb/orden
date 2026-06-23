@@ -69,6 +69,21 @@ function linkedCardId(sessionId: string): string | undefined {
   return listItems().find((i) => cardSessionIds(i).includes(sessionId))?.id;
 }
 
+/**
+ * True when the session is linked to a card the agent has actually worked —
+ * in-progress (running) or blocked (done-with-turn, waiting on the user). A card
+ * only reaches those states via the agent's lifecycle hooks, so its session did
+ * real work even if it never self-titled. Such a session must never be reaped as
+ * a "dead stub": doing so unlinks the card, and the user's claude-mark click then
+ * silently starts a NEW session instead of resuming the one that blocked it.
+ */
+function isOnWorkedCard(sessionId: string): boolean {
+  const id = linkedCardId(sessionId);
+  if (!id) return false;
+  const state = listItems().find((i) => i.id === id)?.state;
+  return state === "in-progress" || state === "blocked";
+}
+
 /** A session whose linked card has reached the Complete column — done, not active. */
 export function isSessionComplete(session: Session): boolean {
   const id = linkedCardId(session.id);
@@ -131,8 +146,10 @@ export function isUntitled(s: Session): boolean {
 export function reapDeadSessions(): string[] {
   // `prompted` is set by the host once it finds a real human turn in the
   // transcript (terminal.ts reconcile) — that's genuine work, never a dead stub,
-  // even while still awaiting the agent's self-authored title.
-  const dead = cache.filter((s) => isUntitled(s) && !s.prompted);
+  // even while still awaiting the agent's self-authored title. A session parked
+  // on a worked card (in-progress / blocked) is likewise real work, so it is
+  // spared even if neither title nor `prompted` has caught up yet.
+  const dead = cache.filter((s) => isUntitled(s) && !s.prompted && !isOnWorkedCard(s.id));
   for (const s of dead) deleteSession(s.id); // removes the record + unlinks its card
   return dead.map((s) => s.id);
 }

@@ -2326,6 +2326,14 @@ li.sess-done-head {
   outline: none;
 }
 
+/* The review editor (#main) sits under the left-aligned breadcrumb, so its
+   reading column anchors left rather than centering — centering in a wide
+   column (right pane closed) left a large empty gutter under the breadcrumb.
+   Journal/Pages keep centering: their headers center too, so they stay aligned. */
+#editor .ProseMirror {
+  margin: 0;
+}
+
 .ProseMirror h1 {
   font-size: calc(28px * var(--font-scale));
   margin: 0 0 16px;
@@ -4296,14 +4304,22 @@ li.sess-done-head {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  gap: 1px;
+  min-width: 22px;
   height: 22px;
+  padding: 0 6px 0 4px;
   border: 1px solid var(--accent-soft);
   background: var(--accent-soft);
   color: var(--accent);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+/* "+" prefix: distinguishes START-NEW from the bare-glyph Resume button. */
+.agent-launch__plus {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
 }
 .agent-launch__btn:hover {
   background: var(--accent);
