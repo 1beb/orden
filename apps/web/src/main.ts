@@ -2057,13 +2057,15 @@ function renderRecentFiles(): void {
     const a = document.createElement("a");
     a.className = "nav-file";
     a.dataset.path = path;
-    a.title = path;
     const name = document.createElement("span");
     name.className = "nav-file-name";
     name.textContent = path.split("/").pop() ?? path;
     const meta = document.createElement("span");
     meta.className = "nav-file-meta";
-    meta.textContent = path.includes("/") ? path.replace(/\/[^/]+$/, "") : "/";
+    const projName = getProject(projectId)?.name ?? projectId;
+    const dir = path.includes("/") ? path.replace(/\/[^/]+$/, "") : "/";
+    meta.textContent = `${projName} › ${dir}`;
+    a.title = `${projName} › ${path}`;
     a.append(name, meta);
     a.addEventListener("click", () => void openRepoFile(projectId, path));
     recentList.append(a);
