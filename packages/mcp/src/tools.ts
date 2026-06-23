@@ -26,6 +26,17 @@ const text = (s: string): ToolResult => ({ content: [{ type: "text", text: s }] 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const pageNs = (name: string): string => (ISO_DATE.test(name) ? "journal" : "pages");
 
+// Per-page timestamps live in a sidecar ns ("pagemeta"), keyed by page name —
+// the same contract the web outliner writes (apps/web/src/pages.ts). The Pages
+// index reads this sidecar for each row's created/updated; a page with no sidecar
+// renders with no date. So an agent's page_write MUST stamp it too, or
+// agent-authored pages show up dateless. A journal day-page seeds `created` from
+// its own ISO date (matching the web's dateFallback) so it still sorts sensibly.
+interface PageMeta {
+  created: string;
+  updated: string;
+}
+
 export async function pageList(host: Host): Promise<ToolResult> {
   const names = await host.vault.list("pages");
   return text(names.length ? names.sort().join("\n") : "(no pages)");
@@ -38,6 +49,10 @@ export async function pageRead(host: Host, name: string): Promise<ToolResult> {
 
 export async function pageWrite(host: Host, name: string, markdown: string): Promise<ToolResult> {
   await host.vault.set(pageNs(name), name, markdown);
+  const prev = await host.vault.get<PageMeta>("pagemeta", name);
+  const now = new Date().toISOString();
+  const created = prev?.created ?? (ISO_DATE.test(name) ? `${name}T00:00:00` : now);
+  await host.vault.set("pagemeta", name, { created, updated: now } satisfies PageMeta);
   return text(`wrote page "${name}"`);
 }
 
