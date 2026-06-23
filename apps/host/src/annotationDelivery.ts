@@ -12,12 +12,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Host } from "@orden/host-api";
 import {
-  sessionForPlanDoc,
+  sessionsForDoc,
+  recordDocLink,
+  rid,
   renderSingle,
   renderBatch,
   type DeliverableAnnotation,
 } from "@orden/mcp";
 import { tmuxNameFor, launchDetached } from "./terminal";
+import { listLocalProjectRoots } from "./projectRoots";
 import type { KeyOp } from "./chat/questionKeystrokes";
 
 const exec = promisify(execFile);
@@ -127,17 +130,74 @@ export interface AnnotationSendInput {
   annotations: DeliverableAnnotation[];
 }
 
-// Resolve the session linked to a plan doc, pick a target (a live one, else the
-// most recent — last in the list), render single vs batch, and deliver. Returns
-// a not-linked result (no throw) when no card/session backs the plan.
+// The local project whose root contains `docPath` (longest match wins), else
+// "homeroom" — the default ephemeral project — so a doc that belongs to no
+// project still gets a home. Mirrors sessionByWorkdir's path-boundary check.
+async function projectForDocPath(host: Host, docPath: string): Promise<string> {
+  let best = "homeroom";
+  let bestLen = -1;
+  for (const { id, root } of await listLocalProjectRoots(host)) {
+    const prefix = root.endsWith("/") ? root : root + "/";
+    if ((docPath === root || docPath.startsWith(prefix)) && root.length > bestLen) {
+      best = id;
+      bestLen = root.length;
+    }
+  }
+  return best;
+}
+
+// No session backs the doc yet: create one in the doc's project (or homeroom),
+// queue the annotation as its initial prompt so it lands when the agent starts,
+// and record the doc→session link so later sends reach the same session. The
+// host's launch-on-create reactor spawns the agent when pendingLaunch is set.
+async function createSessionForDoc(host: Host, docPath: string, text: string): Promise<string> {
+  const projectId = await projectForDocPath(host, docPath);
+  const sessionId = rid("sess");
+  const title = `Review: ${docPath.split("/").pop() ?? docPath}`;
+  const settings = await host.vault.get<{ sessionAutoLaunch?: boolean }>("settings", "app");
+  const autoLaunch = settings?.sessionAutoLaunch !== false;
+  await host.vault.set("sessions", sessionId, {
+    id: sessionId,
+    title,
+    agent: "claude",
+    projectId,
+    initialPrompt: text,
+    ...(autoLaunch ? { pendingLaunch: true } : {}),
+  });
+  const cardId = rid("item");
+  await host.vault.set("cards", cardId, {
+    id: cardId,
+    title,
+    state: "planning",
+    projectId,
+    sessionIds: [sessionId],
+    planDoc: docPath,
+  });
+  await recordDocLink(host.vault, docPath, sessionId);
+  return sessionId;
+}
+
+// Resolve the session behind a doc (explicit planDoc link, recorded open-time
+// link, or owning worktree), pick a target (a live one, else the most recent),
+// render single vs batch, and deliver. When NO session backs the doc, create
+// one in the doc's project (or homeroom) with the annotation queued — so review
+// feedback always has somewhere to go.
 export async function annotationSend(
   host: Host,
   input: AnnotationSendInput,
   ops: PaneOps,
 ): Promise<AnnotationSendResult> {
-  const { card, sessionIds } = await sessionForPlanDoc(host.vault, input.planDoc);
-  if (!card || sessionIds.length === 0) {
-    return { ok: false, reason: "no session linked to this plan" };
+  const { sessionIds } = await sessionsForDoc(host.vault, input.planDoc);
+
+  const count = input.annotations.length;
+  const text =
+    count === 1
+      ? renderSingle(input.annotations[0])
+      : renderBatch(input.planDoc, input.annotations);
+
+  if (sessionIds.length === 0) {
+    const sessionId = await createSessionForDoc(host, input.planDoc, text);
+    return { ok: true, target: sessionId, delivered: "relaunched", count };
   }
 
   // Prefer a session with a live pane; else the most recent (last appended).
@@ -148,12 +208,6 @@ export async function annotationSend(
       break;
     }
   }
-
-  const count = input.annotations.length;
-  const text =
-    count === 1
-      ? renderSingle(input.annotations[0])
-      : renderBatch(input.planDoc, input.annotations);
 
   const r = await queueToSession(host, target, text, ops);
   return { ok: true, target, delivered: r.delivered, count };
