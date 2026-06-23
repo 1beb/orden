@@ -69,8 +69,14 @@ const ALERT_KINDS = ["note", "tip", "important", "warning", "caution"] as const;
 // `list_item` gains a `checked` attr: null = ordinary bullet/number item,
 // false/true = a task item rendered with a checkbox.
 const listItemSpec = markdownSchema.spec.nodes.get("list_item")!;
+// code_block defaults to marks:"" (no marks), which silently drops any mark
+// applied to its text. Annotations anchor by mark, so a code-block annotation
+// would orphan the instant it is made. Allow ONLY the annotation mark — no
+// formatting marks, so code stays code and still round-trips to clean markdown.
+const codeBlockSpec = markdownSchema.spec.nodes.get("code_block")!;
 const nodes = markdownSchema.spec.nodes
   .append(tableSpec)
+  .update("code_block", { ...codeBlockSpec, marks: "annotation" })
   .update("list_item", {
     ...listItemSpec,
     attrs: { checked: { default: null } },
