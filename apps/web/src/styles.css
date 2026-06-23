@@ -859,6 +859,13 @@ label.settings-row {
   cursor: pointer;
 }
 
+/* A disabled extension hides its nav entries; flex display would otherwise
+   override the [hidden] attribute's display:none. */
+.nav-item[hidden],
+.bn-btn[hidden] {
+  display: none !important;
+}
+
 .nav-item:hover {
   background: #e9e9e6;
 }

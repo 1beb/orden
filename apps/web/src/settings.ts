@@ -32,6 +32,7 @@ export interface Settings {
   integrationMode: IntegrationMode; // how the merge coordinator integrates a green combined state
   learningPrompt: string; // system prompt given to agents for proposing learnings on completion
   defaultModel: { claude: string; opencode: string }; // per-tool default model id; "" = the agent's own default
+  workflowsEnabled: boolean; // the Workflows extension: when off, its nav entries are hidden
 }
 
 export type IntegrationMode = "fast" | "measured";
@@ -101,6 +102,7 @@ const DEFAULT_SETTINGS: Settings = {
   integrationMode: "fast",
   learningPrompt: DEFAULT_LEARNING_PROMPT,
   defaultModel: { claude: "", opencode: "" },
+  workflowsEnabled: false,
 };
 
 function isStartupView(value: unknown): value is StartupView {
@@ -199,6 +201,10 @@ export function coerce(stored: unknown): Settings {
         ? s.learningPrompt
         : DEFAULT_SETTINGS.learningPrompt,
     defaultModel: coerceModel(s.defaultModel),
+    workflowsEnabled:
+      typeof s.workflowsEnabled === "boolean"
+        ? s.workflowsEnabled
+        : DEFAULT_SETTINGS.workflowsEnabled,
   };
 }
 
