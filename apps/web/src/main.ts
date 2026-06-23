@@ -835,6 +835,12 @@ function syncHighlightStates(placed: { id: string }[]): void {
 }
 
 function renderPanel(): void {
+  // The review panel shares #annotation-list with the source viewers. Only the
+  // review view owns the list; a change-feed reload can dispatch an editor
+  // transaction (onUpdate -> renderPanel) while a source view is showing, which
+  // would wipe the source annotations out from under the source Send button.
+  // No-op off the review view so each renderer sticks to its own context.
+  if (viewStore.get() !== "review") return;
   const placed = scanAnnotations(view.state.doc);
   const presentIds = new Set(placed.map((p) => p.id));
   listEl.replaceChildren();
@@ -968,7 +974,9 @@ async function sendSourceAnnotations(): Promise<void> {
   const planDoc = source.kind === "file" ? source.vaultPath : source.url;
   sourceSendBtn.disabled = true;
   try {
-    const result = await host.sessions.annotationSend(toAnnotationSendInput(source, open));
+    const result = await host.sessions.annotationSend(
+      toAnnotationSendInput(source, open, currentDocProjectId),
+    );
     if (result.ok) {
       for (const a of open) {
         annotationStore.replace(source, a.id, { ...a, "orden:status": "sent" });

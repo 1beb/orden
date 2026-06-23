@@ -21,6 +21,7 @@ import {
   cardCreate,
   sessionForConversation,
   cardForSession,
+  recordDocLink,
   type ToolResult,
 } from "@orden/mcp";
 
@@ -107,6 +108,11 @@ export async function handleAgentRequest(
       let projectId = str(body.projectId);
       if (kind === "doc" && !projectId) {
         projectId = target.startsWith("/") ? "host" : sid ? await rootForSession(host, sid) : undefined;
+      }
+      // Mirror the MCP server: a project-relative doc the agent surfaces links
+      // to its session, so annotations route back here.
+      if (kind === "doc" && projectId !== "host" && target.length > 0 && sid) {
+        void recordDocLink(host.vault, target, sid);
       }
       send(res, 200, true, toolText(await panelOpen(host.vault, kind, target, projectId)));
       return;

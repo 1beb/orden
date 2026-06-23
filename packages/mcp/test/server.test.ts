@@ -73,6 +73,28 @@ describe("createMcpServer registration + binding", () => {
     await client.close();
   });
 
+  it("records a doc→session link when an agent panel_opens a project-relative doc", async () => {
+    const { host, client } = await connectedClient({ conversationId: "uuid-1" });
+    await client.callTool({
+      name: "panel_open",
+      arguments: { kind: "doc", target: "analysis/report.html" },
+    });
+    const link = await host.vault.get<{ sessionId: string }>("doclinks", "analysis/report.html");
+    expect(link?.sessionId).toBe("s1");
+    await client.close();
+  });
+
+  it("does not record a link for an absolute (host-root) doc path", async () => {
+    const { host, client } = await connectedClient({ conversationId: "uuid-1" });
+    await client.callTool({
+      name: "panel_open",
+      arguments: { kind: "doc", target: "/etc/foo.md" },
+    });
+    const link = await host.vault.get("doclinks", "/etc/foo.md");
+    expect(link).toBeNull();
+    await client.close();
+  });
+
   it("rejects card_move state:complete at the schema boundary", async () => {
     const { client } = await connectedClient({ conversationId: "uuid-1" });
     const res = (await client.callTool({

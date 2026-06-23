@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { Host } from "@orden/host-api";
 import * as tools from "./tools";
 import type { ToolResult } from "./tools";
-import { sessionForConversation, cardForSession } from "./sessionLink";
+import { sessionForConversation, cardForSession, recordDocLink } from "./sessionLink";
 
 const INSTRUCTIONS = `You operate the orden kanban for the current session.
 - card_move("in-progress") when you start real work; card_move("blocked") only when you genuinely need the user's input or are done with the turn.
@@ -327,17 +327,19 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
           .describe("doc path (project-relative or absolute), page name, or card id/title; omit for kanban"),
       },
     },
-    async ({ kind, target }) =>
-      tools.panelOpen(
-        host.vault,
-        kind,
-        target ?? "",
-        // Docs resolve against the session's worktree when it has one, so an
-        // agent can surface files it just wrote there. An ABSOLUTE target isn't a
-        // project file at all — the user asked to see a specific path on disk — so
-        // route it through the "host" root (any absolute path, no project needed).
-        kind === "doc" ? (target?.startsWith("/") ? "host" : await currentRootId()) : undefined,
-      ),
+    async ({ kind, target }) => {
+      const t = target ?? "";
+      const root =
+        kind === "doc" ? (t.startsWith("/") ? "host" : await currentRootId()) : undefined;
+      // Record a doc→session link for a project-relative doc this agent surfaces,
+      // so annotations on it route back to THIS session (sessionsForDoc's "link"
+      // rule). Absolute ("host" root) paths aren't project files, so skip them.
+      if (kind === "doc" && root !== "host" && t.length > 0) {
+        const sid = await currentSessionId();
+        if (sid) void recordDocLink(host.vault, t, sid);
+      }
+      return tools.panelOpen(host.vault, kind, t, root);
+    },
   );
 
   server.registerTool(

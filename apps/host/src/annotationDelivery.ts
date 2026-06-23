@@ -128,6 +128,9 @@ export type AnnotationSendResult =
 export interface AnnotationSendInput {
   planDoc: string;
   annotations: DeliverableAnnotation[];
+  /** Project the doc belongs to; used when creating a session for an unowned doc
+   *  so it lands in the right project rather than the ephemeral default. */
+  projectId?: string;
 }
 
 // The local project whose root contains `docPath` (longest match wins), else
@@ -150,8 +153,16 @@ async function projectForDocPath(host: Host, docPath: string): Promise<string> {
 // queue the annotation as its initial prompt so it lands when the agent starts,
 // and record the doc→session link so later sends reach the same session. The
 // host's launch-on-create reactor spawns the agent when pendingLaunch is set.
-async function createSessionForDoc(host: Host, docPath: string, text: string): Promise<string> {
-  const projectId = await projectForDocPath(host, docPath);
+async function createSessionForDoc(
+  host: Host,
+  docPath: string,
+  text: string,
+  projectIdHint?: string,
+): Promise<string> {
+  // Prefer the caller's project (the web knows which project the doc was opened
+  // from) over a root-prefix guess, which fails for the relative paths the web
+  // sends and would otherwise land the session in the ephemeral default.
+  const projectId = projectIdHint ?? (await projectForDocPath(host, docPath));
   const sessionId = rid("sess");
   const title = `Review: ${docPath.split("/").pop() ?? docPath}`;
   const settings = await host.vault.get<{ sessionAutoLaunch?: boolean }>("settings", "app");
@@ -196,7 +207,7 @@ export async function annotationSend(
       : renderBatch(input.planDoc, input.annotations);
 
   if (sessionIds.length === 0) {
-    const sessionId = await createSessionForDoc(host, input.planDoc, text);
+    const sessionId = await createSessionForDoc(host, input.planDoc, text, input.projectId);
     return { ok: true, target: sessionId, delivered: "relaunched", count };
   }
 

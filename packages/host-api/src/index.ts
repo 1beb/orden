@@ -265,6 +265,10 @@ export interface AnnotationRef {
 export interface AnnotationSendInput {
   planDoc: string;
   annotations: AnnotationRef[];
+  /** Project the doc belongs to. When delivery must create a new session (no
+   *  plan/link/workdir owner resolved), it lands here instead of the ephemeral
+   *  default project. */
+  projectId?: string;
 }
 
 export type AnnotationSendResult =
