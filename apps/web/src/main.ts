@@ -2679,6 +2679,17 @@ vaultChanges.register("pages", async () => {
   else if (v === "project") refreshProject(); // notes page may have changed
 });
 
+// Page timestamps live in a sidecar ns. An agent's page_write stamps the body
+// (pages ns) and the sidecar (pagemeta) in separate writes, so the pages-ns
+// refresh can race ahead of the sidecar landing. Re-hydrate on the sidecar write
+// too, so a row's created/updated date shows up live rather than only on reload.
+vaultChanges.register("pagemeta", async () => {
+  await hydratePages(host);
+  const v = viewStore.get();
+  if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
+  else if (v === "journal") journal.refresh();
+});
+
 // Journal day-pages live in their own ns; a remote write (e.g. card-completion
 // logging) re-hydrates the store and refreshes the feed if it's open.
 vaultChanges.register("journal", async () => {
