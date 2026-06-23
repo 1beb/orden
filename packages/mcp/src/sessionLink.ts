@@ -4,6 +4,10 @@ export interface SessionRec {
   id: string;
   conversationId?: string;
   projectId?: string;
+  // Absolute path of the session's git worktree (HOST_OWNED). A doc written
+  // under this path is owned by this session, so it doubles as a path→session
+  // link with no extra bookkeeping (see sessionByWorkdir).
+  workdir?: string;
   // Set by the MCP session_create tool when auto-launch is on. The host watches
   // for it, spawns a detached agent, and clears the flag. Web-created sessions
   // never set it (they launch on open).
@@ -124,6 +128,98 @@ export async function sessionForPlanDoc(
     .filter((p) => stems(p).some((s) => want.has(s)))
     .slice(0, 5);
   return { card: null, sessionIds: [], candidates };
+}
+
+// --- doc → session links -------------------------------------------------
+//
+// An annotation is sent to "the session behind this doc". The card.planDoc match
+// (sessionForPlanDoc) only fires when an agent explicitly set planDoc. To make
+// review feedback Just Work, we also remember which session opened a doc: the
+// `doclinks` ns maps a document path to the session that surfaced it (recorded on
+// panel_open and on a web doc-open). Keyed by the SAME path string the Send uses.
+
+export const DOCLINKS_NS = "doclinks";
+
+export interface DocLink {
+  sessionId: string;
+  /** Epoch ms of the most recent open, for debugging / future LRU. */
+  at?: number;
+}
+
+export async function recordDocLink(
+  vault: VaultStore,
+  docPath: string,
+  sessionId: string,
+  at?: number,
+): Promise<void> {
+  if (!docPath || !sessionId) return;
+  await vault.set(DOCLINKS_NS, docPath, { sessionId, ...(at ? { at } : {}) } satisfies DocLink);
+}
+
+export async function docLinkSessionId(
+  vault: VaultStore,
+  docPath: string,
+): Promise<string | null> {
+  const link = await vault.get<DocLink>(DOCLINKS_NS, docPath);
+  if (!link?.sessionId) return null;
+  // Only honor it if the session still exists.
+  const rec = await vault.get<SessionRec>("sessions", link.sessionId);
+  return rec ? link.sessionId : null;
+}
+
+// Find the session whose worktree contains `docPath` (path is at or under the
+// session's workdir). The longest matching workdir wins, so a nested worktree
+// beats an ancestor. Returns null when no session's worktree owns the path.
+export async function sessionByWorkdir(
+  vault: VaultStore,
+  docPath: string,
+): Promise<SessionRec | null> {
+  let best: SessionRec | null = null;
+  let bestLen = -1;
+  for (const id of await vault.list("sessions")) {
+    const rec = await vault.get<SessionRec>("sessions", id);
+    const wd = rec?.workdir;
+    if (!wd) continue;
+    const prefix = wd.endsWith("/") ? wd : wd + "/";
+    if ((docPath === wd || docPath.startsWith(prefix)) && wd.length > bestLen) {
+      best = rec;
+      bestLen = wd.length;
+    }
+  }
+  return best;
+}
+
+export interface DocSessionResult {
+  sessionIds: string[];
+  card: CardRec | null;
+  /** Which rule resolved it (for logging / tests): plan | link | workdir | none. */
+  via: "plan" | "link" | "workdir" | "none";
+}
+
+// Resolve the session(s) to deliver a doc's annotations to, trying, in order:
+// the explicit planDoc card link, the recorded open-time doc link, then the
+// owning worktree. Pure vault reads — creation of a new session when none of
+// these match is the host's job (it needs project roots + launch).
+export async function sessionsForDoc(
+  vault: VaultStore,
+  docPath: string,
+): Promise<DocSessionResult> {
+  const plan = await sessionForPlanDoc(vault, docPath);
+  if (plan.card && plan.sessionIds.length > 0) {
+    return { sessionIds: plan.sessionIds, card: plan.card, via: "plan" };
+  }
+
+  const linkedId = await docLinkSessionId(vault, docPath);
+  if (linkedId) {
+    return { sessionIds: [linkedId], card: await cardForSession(vault, linkedId), via: "link" };
+  }
+
+  const owner = await sessionByWorkdir(vault, docPath);
+  if (owner) {
+    return { sessionIds: [owner.id], card: await cardForSession(vault, owner.id), via: "workdir" };
+  }
+
+  return { sessionIds: [], card: null, via: "none" };
 }
 
 export async function findCard(vault: VaultStore, target: string): Promise<FindResult> {

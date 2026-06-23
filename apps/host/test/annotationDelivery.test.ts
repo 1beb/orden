@@ -85,11 +85,57 @@ describe("queueToSession", () => {
 describe("annotationSend", () => {
   const plan = "docs/plans/X.md";
 
-  test("returns not-linked when no card matches the plan doc", async () => {
-    const host = hostWith({ cards: {} });
+  test("creates a session (in homeroom) and queues the annotation when nothing is linked", async () => {
+    const host = hostWith({ cards: {}, sessions: {}, projects: {} });
     const { ops } = fakeOps(true);
-    const r = await annotationSend(host, { planDoc: plan, annotations: [] }, ops);
-    expect(r).toEqual({ ok: false, reason: "no session linked to this plan" });
+    const r = await annotationSend(
+      host,
+      { planDoc: plan, annotations: [{ id: "a1", planDoc: plan, note: "n", quote: "q" }] },
+      ops,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.target).toMatch(/^sess/);
+    // The new session carries the annotation as its launch prompt, in homeroom.
+    const rec = await host.vault.get<Record<string, unknown>>("sessions", r.target);
+    expect(rec?.initialPrompt).toContain('"q"');
+    expect(rec?.projectId).toBe("homeroom");
+    expect(rec?.pendingLaunch).toBe(true);
+    // …and the doc→session link is recorded so later sends reuse it.
+    const link = await host.vault.get<{ sessionId: string }>("doclinks", plan);
+    expect(link?.sessionId).toBe(r.target);
+  });
+
+  test("delivers to the session that owns the doc's worktree when no card matches", async () => {
+    const host = hostWith({
+      cards: {},
+      sessions: { s9: { id: "s9", workdir: "/wt/proj/sess9" } },
+    });
+    const { ops, calls } = fakeOps(true);
+    const docPath = "/wt/proj/sess9/docs/report.md";
+    const r = await annotationSend(
+      host,
+      { planDoc: docPath, annotations: [{ id: "a1", planDoc: docPath, note: "n", quote: "q" }] },
+      ops,
+    );
+    expect(r).toMatchObject({ ok: true, target: "s9", delivered: "queued", count: 1 });
+    expect(calls.sent[0].sessionId).toBe("s9");
+  });
+
+  test("delivers to a session recorded as having opened the doc", async () => {
+    const host = hostWith({
+      cards: {},
+      sessions: { s5: { id: "s5" } },
+      doclinks: { [plan]: { sessionId: "s5" } },
+    });
+    const { ops, calls } = fakeOps(true);
+    const r = await annotationSend(
+      host,
+      { planDoc: plan, annotations: [{ id: "a1", planDoc: plan, note: "n", quote: "q" }] },
+      ops,
+    );
+    expect(r).toMatchObject({ ok: true, target: "s5" });
+    expect(calls.sent[0].sessionId).toBe("s5");
   });
 
   test("delivers a single annotation to the live session and reports count 1", async () => {

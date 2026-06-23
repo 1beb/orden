@@ -20,6 +20,7 @@ export {
   docRender,
   learningPropose,
   resolutionReport,
+  rid,
   MERGE_RESOLUTION_NS,
 } from "./tools";
 export type { ToolResult, ResolutionKind, ResolutionVerdict } from "./tools";
@@ -29,8 +30,20 @@ export {
   findCard,
   sessionForPlanDoc,
   cardSessionIds,
+  sessionsForDoc,
+  recordDocLink,
+  docLinkSessionId,
+  sessionByWorkdir,
+  DOCLINKS_NS,
 } from "./sessionLink";
-export type { SessionRec, CardRec, FindResult, PlanDocSessions } from "./sessionLink";
+export type {
+  SessionRec,
+  CardRec,
+  FindResult,
+  PlanDocSessions,
+  DocSessionResult,
+  DocLink,
+} from "./sessionLink";
 export { renderSingle, renderBatch } from "./annotationMessage";
 export type { DeliverableAnnotation } from "./annotationMessage";
 export {

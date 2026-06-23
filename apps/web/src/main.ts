@@ -264,7 +264,6 @@ let currentDocTitle = DOC_TITLE;
 // separately from currentDoc* because we only re-arm the host watch when the
 // actual on-disk file changes, not on every view switch.
 let watchedDoc: { projectId: string; path: string } | null = null;
-const docAnnotationSessions = new Set<string>();
 
 // Signature of the doc+annotations the editor currently reflects, so persist
 // and reload can both skip when nothing changed. Keyed on docKey + markdown +
@@ -592,16 +591,12 @@ function renderHtmlDocMap(htmlDoc: Document): number {
   return headings.length;
 }
 
-const annotator = mountAnnotator(view, log, () => renderPanel(), (_body) => {
-  if (docAnnotationSessions.has(currentDocKey)) return;
-  docAnnotationSessions.add(currentDocKey);
-  createSession({
-    title: `Annotations from ${currentDocTitle}`,
-    agent: "opencode",
-    projectId: currentDocProjectId,
-  });
-  refreshBoard();
-});
+// Creating an annotation no longer spawns a session here. Delivery (Send) now
+// resolves the session behind the doc on the host — the one that opened it
+// (recorded on open), its owning worktree, or a freshly created session in the
+// doc's project — so feedback routes to the right agent instead of a new
+// opencode session that was never even linked.
+const annotator = mountAnnotator(view, log, () => renderPanel());
 
 // Bottom action bar: the primary action morphs between Approve (clean) and Send
 // (annotations present). Agent/human targeting is deferred — defaults to agent.
@@ -1976,6 +1971,17 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   currentDocProjectId = projectId;
   currentDocKey = `review:${path}`;
   currentDocTitle = title;
+
+  // Remember which session surfaced this doc, so annotation Send can route
+  // feedback back to it. A doc opened under a session's worktree root
+  // (projectId "session:<id>") is owned by that session; keyed by the same path
+  // string reviewPlanDoc() sends. (Worktree/absolute opens are also resolvable
+  // host-side from the path, so this is the belt to that suspenders.)
+  if (projectId.startsWith("session:")) {
+    void host.vault.set("doclinks", path, {
+      sessionId: projectId.slice("session:".length),
+    });
+  }
 
   if (kind === "prose") {
     // markdown read happens inside loadReviewDoc's funnel
