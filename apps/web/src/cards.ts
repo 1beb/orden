@@ -18,6 +18,11 @@ export interface Item {
   dueDate?: string; // ISO yyyy-mm-dd, optional
   completedAt?: number; // epoch ms the card last entered "complete"; drives the 1h fall-off
 
+  // Associated planning doc (a docs/plans/*.md repo path), set by the MCP
+  // card_set_plan tool. Host-written, read-only in the web. Listed (with the
+  // docs the card's sessions surfaced) in the card modal's Documents section.
+  planDoc?: string;
+
   // Integration state stamped at completion by the host's publish step (worktree
   // isolation): how the session branch left the system. Read-only in the web.
   publishState?: string; // PublishResult["state"]
@@ -163,6 +168,7 @@ const HOST_OWNED_CARD = [
   "prUrl",
   "compareUrl",
   "publishError",
+  "planDoc",
 ] as const satisfies readonly (keyof Item)[];
 
 // A web persist writes the full cached card. Two values can be fresher on disk
@@ -278,4 +284,55 @@ export function chooseIntegrationWinner(id: string, chosen: string): void {
 export function removeItem(id: string): void {
   cache = cache.filter((i) => i.id !== id);
   if (host) void host.vault.delete("cards", id);
+}
+
+/** A document associated with a card, ready to open in the main panel. */
+export interface CardDoc {
+  path: string; // the doc path (doclinks key / planDoc value)
+  projectId: string; // file root to open it under (passed to openRepoFile)
+  source: "plan" | "session"; // explicit planDoc vs a doc a session surfaced
+}
+
+// A single doclink record (mirrors @orden/mcp's DocLink). Read on demand from
+// the host vault — not part of the boot-hydrated card cache.
+interface DocLinkRec {
+  sessionId: string;
+  at?: number;
+}
+
+/**
+ * The documents associated with a card, for the card modal's Documents list:
+ * the explicit `planDoc` (if set), plus every doc the card's sessions surfaced
+ * via panel_open (the `doclinks` ns maps a doc path to the session that opened
+ * it). Async because doclinks aren't hydrated into the card cache — they're read
+ * on demand. De-duplicated by path; planDoc wins over a same-path session link.
+ */
+export async function cardDocuments(item: Item): Promise<CardDoc[]> {
+  if (!host) return [];
+  const docs: CardDoc[] = [];
+  const seen = new Set<string>();
+
+  if (item.planDoc) {
+    docs.push({ path: item.planDoc, projectId: item.projectId, source: "plan" });
+    seen.add(item.planDoc);
+  }
+
+  const sessionIds = new Set(cardSessionIds(item));
+  if (sessionIds.size > 0) {
+    const h = host;
+    const keys = await h.vault.list("doclinks");
+    const links = await Promise.all(
+      keys.map(async (path) => ({ path, link: await h.vault.get<DocLinkRec>("doclinks", path) })),
+    );
+    for (const { path, link } of links) {
+      if (!link?.sessionId || !sessionIds.has(link.sessionId) || seen.has(path)) continue;
+      seen.add(path);
+      // Absolute paths open through the host root (openRepoFile self-corrects);
+      // a relative path lives under the surfacing session's worktree root.
+      const projectId = path.startsWith("/") ? "host" : `session:${link.sessionId}`;
+      docs.push({ path, projectId, source: "session" });
+    }
+  }
+
+  return docs;
 }

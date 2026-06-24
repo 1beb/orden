@@ -86,6 +86,10 @@ export function renderProjectPage(
   onNewSession: ((agent: Agent) => void) | undefined,
   // Open a repo file in the review/document view (file-backed projects only).
   onOpenFile: ((path: string) => void) | undefined,
+  // Open a card's associated document in the main panel (card modal Documents
+  // list). Distinct from onOpenFile: the doc's root may be a session worktree
+  // ("session:<id>") or the host root, not this project, so it carries projectId.
+  onOpenDoc: ((path: string, projectId: string) => void) | undefined,
   // Fetch THIS project's own files (path + title), lazily on render. The host
   // serves files per project now, so the page asks for its own list rather than
   // receiving one global repo array. Required: the Files widget is its whole
@@ -114,7 +118,7 @@ export function renderProjectPage(
   // Items by state now folds the active sessions in: each row carries its
   // linked session(s) as a leading brand-mark button (open directly), so there's
   // no separate Active-sessions widget to keep in sync.
-  const items = itemsWidget(projectId, onChange, onStartSession, onOpenSession);
+  const items = itemsWidget(projectId, onChange, onStartSession, onOpenSession, onOpenDoc);
   // A single bar at the very top: type a title and either Add it, or hit a
   // Claude / opencode mark to add the item AND start a session on it at once.
   const top = addBar(projectId, onChange, items.render, onStartSession);
@@ -706,6 +710,7 @@ function itemsWidget(
   onChange: () => void,
   onStartSession?: (item: Item, agent: Agent) => void,
   onOpenSession?: (id: string) => void,
+  onOpenDoc?: (path: string, projectId: string) => void,
 ): { section: HTMLElement; render: () => void } {
   const { section, body } = widget("Items by state");
 
@@ -770,6 +775,7 @@ function itemsWidget(
       },
       onStartSession,
       onOpenSession,
+      onOpenDoc,
       // State is conveyed by the group headers and the project is fixed on a
       // project page, so the inline pickers are dropped — both stay editable on
       // the card (its title opens the card modal).
