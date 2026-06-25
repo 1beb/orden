@@ -12,6 +12,8 @@ import {
   addItemSession,
   removeItemSession,
   cardSessionIds,
+  cardDocuments,
+  type Item,
 } from "../src/cards";
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -173,6 +175,84 @@ describe("cards store (host-backed)", () => {
     const got = listItems().find((x) => x.id === "L_sess")!;
     expect(got.sessionIds).toEqual(["sess_legacy"]);
     expect(got.sessionId).toBeUndefined();
+  });
+
+  it("cardDocuments lists the planDoc plus docs the card's sessions surfaced", async () => {
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    // A session of this card opened two docs; an unrelated session opened a third.
+    await h.vault.set("doclinks", "out/review.html", { sessionId: "sess_a" });
+    await h.vault.set("doclinks", "/abs/report.md", { sessionId: "sess_b" });
+    await h.vault.set("doclinks", "out/other.html", { sessionId: "sess_other" });
+
+    const item: Item = {
+      id: "c1",
+      projectId: "p1",
+      title: "card",
+      state: "planning",
+      notes: "",
+      sessionIds: ["sess_a", "sess_b"],
+      planDoc: "docs/plans/2026-06-23-x.md",
+    };
+    const docs = await cardDocuments(item);
+
+    // planDoc first (under the card's project), then the linked sessions' docs.
+    expect(docs).toContainEqual({
+      path: "docs/plans/2026-06-23-x.md",
+      projectId: "p1",
+      source: "plan",
+    });
+    // A relative doc opens under its surfacing session's worktree root.
+    expect(docs).toContainEqual({
+      path: "out/review.html",
+      projectId: "session:sess_a",
+      source: "session",
+    });
+    // An absolute doc opens through the host root.
+    expect(docs).toContainEqual({
+      path: "/abs/report.md",
+      projectId: "host",
+      source: "session",
+    });
+    // A doc surfaced by a session NOT linked to this card is excluded.
+    expect(docs.map((d) => d.path)).not.toContain("out/other.html");
+  });
+
+  it("cardDocuments returns nothing for a card with no planDoc and no sessions", async () => {
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    await h.vault.set("doclinks", "out/x.html", { sessionId: "sess_z" });
+    const item: Item = {
+      id: "c2",
+      projectId: "p1",
+      title: "bare",
+      state: "planning",
+      notes: "",
+      sessionIds: [],
+    };
+    expect(await cardDocuments(item)).toEqual([]);
+  });
+
+  it("cardDocuments de-dupes a path that is both the planDoc and a session link, keeping plan", async () => {
+    const h = new BrowserHost();
+    await hydrateCards(h);
+    await h.vault.set("doclinks", "docs/plans/2026-06-23-x.md", { sessionId: "sess_a" });
+    const item: Item = {
+      id: "c3",
+      projectId: "p1",
+      title: "card",
+      state: "planning",
+      notes: "",
+      sessionIds: ["sess_a"],
+      planDoc: "docs/plans/2026-06-23-x.md",
+    };
+    const docs = await cardDocuments(item);
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toEqual({
+      path: "docs/plans/2026-06-23-x.md",
+      projectId: "p1",
+      source: "plan",
+    });
   });
 
   it("migrates legacy states to the four-state set on hydrate", async () => {

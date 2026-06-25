@@ -185,6 +185,72 @@ describe("card modal — session removal propagation", () => {
   });
 });
 
+describe("card modal — Documents section", () => {
+  let host: BrowserHost;
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+
+  beforeEach(async () => {
+    localStorage.clear();
+    host = new BrowserHost();
+    await hydrateCards(host);
+    await hydrateSessions(host);
+  });
+
+  afterEach(() => {
+    document.querySelectorAll(".card-modal-overlay").forEach((n) => n.remove());
+  });
+
+  function docRows(): HTMLButtonElement[] {
+    return [...document.querySelectorAll<HTMLButtonElement>(".card-modal__doc")];
+  }
+
+  it("lists the planDoc and the docs the card's sessions surfaced, and opens one on click", async () => {
+    const s = createSession({ title: "Has docs", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    Object.assign(card, { planDoc: "docs/plans/2026-06-23-x.md" });
+    await host.vault.set("doclinks", "out/review.html", { sessionId: s.id });
+
+    const opened: Array<[string, string]> = [];
+    openCardModal(card.id, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenDoc: (path, projectId) => opened.push([path, projectId]),
+      onChange: () => {},
+    });
+    await tick(); // renderDocuments reads doclinks asynchronously
+
+    const rows = docRows();
+    expect(rows).toHaveLength(2);
+    const names = rows.map((r) => r.querySelector(".card-modal__doc-name")?.textContent);
+    expect(names).toContain("2026-06-23-x.md");
+    expect(names).toContain("review.html");
+    // The planDoc row carries a "plan" badge; the surfaced one does not.
+    expect(document.querySelector(".card-modal__doc-badge")?.textContent).toBe("plan");
+
+    // Clicking the surfaced doc opens it under its session's worktree root.
+    rows.find((r) => r.title === "out/review.html")!.click();
+    expect(opened).toEqual([["out/review.html", `session:${s.id}`]]);
+    // And it closes the modal (open handler runs close() first).
+    expect(document.querySelector(".card-modal-overlay")).toBeNull();
+  });
+
+  it("renders no Documents section for a card with no associated docs", async () => {
+    const s = createSession({ title: "No docs", agent: "claude", projectId: "p1" });
+    const card = cardFor(s.id);
+    openCardModal(card.id, {
+      onStartSession: () => {},
+      onOpenSession: () => {},
+      onOpenDoc: () => {},
+      onChange: () => {},
+    });
+    await tick();
+    expect(docRows()).toHaveLength(0);
+    expect([...document.querySelectorAll(".card-modal__section-head")].map((e) => e.textContent)).not.toContain(
+      "Documents",
+    );
+  });
+});
+
 describe("card modal — integration (branch/PR) row", () => {
   beforeEach(async () => {
     localStorage.clear();

@@ -66,6 +66,8 @@ const filters: BoardFilters = { dueOnly: false, noSessions: false, projectId: ""
 export interface KanbanDeps {
   onStartSession: (item: Item, agent: Agent) => void;
   onOpenSession: (sessionId: string) => void;
+  // Open an associated document in the main panel (card modal Documents list).
+  onOpenDoc: (path: string, projectId: string) => void;
   // Count of a card's still-OPEN learnings — those `pending` (awaiting the user)
   // or `revising` (commented, agent re-iterating). Injected (rather than
   // importing learningsStore here) so this render module stays store-agnostic;
@@ -259,6 +261,7 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
         onMutate: rerender,
         onStartSession: deps.onStartSession,
         onOpenSession: deps.onOpenSession,
+        onOpenDoc: deps.onOpenDoc,
         // Mirror the board's derived Learnings column: bucket complete cards
         // with open learnings into a Learnings group whose rows open the review.
         learnings: { openFor: deps.openLearnings, onOpen: deps.onOpenLearnings },
@@ -468,6 +471,7 @@ export function renderKanban(container: HTMLElement, deps: KanbanDeps): number {
         openCardModal(item.id, {
           onStartSession: deps.onStartSession,
           onOpenSession: deps.onOpenSession,
+          onOpenDoc: deps.onOpenDoc,
           onChange: rerender,
         });
       });
