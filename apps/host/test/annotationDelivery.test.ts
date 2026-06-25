@@ -104,6 +104,16 @@ describe("annotationSend", () => {
     // …and the doc→session link is recorded so later sends reuse it.
     const link = await host.vault.get<{ sessionId: string }>("doclinks", plan);
     expect(link?.sessionId).toBe(r.target);
+    // The auto-created card carries the annotation in its description so the
+    // board shows the feedback, not just a bare "Review: …" title.
+    const cardIds = await host.vault.list("cards");
+    expect(cardIds).toHaveLength(1);
+    const card = await host.vault.get<{ description?: string }>("cards", cardIds[0]);
+    expect(card?.description).toContain('"q"');
+    expect(card?.description).toContain("n");
+    // …without the agent-directed boilerplate that goes to the live pane.
+    expect(card?.description).not.toContain("[orden");
+    expect(card?.description).not.toContain("reply in-thread");
   });
 
   test("delivers to the session that owns the doc's worktree when no card matches", async () => {

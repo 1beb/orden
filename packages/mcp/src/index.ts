@@ -44,7 +44,7 @@ export type {
   DocSessionResult,
   DocLink,
 } from "./sessionLink";
-export { renderSingle, renderBatch } from "./annotationMessage";
+export { renderSingle, renderBatch, describeAnnotations } from "./annotationMessage";
 export type { DeliverableAnnotation } from "./annotationMessage";
 export {
   putLearning,
