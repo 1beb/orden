@@ -87,6 +87,39 @@ describe("repro: Comparison of CSV IO page", () => {
   });
 });
 
+describe("repro: table directly after a heading (INNOV-2888 §2)", () => {
+  // A table that immediately follows another block (here a heading) used to
+  // serialize glued onto it — "## Title| col | col |" — because renderCell's
+  // buffer swap let the pending block-close get flushed into the discarded
+  // cell buffer. The result re-parses as a heading + orphaned delimiter, so
+  // the table renders as raw pipe text. The header-less round-trip tests above
+  // never caught it because nothing precedes their table.
+  const DOC = [
+    "## 2. Prior work",
+    "",
+    "| Branch | Worktree | Holds |",
+    "|---|---|---|",
+    "| `a/b` | `s1` | `x.R`, `y.R` |",
+    "| `c/d` | `s2` | `z.qmd` |",
+    "",
+    "Some text after.",
+  ].join("\n");
+
+  it("keeps the heading and the table header on separate lines", () => {
+    const out = markdownSerializer.serialize(markdownParser.parse(DOC));
+    expect(out).not.toMatch(/Prior work\|/); // not glued
+    expect(out).toMatch(/^## 2\. Prior work$/m); // heading on its own line
+    expect(out).toMatch(/\| Branch \| Worktree \| Holds \|\n\| --- \| --- \| --- \|/);
+  });
+
+  it("re-parses the re-serialized output to a real table", () => {
+    const out = markdownSerializer.serialize(markdownParser.parse(DOC));
+    const reparsed = markdownParser.parse(out);
+    expect(find(reparsed, "table")).toHaveLength(1);
+    expect(find(reparsed, "table_row")).toHaveLength(3); // header + 2 body
+  });
+});
+
 describe("table DOM rendering", () => {
   it("renders a <table> with per-column text-align styles", () => {
     const doc = markdownParser.parse(GFM);

@@ -226,14 +226,23 @@ const ALIGN_DELIM: Record<string, string> = {
 // serializer's output buffer, then make it table-safe (pipes escaped, no
 // newlines).
 function renderCell(state: MarkdownSerializerState, cell: PMNode): string {
-  // `out` is the serializer's accumulator buffer; it's real at runtime but not in
-  // the public types. Swap it to capture just this cell's inline rendering.
-  const buf = state as unknown as { out: string };
-  const saved = buf.out;
+  // `out`/`closed` are the serializer's accumulator + pending-block-close; real
+  // at runtime but not in the public types. Swap `out` to capture just this
+  // cell's inline rendering. We must ALSO shield `closed`: renderInline flushes
+  // any pending block close, which would otherwise be absorbed into this
+  // discarded buffer — so the first cell of the first row silently eats the
+  // separator from the previous block and the table glues onto it (e.g. a
+  // heading becomes "## Title| col | col |", breaking the table). Null it for
+  // the isolated render, then restore so the real row write emits the break.
+  const buf = state as unknown as { out: string; closed: PMNode | null };
+  const savedOut = buf.out;
+  const savedClosed = buf.closed;
   buf.out = "";
+  buf.closed = null;
   state.renderInline(cell);
   const text = buf.out;
-  buf.out = saved;
+  buf.out = savedOut;
+  buf.closed = savedClosed;
   return text.replace(/\n/g, " ").replace(/\|/g, "\\|").trim();
 }
 
