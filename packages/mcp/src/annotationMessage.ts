@@ -42,3 +42,18 @@ export function renderBatch(planDoc: string, as: DeliverableAnnotation[]): strin
   });
   return [header, ...items].join("\n");
 }
+
+// User-facing card description: the annotation's substance (anchor + note) with
+// none of the agent-directed boilerplate renderSingle/renderBatch carry (the
+// "[orden …]" header, the "reply in-thread or resolve" footer). Used when a card
+// is auto-created to back review feedback, so the board shows what was said.
+export function describeAnnotations(as: DeliverableAnnotation[]): string {
+  if (as.length === 1) return [anchorLine(as[0]), as[0].note].join("\n");
+  return as
+    .map((a, i) => {
+      const n = `${i + 1}. `;
+      const pad = " ".repeat(n.length);
+      return `${n}${anchorLine(a)}\n${pad}${a.note}`;
+    })
+    .join("\n");
+}

@@ -17,6 +17,7 @@ import {
   rid,
   renderSingle,
   renderBatch,
+  describeAnnotations,
   type DeliverableAnnotation,
 } from "@orden/mcp";
 import { tmuxNameFor, launchDetached } from "./terminal";
@@ -150,7 +151,12 @@ async function projectForDocPath(host: Host, docPath: string): Promise<string> {
 // queue the annotation as its initial prompt so it lands when the agent starts,
 // and record the doc→session link so later sends reach the same session. The
 // host's launch-on-create reactor spawns the agent when pendingLaunch is set.
-async function createSessionForDoc(host: Host, docPath: string, text: string): Promise<string> {
+async function createSessionForDoc(
+  host: Host,
+  docPath: string,
+  text: string,
+  annotations: DeliverableAnnotation[],
+): Promise<string> {
   const projectId = await projectForDocPath(host, docPath);
   const sessionId = rid("sess");
   const title = `Review: ${docPath.split("/").pop() ?? docPath}`;
@@ -172,6 +178,10 @@ async function createSessionForDoc(host: Host, docPath: string, text: string): P
     projectId,
     sessionIds: [sessionId],
     planDoc: docPath,
+    // Surface the annotation(s) on the card so the board shows what the review
+    // feedback was, not just a bare "Review: <doc>" title. This is display text;
+    // the agent's prompt comes from the session's initialPrompt above.
+    description: describeAnnotations(annotations),
   });
   await recordDocLink(host.vault, docPath, sessionId);
   return sessionId;
@@ -196,7 +206,7 @@ export async function annotationSend(
       : renderBatch(input.planDoc, input.annotations);
 
   if (sessionIds.length === 0) {
-    const sessionId = await createSessionForDoc(host, input.planDoc, text);
+    const sessionId = await createSessionForDoc(host, input.planDoc, text, input.annotations);
     return { ok: true, target: sessionId, delivered: "relaunched", count };
   }
 
