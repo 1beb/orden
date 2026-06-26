@@ -18,8 +18,7 @@ import {
   listProjects,
   getProject,
   hydrateProjects,
-  removeProject,
-  ensureDefaultProject,
+  updateProject,
 } from "./projects";
 import { openProjectModal } from "./projectModal";
 import { hydratePages, pagesIndex, journalIndex, renamePage } from "./pages";
@@ -38,10 +37,7 @@ import {
   listItems,
   getItem,
   cardSessionIds,
-  itemsByProject,
-  setItemProject,
   promptForItem,
-  removeItem,
   type Item,
 } from "./cards";
 import {
@@ -61,7 +57,6 @@ import {
   createSession,
   archiveSession,
   deleteSession,
-  setSessionProject,
   onSessionsChange,
   isAbandoned,
   isSessionComplete,
@@ -1320,7 +1315,7 @@ function docLocation(): { projId: string; projName?: string; segments: string[] 
     projId = wt[1];
     path = wt[2];
   } else if (path.startsWith("/")) {
-    for (const p of listProjects()) {
+    for (const p of listProjects({ includeArchived: true })) {
       const root = p.source.kind === "local" ? p.source.path : undefined;
       if (root && (path === root || path.startsWith(root + "/"))) {
         projId = p.id;
@@ -1535,7 +1530,7 @@ const journal = mountJournal(
     const projM = /^Project:\s*(.+)$/i.exec(target);
     if (projM) {
       const name = projM[1].trim().toLowerCase();
-      const proj = listProjects().find((p) => p.name.toLowerCase() === name);
+      const proj = listProjects({ includeArchived: true }).find((p) => p.name.toLowerCase() === name);
       if (proj) openProject(proj.id);
       return true;
     }
@@ -1697,26 +1692,22 @@ function onProjectChanged(): void {
   }
 }
 
-// Remove a project, deciding what happens to its cards/sessions. "reassign"
-// moves them to the default (Homeroom) project so nothing is orphaned;
-// "cascade" deletes the cards and sessions (deleteSession also kills the
-// agent). Then drop the project and navigate off its now-dead page.
-function removeProjectWithItems(id: string, mode: "reassign" | "cascade"): void {
-  const cards = itemsByProject(id);
-  const sessions = listSessions(true).filter((s) => s.projectId === id);
-  if (mode === "reassign") {
-    const home = ensureDefaultProject().id;
-    for (const s of sessions) setSessionProject(s.id, home);
-    for (const c of cards) setItemProject(c.id, home);
-  } else {
-    for (const s of sessions) deleteSession(s.id);
-    for (const c of cards) removeItem(c.id);
-  }
-  removeProject(id);
-  if (currentProjectId === id) currentProjectId = null;
+// Toggle a project's archived flag. Archiving hides it from the sidebar,
+// pickers, board, and search (its cards/sessions are kept); unarchive brings it
+// back. The project page itself still renders either way, so nothing is
+// navigated away — the sidebar simply drops/re-adds the row.
+function setProjectArchived(id: string, archived: boolean): void {
+  updateProject(id, { archived });
   renderProjects();
   refreshBoard();
-  viewStore.set("kanban");
+  if (viewStore.get() === "projects") {
+    renderProjectsIndex(viewEls.projects, openProject, unarchiveProject);
+  }
+}
+
+// Unarchive straight from the Projects page's Archived section.
+function unarchiveProject(id: string): void {
+  setProjectArchived(id, false);
 }
 
 // Re-render the project page on a remote change.
@@ -2210,7 +2201,7 @@ viewRegistry.register("projects", {
   el: viewEls.projects,
   breadcrumb: () => breadcrumbForView("projects"),
   navLinks: ["#nav-projects", "#bn-projects"],
-  onEnter: () => renderProjectsIndex(viewEls.projects, openProject),
+  onEnter: () => renderProjectsIndex(viewEls.projects, openProject, unarchiveProject),
 });
 viewRegistry.register("project", {
   el: viewEls.project,
@@ -2226,7 +2217,7 @@ viewRegistry.register("project-settings", {
         onProjectChanged();
         refreshProject();
       },
-      onRemoveProject: removeProjectWithItems,
+      onArchiveProject: (id, archived) => setProjectArchived(id, archived),
       close: () => projectSettingsToggler.close(),
     });
   },
@@ -2824,7 +2815,7 @@ vaultChanges.register("learnings", async () => {
 vaultChanges.register("projects", async () => {
   await hydrateProjects(host);
   renderProjects();
-  if (viewStore.get() === "projects") renderProjectsIndex(viewEls.projects, openProject);
+  if (viewStore.get() === "projects") renderProjectsIndex(viewEls.projects, openProject, unarchiveProject);
   refreshProject();
 });
 
@@ -2915,7 +2906,7 @@ onReconnect(() => {
     sessionsPanel.refresh();
     const v = viewStore.get();
     if (v === "pages") void renderPagesIndex(viewEls.pages, openPage);
-    else if (v === "projects") renderProjectsIndex(viewEls.projects, openProject);
+    else if (v === "projects") renderProjectsIndex(viewEls.projects, openProject, unarchiveProject);
     else if (v === "journal") journal.refresh();
     else if (v === "project") refreshProject();
   })();

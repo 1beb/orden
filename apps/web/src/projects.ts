@@ -32,6 +32,10 @@ export interface Project {
   // state" list instead of letting them fade out after completeFadeHours. Absent
   // / false = the default fade-out behaviour.
   showCompleted?: boolean;
+  // archived: hidden from the sidebar, pickers, board, and search — it only
+  // appears in the Projects page's furled "Archived" section. Its cards and
+  // sessions are kept. Absent / false = active (the default). Reversible.
+  archived?: boolean;
   // worktreeIsolation: per-project override of the global "isolate sessions in
   // git worktrees" setting. Absent = inherit; true/false force it on/off here.
   worktreeIsolation?: boolean;
@@ -58,8 +62,9 @@ export async function hydrateProjects(h: Host): Promise<void> {
   cache = all.filter((p): p is Project => p !== null);
 }
 
-export function listProjects(): Project[] {
-  return [...cache];
+export function listProjects(opts?: { includeArchived?: boolean }): Project[] {
+  const all = [...cache];
+  return opts?.includeArchived ? all : all.filter((p) => !p.archived);
 }
 
 // True when the host can pop a native directory chooser. The project modal uses
@@ -127,6 +132,9 @@ export function updateProject(
     defaultAgent?: Agent | null;
     workingDir?: string | null;
     showCompleted?: boolean;
+    // true archives (hides from active lists); false unarchives. Stored as
+    // absence when false, matching the absent-means-default rule.
+    archived?: boolean;
     // true/false force the override; null clears it back to inherit.
     worktreeIsolation?: boolean | null;
     // "fast"/"measured" force the override; null clears it back to inherit.
@@ -172,6 +180,10 @@ export function updateProject(
     // otherwise — keeps records clean and matches the absent-means-default rule.
     if (patch.showCompleted) project.showCompleted = true;
     else delete project.showCompleted;
+  }
+  if (patch.archived !== undefined) {
+    if (patch.archived) project.archived = true;
+    else delete project.archived;
   }
   if (host) void host.vault.set("projects", project.id, project);
 }

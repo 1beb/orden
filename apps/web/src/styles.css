@@ -796,6 +796,23 @@ label.settings-row {
   filter: brightness(0.95);
 }
 
+/* Archive toggle in project settings: a neutral outline button (reversible, so
+   not styled like a destructive action). */
+.settings-archive-btn {
+  margin-top: 12px;
+  font: inherit;
+  font-size: calc(13px * var(--font-scale));
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.settings-archive-btn:hover {
+  border-color: var(--accent);
+}
+
 /* Danger zone: a furled <details> at the foot of the project-settings page.
    Closed by default so destructive removal stays out of the way. */
 .settings-danger {
@@ -3565,6 +3582,39 @@ li.sess-done-head {
   color: var(--muted);
   font-size: calc(12px * var(--font-scale));
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Archived projects: a furled <details> below the active table. Closed by
+   default so done-with projects stay out of the way but remain findable. */
+.projects-index-archived {
+  max-width: 760px;
+  margin: 32px auto 0;
+}
+.projects-index-archived-head {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: calc(11px * var(--font-scale));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 0;
+  user-select: none;
+}
+.projects-index-action {
+  text-align: right;
+  white-space: nowrap;
+}
+.projects-index-unarchive {
+  font: inherit;
+  font-size: calc(12px * var(--font-scale));
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.projects-index-unarchive:hover {
+  border-color: var(--accent);
 }
 
 /* projects list + add form */

@@ -71,6 +71,23 @@ describe("projects registry (host-backed)", () => {
     expect(getProject(p.id)?.showCompleted).toBeUndefined();
   });
 
+  it("archived projects are hidden from listProjects() but kept by includeArchived", () => {
+    const a = addProject("Active");
+    const g = addProject("Gone");
+    updateProject(g.id, { archived: true });
+    expect(getProject(g.id)?.archived).toBe(true);
+    // Default listing excludes archived.
+    expect(listProjects().map((x) => x.id)).toEqual([a.id]);
+    // includeArchived returns them all (still cached, not deleted).
+    expect(listProjects({ includeArchived: true }).map((x) => x.id).sort()).toEqual(
+      [a.id, g.id].sort(),
+    );
+    // Unarchive clears the flag back to absence.
+    updateProject(g.id, { archived: false });
+    expect(getProject(g.id)?.archived).toBeUndefined();
+    expect(listProjects().map((x) => x.id).sort()).toEqual([a.id, g.id].sort());
+  });
+
   it("sets the worktree-isolation override and clears it back to inherit", () => {
     const p = addProject("Isolated");
     expect(getProject(p.id)?.worktreeIsolation).toBeUndefined(); // inherit
