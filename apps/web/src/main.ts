@@ -88,7 +88,7 @@ import { buildNoteComposer } from "./noteComposer";
 import type { Source, Annotation } from "@orden/annotation-core";
 import type { AnnotationSendInput } from "@orden/host-api";
 import { viewerFor } from "./codeHighlight";
-import { renderImageView, renderHtmlView } from "./richView";
+import { renderImageView, renderHtmlView, repoFileUrl } from "./richView";
 import { normalizeRect, renderRegionBoxes, buildRegionAnnotation } from "./regionOverlay";
 import {
   hydrateRecentFiles,
@@ -1084,10 +1084,19 @@ async function showCodeFile(path: string, title: string, content: string): Promi
 // NOTE: rendered-DOM text offsets differ from HTML-source offsets, so an annotation
 // made here won't resolve if the same file is later opened as source (and vice-versa);
 // they coexist in the store and orphan gracefully in the other mode (no mode key yet).
-async function showHtmlFile(path: string, title: string, content: string): Promise<void> {
+async function showHtmlFile(
+  projectId: string,
+  path: string,
+  title: string,
+  content: string,
+): Promise<void> {
   // Compute the source up front so the async-fired load handler stays synchronous.
   const source = await fileSource(path, content, title);
-  const frame = renderHtmlView(viewEls.html, { title, content, owned: true });
+  // Base the iframe at the doc's own directory (served via /repo-file/) so its
+  // relative theme CSS / JS / images load instead of 404ing against the app origin.
+  const dir = path.slice(0, path.lastIndexOf("/") + 1);
+  const baseHref = repoFileUrl(projectId, dir);
+  const frame = renderHtmlView(viewEls.html, { title, content, owned: true, baseHref });
   frame.addEventListener("load", () => {
     const doc = frame.contentDocument;
     const win = frame.contentWindow;
@@ -2086,7 +2095,7 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
     if (kind === "image") {
       await showImageFile(projectId, path, title); // bytes load via /repo-file/<projectId>/
     } else if (kind === "html") {
-      await showHtmlFile(path, title, content);
+      await showHtmlFile(projectId, path, title, content);
     } else {
       await showCodeFile(path, title, content);
     }
@@ -2767,7 +2776,7 @@ vaultChanges.register("files", async (key, projectId) => {
       await showImageFile(projectId, key, currentDocTitle);
     } else if (kind === "html") {
       const content = await host.files.read(projectId, key);
-      await showHtmlFile(key, currentDocTitle, content);
+      await showHtmlFile(projectId, key, currentDocTitle, content);
     } else if (kind === "code") {
       const content = await host.files.read(projectId, key);
       await showCodeFile(key, currentDocTitle, content);

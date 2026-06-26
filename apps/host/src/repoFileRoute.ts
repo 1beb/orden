@@ -11,6 +11,10 @@ import type { ProjectRootResolver } from "./projectRoots";
 
 const PREFIX = "/repo-file/";
 
+// Rendered HTML (Quarto/Pandoc) pulls its theme via relative <link>/<script>/font
+// refs, which now flow through this route. Browsers REFUSE a stylesheet served as
+// application/octet-stream in standards mode (strict MIME), so css/js/fonts need
+// their real content-type or the page renders unstyled — the whole point of the fix.
 const MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -18,6 +22,21 @@ const MIME: Record<string, string> = {
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".eot": "application/vnd.ms-fontobject",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
 };
 
 export function repoFileMime(path: string): string {

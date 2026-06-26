@@ -50,3 +50,37 @@ describe("renderHtmlView sandbox", () => {
     expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
   });
 });
+
+describe("renderHtmlView base href", () => {
+  it("injects a <base> right after <head> so relative links resolve", () => {
+    const container = document.createElement("div");
+    const content =
+      '<!DOCTYPE html><html><head><link href="x_files/libs/bootstrap.css" rel="stylesheet"></head><body>hi</body></html>';
+    const frame = renderHtmlView(container, {
+      title: "t",
+      content,
+      owned: true,
+      baseHref: "/repo-file/host/dir/",
+    });
+    expect(frame.srcdoc).toContain('<head><base href="/repo-file/host/dir/">');
+    // base precedes the first stylesheet link so it governs that link's resolution
+    expect(frame.srcdoc.indexOf("<base")).toBeLessThan(frame.srcdoc.indexOf("<link"));
+  });
+
+  it("prepends the <base> when the document has no <head>", () => {
+    const container = document.createElement("div");
+    const frame = renderHtmlView(container, {
+      title: "t",
+      content: "<p>hi</p>",
+      owned: true,
+      baseHref: "/repo-file/p/sub/",
+    });
+    expect(frame.srcdoc).toBe('<base href="/repo-file/p/sub/"><p>hi</p>');
+  });
+
+  it("omits the <base> when no baseHref is given (external pages)", () => {
+    const container = document.createElement("div");
+    const frame = renderHtmlView(container, { title: "t", content: "<head></head>" });
+    expect(frame.srcdoc).toBe("<head></head>");
+  });
+});
