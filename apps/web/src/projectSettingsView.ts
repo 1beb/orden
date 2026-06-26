@@ -4,7 +4,8 @@
 // the prior view, ✕ / Escape restore it. Unlike app settings (which write
 // through on every change), project edits are staged and applied on Save — a
 // path change can move where agents launch, so it shouldn't take effect on a
-// stray keystroke. Project removal lives furled in a danger zone at the bottom.
+// stray keystroke. Archiving (a reversible hide, not a delete) lives in its own
+// group at the bottom.
 
 import {
   getProject,
@@ -12,21 +13,17 @@ import {
   canPickDirectory,
   pickDirectory,
   DEFAULT_PROJECT_ID,
-  type Project,
 } from "./projects";
 import type { Agent } from "./sessions";
-import { itemsByProject } from "./cards";
-import { listSessions } from "./sessions";
-import { openDialog } from "./modal";
 
 export interface ProjectSettingsDeps {
   // Refresh the sidebar list, view title, and project page after a save (a
   // rename / re-path must propagate everywhere the name or path is shown).
   onSaved: () => void;
-  // Remove the project. `mode` decides its cards/sessions: "reassign" moves them
-  // to Homeroom, "cascade" deletes them. The caller owns the cross-store work
-  // and navigates off the now-dead page.
-  onRemoveProject: (id: string, mode: "reassign" | "cascade") => void;
+  // Toggle the project's archived flag. Archiving hides it from the sidebar,
+  // pickers, board, and search (its cards/sessions are kept); unarchive brings
+  // it back. Reversible, so no confirmation.
+  onArchiveProject: (id: string, archived: boolean) => void;
   // Close the overlay, returning to the prior view (the toggler's close()).
   close: () => void;
 }
@@ -237,72 +234,32 @@ export function renderProjectSettings(
     deps.close();
   });
 
-  // --- Danger zone (furled; Homeroom can't be removed) ---
+  // --- Archive (Homeroom can't be archived) ---
   if (project.id !== DEFAULT_PROJECT_ID) {
-    const danger = document.createElement("details");
-    danger.className = "settings-group settings-danger";
-    const summary = document.createElement("summary");
-    summary.className = "settings-group-title settings-danger-summary";
-    summary.textContent = "Danger zone";
-    danger.append(summary);
+    const archived = project.archived === true;
+    const group = document.createElement("section");
+    group.className = "settings-group";
+    const gh = document.createElement("h2");
+    gh.className = "settings-group-title";
+    gh.textContent = "Archive";
+    group.append(gh);
 
     const desc = document.createElement("p");
     desc.className = "settings-hint";
-    desc.textContent =
-      "Removing a project takes its cards and sessions with it (or moves them to Homeroom). This can't be undone.";
-    const removeBtn = document.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.className = "settings-danger-btn";
-    removeBtn.textContent = "Remove project";
-    removeBtn.addEventListener("click", () => {
-      void confirmRemoveProject(project, deps.onRemoveProject);
+    desc.textContent = archived
+      ? "This project is archived — hidden from the sidebar, pickers, board, and search. Its cards and sessions are kept. Unarchive to bring it back."
+      : "Archiving hides this project from the sidebar, pickers, board, and search. Its cards and sessions are kept, and you can unarchive it later from the Projects page.";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "settings-archive-btn";
+    btn.textContent = archived ? "Unarchive project" : "Archive project";
+    btn.addEventListener("click", () => {
+      deps.onArchiveProject(project.id, !archived);
+      deps.close();
     });
-    danger.append(desc, removeBtn);
-    page.append(danger);
+    group.append(desc, btn);
+    page.append(group);
   }
 
   container.append(page);
-}
-
-// The remove confirmation flow. Counts the project's cards/sessions, offers
-// "move to Homeroom" vs "delete everything", and double-confirms a cascade
-// before delegating the actual removal to the caller. (Lifted verbatim from the
-// old project-page cog menu — the only behavioral change is where it's invoked.)
-async function confirmRemoveProject(
-  project: Project,
-  onRemoveProject: (id: string, mode: "reassign" | "cascade") => void,
-): Promise<void> {
-  const cardCount = itemsByProject(project.id).length;
-  const sessCount = listSessions(true).filter((s) => s.projectId === project.id).length;
-
-  if (cardCount === 0 && sessCount === 0) {
-    const ok = await openDialog({
-      title: `Remove "${project.name}"?`,
-      message: "This project is empty. Remove it?",
-      actions: [{ id: "reassign", label: "Remove project", danger: true }],
-    });
-    if (ok === "reassign") onRemoveProject(project.id, "reassign");
-    return;
-  }
-
-  const counts = `${cardCount} card${cardCount === 1 ? "" : "s"} and ${sessCount} session${sessCount === 1 ? "" : "s"}`;
-  const choice = await openDialog({
-    title: `Remove "${project.name}"`,
-    message: `This project has ${counts}. What should happen to them?`,
-    actions: [
-      { id: "reassign", label: "Move to Homeroom & remove" },
-      { id: "cascade", label: "Delete everything", danger: true },
-    ],
-  });
-  if (!choice) return;
-
-  if (choice === "cascade") {
-    const sure = await openDialog({
-      title: "Permanently delete everything?",
-      message: `This deletes ${counts} and stops their running agents. This cannot be undone.`,
-      actions: [{ id: "confirm", label: "Delete everything", danger: true }],
-    });
-    if (sure !== "confirm") return;
-  }
-  onRemoveProject(project.id, choice as "reassign" | "cascade");
 }

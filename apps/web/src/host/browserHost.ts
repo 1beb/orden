@@ -96,7 +96,9 @@ class LocalIdentity implements Identity {
 
 class LocalProjects implements ProjectRegistry {
   async list(): Promise<Project[]> {
-    return listProjects();
+    // The host API is the canonical registry, so it lists every project
+    // (archived included); the web view layer decides what to show.
+    return listProjects({ includeArchived: true });
   }
 
   async add(source: ProjectSource, name?: string): Promise<Project> {
