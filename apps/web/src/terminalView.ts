@@ -98,13 +98,18 @@ export function mountTerminal(
   };
   term.onResize(sendResize);
   ws.onopen = () => {
-    try {
-      fit.fit();
-    } catch {
-      /* ignore */
-    }
+    refit();
     sendResize();
     term.focus();
+    // The first fit() right after open can under/over-count columns: xterm's
+    // renderer hasn't measured the font yet, so the cell width is a placeholder.
+    // The container doesn't change size once the font is measured, so the
+    // ResizeObserver never fires to correct it — re-fit one frame later, once
+    // the renderer has real metrics, and push the true size to the pty.
+    requestAnimationFrame(() => {
+      refit();
+      sendResize();
+    });
   };
 
   const ro = new ResizeObserver(() => {
