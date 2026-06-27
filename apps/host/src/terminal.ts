@@ -898,6 +898,30 @@ async function handle(
     socket.close();
     return;
   }
+  // The client sends its first {"resize":[c,r]} within a tick or two of the
+  // WebSocket opening, but the pty (and pipePtyToSocket's message handler) is
+  // only created AFTER the vault/cwd/tmux awaits below. Without this early
+  // capture that first resize hits a socket with no "message" listener and is
+  // dropped — so the pty keeps the URL size, which is stale on a fresh page
+  // load (the container wasn't laid out when the URL was built) and never gets
+  // corrected if the client's later fit sees no size change. Capture the latest
+  // resize here and apply it once the pty exists.
+  let pendingResize: [number, number] | null = null;
+  const earlyResize = (data: Buffer, isBinary: boolean): void => {
+    if (isBinary) return;
+    try {
+      const msg = JSON.parse(data.toString());
+      if (Array.isArray(msg.resize)) {
+        pendingResize = [
+          Math.max(20, Math.round(Number(msg.resize[0])) || 80),
+          Math.max(5, Math.round(Number(msg.resize[1])) || 24),
+        ];
+      }
+    } catch {
+      /* not a JSON control frame */
+    }
+  };
+  socket.on("message", earlyResize);
   const rec = await host.vault.get<SessionRecord>("sessions", sessionId);
   if (!rec) {
     socket.send("orden: session not found\r\n");
@@ -984,6 +1008,12 @@ async function handle(
   // first-keystroke "touched" mark, and title-timer cleanup + untouched-kill in
   // its own close handler below.
   let touched = false;
+  // Hand the message loop to pipePtyToSocket, then apply any resize that
+  // arrived during the async setup above. removeListener -> on is synchronous,
+  // so no frame can slip between them; the captured size overrides the
+  // possibly-stale URL size the pty was spawned with.
+  socket.off("message", earlyResize);
+  if (pendingResize) term.resize(pendingResize[0], pendingResize[1]);
   pipePtyToSocket(term, socket, () => {
     if (!touched) {
       touched = true;
