@@ -33,11 +33,27 @@ export function renderImageView(
   return { wrap, img, layer };
 }
 
+// Inject a <base href> into an HTML document's <head> so relative resource links
+// (Quarto/Pandoc emit `<link href="x_files/libs/…">`, `<script src>`, `<img>`)
+// resolve against the file's own directory. A srcdoc iframe otherwise inherits the
+// PARENT app's URL as its base, so every relative link 404s and the page renders
+// with only its inline <style> — losing its theme CSS. The base must precede the
+// first relative link, so it goes right after the <head> open tag (or, lacking a
+// head, at the very front). The href is a same-origin /repo-file/ url built from
+// pre-encoded segments, so it carries no `"`/`<`; escape defensively regardless.
+function injectBaseHref(html: string, baseHref: string): string {
+  const tag = `<base href="${baseHref.replace(/&/g, "&amp;").replace(/"/g, "%22")}">`;
+  const headOpen = /<head[^>]*>/i;
+  return headOpen.test(html) ? html.replace(headOpen, (m) => m + tag) : tag + html;
+}
+
 // Returns the iframe so callers can hook its `load` event and reach contentDocument
 // (owned files render same-origin, so the parent can annotate inside them — Task 8).
+// `baseHref` (owned files only) is the /repo-file/ url of the doc's directory so its
+// relative CSS/JS/image links load; see injectBaseHref.
 export function renderHtmlView(
   container: HTMLElement,
-  doc: { title: string; content: string; owned?: boolean },
+  doc: { title: string; content: string; owned?: boolean; baseHref?: string },
 ): HTMLIFrameElement {
   container.replaceChildren();
   const frame = document.createElement("iframe");
@@ -47,7 +63,7 @@ export function renderHtmlView(
   // contentDocument to annotate it. External pages stay null-origin: scripts run
   // but with no access to app origin state (cookies, vault, localStorage).
   frame.setAttribute("sandbox", doc.owned ? "allow-scripts allow-same-origin" : "allow-scripts");
-  frame.srcdoc = doc.content;
+  frame.srcdoc = doc.baseHref ? injectBaseHref(doc.content, doc.baseHref) : doc.content;
   container.append(frame);
   return frame;
 }

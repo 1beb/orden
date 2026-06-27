@@ -92,6 +92,17 @@ describe("repoFileMime", () => {
   it("falls back to octet-stream for unknown extensions", () => {
     expect(repoFileMime("a.bin")).toBe("application/octet-stream");
   });
+
+  it("serves rendered-HTML assets with their real content-type", () => {
+    // A stylesheet sent as octet-stream is refused by browsers in standards mode,
+    // so these must carry their true type for a rendered doc to keep its styling.
+    expect(repoFileMime("theme.css")).toBe("text/css; charset=utf-8");
+    expect(repoFileMime("bootstrap.min.js")).toBe("text/javascript; charset=utf-8");
+    expect(repoFileMime("font.woff2")).toBe("font/woff2");
+    expect(repoFileMime("font.woff")).toBe("font/woff");
+    expect(repoFileMime("font.ttf")).toBe("font/ttf");
+    expect(repoFileMime("STYLE.CSS")).toBe("text/css; charset=utf-8");
+  });
 });
 
 // Minimal mock req/res to exercise the handler's status codes.
