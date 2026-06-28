@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,5 +58,79 @@ describe("Host over WebSocket", () => {
     await expect(
       client.sessions.spawn("p1", { title: "x", agent: "claude" }),
     ).rejects.toThrow(/create sessions from the UI/);
+  });
+});
+
+// A controllable fake socket for transport-resilience tests: opens on a
+// microtask after construction (like a real ws), send() throws unless OPEN,
+// close() fires onclose. Lets us exercise the drop/reconnect window without a
+// real server or real timers. Records every instance so a test can grab the
+// live socket to drop it.
+class FakeSock {
+  static instances: FakeSock[] = [];
+  url: string;
+  onopen: ((e: unknown) => void) | null = null;
+  onmessage: ((e: { data: unknown }) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  onclose: ((e: unknown) => void) | null = null;
+  open = false;
+  constructor(url: string) {
+    this.url = url;
+    FakeSock.instances.push(this);
+    queueMicrotask(() => {
+      this.open = true;
+      this.onopen?.({});
+    });
+  }
+  send(data: string): void {
+    void data;
+    if (!this.open) throw new Error("InvalidStateError");
+  }
+  close(): void {
+    this.open = false;
+    this.onclose?.({});
+  }
+}
+
+describe("wsTransport resilience", () => {
+  beforeEach(() => {
+    FakeSock.instances = [];
+  });
+
+  test("a request fired while the socket is down fails fast instead of hanging", async () => {
+    // Regression: a request made during the reconnect window used to be added
+    // to `pending` then orphaned (send threw, was swallowed), so it never
+    // settled and the caller hung — a doc click that did nothing. It must now
+    // reject immediately with "connection lost".
+    vi.useFakeTimers();
+    try {
+      const c = await createWsTransport("ws://fake", FakeSock);
+      // Drop the live socket: failPending runs, a reconnect is scheduled on a
+      // faked timer we never advance, so no replacement socket appears yet.
+      FakeSock.instances[FakeSock.instances.length - 1].close();
+      // A request fired in that dead window must settle, not hang.
+      const res = await c.transport({ id: 1, path: ["vault", "get"], args: [] });
+      expect(res).toEqual({ id: 1, ok: false, error: "connection lost" });
+      await c.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("a request sent while the socket is open is still tracked normally", async () => {
+    // Guard against the fix over-correcting: an OPEN socket must still record
+    // the request so its response can settle it.
+    vi.useFakeTimers();
+    try {
+      const c = await createWsTransport("ws://fake", FakeSock);
+      const live = FakeSock.instances[FakeSock.instances.length - 1];
+      const p = c.transport({ id: 2, path: ["vault", "get"], args: [] });
+      // Socket was open → request is on the wire; deliver a response by hand.
+      live.onmessage?.({ data: JSON.stringify({ id: 2, ok: true, result: 42 }) });
+      await expect(p).resolves.toEqual({ id: 2, ok: true, result: 42 });
+      await c.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

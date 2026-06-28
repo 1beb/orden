@@ -103,12 +103,17 @@ export function createWsTransport(
 
     const transport: Transport = (req: RpcRequest) =>
       new Promise<RpcResponse>((res) => {
-        pending.set(req.id, res);
         try {
           ws.send(JSON.stringify(req));
+          pending.set(req.id, res); // only track requests actually on the wire
         } catch {
-          // socket not open right now; it'll reject via failPending on close,
-          // or the next request after reconnect will succeed.
+          // Socket isn't OPEN (dropped, mid-reconnect). Settle now so the caller
+          // fails fast instead of hanging: a reconnected socket never re-sends a
+          // request queued before it opened, so leaving it in `pending` would
+          // never resolve. Without this, a request fired during the reconnect
+          // window (e.g. over a flaky link, or right after a host restart) hangs
+          // forever — which is why clicking a doc sometimes does nothing.
+          res({ id: req.id, ok: false, error: "connection lost" });
         }
       });
 
