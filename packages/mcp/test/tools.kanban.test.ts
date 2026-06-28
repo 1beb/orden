@@ -15,6 +15,7 @@ import {
   panelOpen,
 } from "../src/tools";
 import type { Host, VaultStore } from "@orden/host-api";
+import { cardDocSummaries } from "../src/sessionLink";
 
 const seed = (): VaultStore =>
   fakeVault({
@@ -205,13 +206,34 @@ describe("cardComplete", () => {
     // The entry is a second-level (indented) child of the section.
     expect(journal).toMatch(/^  - \d\d:\d\d Completed "Fix login" — shipped the fix \[\[Project: Alpha\]\] \[\[Session: s1\]\]$/m);
   });
-  it("includes the plan suffix when the card has a planDoc", async () => {
+  it("lists the plan doc as a journal sub-point when the card has a planDoc", async () => {
     const v = seed();
     const card = await v.get<Record<string, unknown>>("cards", "c1");
     await v.set("cards", "c1", { ...card, planDoc: "docs/plans/p.md" });
     await cardComplete(v, "c1", "done");
     const journal = await v.get<string>("journal", todayKey());
-    expect(journal).toContain("· plan: docs/plans/p.md");
+    // The plan doc is now a nested (4-space) [[Doc:]] sub-point under the
+    // completion line, not the old inline "· plan:" suffix.
+    expect(journal).not.toContain("· plan:");
+    expect(journal).toMatch(/^    - \[\[Doc: docs\/plans\/p\.md\]\]$/m);
+  });
+  it("writes a nested sub-point per associated doc, with descriptions", async () => {
+    const v = seed();
+    // c1's session s1 surfaced two docs — one with a description, one without.
+    await v.set("doclinks", "docs/report.html", {
+      sessionId: "s1",
+      description: "rendered findings writeup",
+    });
+    await v.set("doclinks", "docs/notes.md", { sessionId: "s1" });
+    await cardComplete(v, "c1", "shipped");
+    const journal = await v.get<string>("journal", todayKey());
+    // Parent completion line at 2-space indent …
+    expect(journal).toMatch(
+      /^  - \d\d:\d\d Completed "Fix login" — shipped \[\[Project: Alpha\]\] \[\[Session: s1\]\]$/m,
+    );
+    // … with each doc as a 4-space sub-point; description follows the link.
+    expect(journal).toMatch(/^    - \[\[Doc: docs\/report\.html\]\] — rendered findings writeup$/m);
+    expect(journal).toMatch(/^    - \[\[Doc: docs\/notes\.md\]\]$/m);
   });
   it("works with no summary and creates the journal page", async () => {
     const v = seed();
@@ -379,6 +401,38 @@ describe("logCardCompletion", () => {
     const journal = await v.get<string>("journal", journalKey(new Date(AT)));
     expect(journal).toContain('Completed "Write docs"');
     expect(journal).not.toContain("—");
+  });
+});
+
+describe("cardDocSummaries", () => {
+  it("collects the planDoc and the card sessions' surfaced docs", async () => {
+    const v = seed();
+    await v.set("doclinks", "docs/report.html", { sessionId: "s1", description: "writeup" });
+    await v.set("doclinks", "docs/other.md", { sessionId: "s1" });
+    // A doc surfaced by an unrelated session is excluded.
+    await v.set("doclinks", "docs/stranger.md", { sessionId: "sX" });
+    const card = { ...(await v.get<Record<string, unknown>>("cards", "c1")), planDoc: "docs/plans/p.md" };
+    const docs = await cardDocSummaries(v, card as never);
+    expect(docs).toContainEqual({ path: "docs/report.html", description: "writeup" });
+    expect(docs).toContainEqual({ path: "docs/other.md" });
+    expect(docs).toContainEqual({ path: "docs/plans/p.md" });
+    expect(docs.find((d) => d.path === "docs/stranger.md")).toBeUndefined();
+  });
+  it("keeps a description when a doc is both the planDoc and a surfaced doc", async () => {
+    const v = seed();
+    await v.set("doclinks", "docs/plans/p.md", { sessionId: "s1", description: "the plan" });
+    const card = { ...(await v.get<Record<string, unknown>>("cards", "c1")), planDoc: "docs/plans/p.md" };
+    const docs = await cardDocSummaries(v, card as never);
+    // Only one entry (de-duped by path), and it carries the description.
+    expect(docs.filter((d) => d.path === "docs/plans/p.md")).toEqual([
+      { path: "docs/plans/p.md", description: "the plan" },
+    ]);
+  });
+  it("returns only the planDoc when the card has no surfaced docs", async () => {
+    const v = seed();
+    const card = { ...(await v.get<Record<string, unknown>>("cards", "c2")), planDoc: "docs/plans/x.md" };
+    const docs = await cardDocSummaries(v, card as never);
+    expect(docs).toEqual([{ path: "docs/plans/x.md" }]);
   });
 });
 

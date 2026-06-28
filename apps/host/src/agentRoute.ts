@@ -110,9 +110,11 @@ export async function handleAgentRequest(
         projectId = target.startsWith("/") ? "host" : sid ? await rootForSession(host, sid) : undefined;
       }
       // Mirror the MCP server: a project-relative doc the agent surfaces links
-      // to its session, so annotations route back here.
+      // to its session, so annotations route back here. `description` (docs
+      // only) is carried through to the doclink so it surfaces as a journal
+      // sub-point on completion, same as the MCP path.
       if (kind === "doc" && projectId !== "host" && target.length > 0 && sid) {
-        void recordDocLink(host.vault, target, sid);
+        void recordDocLink(host.vault, target, sid, { description: str(body.description) });
       }
       send(res, 200, true, toolText(await panelOpen(host.vault, kind, target, projectId)));
       return;

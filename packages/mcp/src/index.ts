@@ -34,6 +34,7 @@ export {
   recordDocLink,
   docLinkSessionId,
   sessionByWorkdir,
+  cardDocSummaries,
   DOCLINKS_NS,
 } from "./sessionLink";
 export type {
@@ -43,6 +44,7 @@ export type {
   PlanDocSessions,
   DocSessionResult,
   DocLink,
+  CardDocSummary,
 } from "./sessionLink";
 export { renderSingle, renderBatch } from "./annotationMessage";
 export type { DeliverableAnnotation } from "./annotationMessage";

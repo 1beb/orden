@@ -4816,6 +4816,7 @@ li.sess-done-head {
 }
 .card-modal__doc {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -4848,6 +4849,14 @@ li.sess-done-head {
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 1px 6px;
+}
+.card-modal__doc-desc {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .card-modal__footer {
   display: flex;

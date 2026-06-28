@@ -291,13 +291,16 @@ export interface CardDoc {
   path: string; // the doc path (doclinks key / planDoc value)
   projectId: string; // file root to open it under (passed to openRepoFile)
   source: "plan" | "session"; // explicit planDoc vs a doc a session surfaced
+  /** Agent-supplied one-line "what this includes"; shown beside the doc. */
+  description?: string;
 }
 
 // A single doclink record (mirrors @orden/mcp's DocLink). Read on demand from
 // the host vault — not part of the boot-hydrated card cache.
-interface DocLinkRec {
+export interface DocLinkRec {
   sessionId: string;
   at?: number;
+  description?: string;
 }
 
 /**
@@ -330,7 +333,7 @@ export async function cardDocuments(item: Item): Promise<CardDoc[]> {
       // Absolute paths open through the host root (openRepoFile self-corrects);
       // a relative path lives under the surfacing session's worktree root.
       const projectId = path.startsWith("/") ? "host" : `session:${link.sessionId}`;
-      docs.push({ path, projectId, source: "session" });
+      docs.push({ path, projectId, source: "session", ...(link.description ? { description: link.description } : {}) });
     }
   }
 
