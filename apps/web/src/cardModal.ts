@@ -335,6 +335,13 @@ async function renderDocuments(
       row.append(badge);
     }
 
+    if (doc.description) {
+      const desc = document.createElement("span");
+      desc.className = "card-modal__doc-desc";
+      desc.textContent = doc.description;
+      row.append(desc);
+    }
+
     row.addEventListener("click", () => onOpen(doc.path, doc.projectId));
     el.append(row);
   }

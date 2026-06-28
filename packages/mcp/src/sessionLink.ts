@@ -144,16 +144,27 @@ export interface DocLink {
   sessionId: string;
   /** Epoch ms of the most recent open, for debugging / future LRU. */
   at?: number;
+  /**
+   * One-line description of what the document includes, supplied by the agent
+   * when it surfaces the doc (panel_open). Surfaced as a sub-point under the
+   * card's journal completion entry. Absent when the doc was opened without one
+   * (e.g. a user click in the web UI).
+   */
+  description?: string;
 }
 
 export async function recordDocLink(
   vault: VaultStore,
   docPath: string,
   sessionId: string,
-  at?: number,
+  opts?: { at?: number; description?: string },
 ): Promise<void> {
   if (!docPath || !sessionId) return;
-  await vault.set(DOCLINKS_NS, docPath, { sessionId, ...(at ? { at } : {}) } satisfies DocLink);
+  const rec: DocLink = { sessionId };
+  if (typeof opts?.at === "number") rec.at = opts.at;
+  const desc = opts?.description?.trim();
+  if (desc) rec.description = desc;
+  await vault.set(DOCLINKS_NS, docPath, rec);
 }
 
 export async function docLinkSessionId(
@@ -220,6 +231,42 @@ export async function sessionsForDoc(
   }
 
   return { sessionIds: [], card: null, via: "none" };
+}
+
+/** A document associated with a card, with an optional agent-supplied summary. */
+export interface CardDocSummary {
+  path: string;
+  description?: string;
+}
+
+/**
+ * The documents associated with a card — its sessions' surfaced docs (doclinks,
+ * which may carry an agent-supplied description) plus the explicit `planDoc` —
+ * for the journal completion sub-points and the card modal's document list.
+ * Session-surfaced docs are collected first so a description attached to a doc
+ * that is ALSO the plan doc is preserved; planDoc fills in only if not already
+ * present. De-duplicated by path; pure vault reads.
+ */
+export async function cardDocSummaries(vault: VaultStore, card: CardRec): Promise<CardDocSummary[]> {
+  const out: CardDocSummary[] = [];
+  const seen = new Set<string>();
+  const add = (path: string, description?: string): void => {
+    const p = path?.trim();
+    if (!p || seen.has(p)) return;
+    seen.add(p);
+    const d = description?.trim();
+    out.push(d ? { path: p, description: d } : { path: p });
+  };
+
+  const sessionIds = new Set(cardSessionIds(card));
+  if (sessionIds.size > 0) {
+    for (const path of await vault.list(DOCLINKS_NS)) {
+      const link = await vault.get<DocLink>(DOCLINKS_NS, path);
+      if (link?.sessionId && sessionIds.has(link.sessionId)) add(path, link.description);
+    }
+  }
+  if (typeof card.planDoc === "string" && card.planDoc) add(card.planDoc);
+  return out;
 }
 
 export async function findCard(vault: VaultStore, target: string): Promise<FindResult> {

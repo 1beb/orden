@@ -7,7 +7,7 @@ import type { Host, VaultStore, PublishResult } from "@orden/host-api";
 // journalKey flows through the host-api spine (which re-exports the DOM-free
 // outliner helper), so mcp doesn't depend on @orden/outliner directly.
 import { journalKey } from "@orden/host-api";
-import { findCard, cardSessionIds, type CardRec, type SessionRec } from "./sessionLink";
+import { findCard, cardSessionIds, cardDocSummaries, type CardRec, type SessionRec } from "./sessionLink";
 import { putLearning, getLearning, type Learning, type LearningType } from "./learnings";
 
 export interface ToolResult {
@@ -262,20 +262,27 @@ async function appendAutoLog(
   vault: VaultStore,
   key: string,
   entry: string,
-  ns = "pages",
+  opts: { ns?: string; children?: string[] } = {},
 ): Promise<void> {
+  const { ns = "pages", children = [] } = opts;
   const cur = mergeAutoSections((await vault.get<string>(ns, key)) ?? "");
+  // The parent entry sits one indent under the "Automatic Logging" bullet;
+  // grandchildren (one indent deeper) carry nested sub-points like a doc list.
   const child = `${INDENT}- ${entry}`;
+  const grand = children.map((c) => `${INDENT}${INDENT}- ${c}`);
+  const block = [child, ...grand];
   const lines = cur.split("\n");
-  // Idempotent: a byte-identical entry is already logged. Auto entries carry a
-  // timestamp + summary, so an exact match within the same minute is a repeat
-  // write (MCP double-dispatch, or the direct call and the host reactor both
-  // firing for one completion), not two distinct events — collapse to one.
+  // Idempotent: a byte-identical parent entry is already logged. Auto entries
+  // carry a timestamp + summary, so an exact match within the same minute is a
+  // repeat write (MCP double-dispatch, or the direct call and the host reactor
+  // both firing for one completion), not two distinct events — collapse to one.
+  // The grandchild doc lines are recomputed identically on both calls, so
+  // checking the parent line alone is sufficient.
   if (lines.includes(child)) return;
   const head = lines.findIndex((l) => AUTO_SECTION_RE.test(l));
   if (head === -1) {
     const body = cur.trimEnd();
-    await vault.set(ns, key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${child}\n`);
+    await vault.set(ns, key, (body ? body + "\n" : "") + `- ${AUTO_SECTION}\n${block.join("\n")}\n`);
     return;
   }
   // Insert after the section's last existing child (a deeper-indented line),
@@ -287,7 +294,7 @@ async function appendAutoLog(
     if (l.startsWith(" ") || l.startsWith("\t")) at = i + 1;
     else break;
   }
-  lines.splice(at, 0, child);
+  lines.splice(at, 0, ...block);
   let out = lines.join("\n");
   if (!out.endsWith("\n")) out += "\n";
   await vault.set(ns, key, out);
@@ -370,17 +377,19 @@ export async function logCardCompletion(vault: VaultStore, card: CardRec): Promi
   await appendAutoLog(vault, cardLogKey(card.id), `${time} Completed${sum ? " — " + sum : ""}`);
 
   // Journal: a single entry on the completion day's page linking back to the
-  // project and sessions (and the plan doc, when one is associated).
+  // project and sessions, with one nested sub-point per associated document
+  // (plan doc + every doc the sessions surfaced). Each doc sub-point is a
+  // clickable [[Doc: <path>]] link followed by the agent's description of what
+  // it includes, when one was supplied at panel_open time.
   const link = await projectLink(vault, card.projectId);
   const sessions = await sessionLinks(vault, card);
-  const plan =
-    typeof card.planDoc === "string" && card.planDoc ? ` · plan: ${card.planDoc}` : "";
-  const entry =
-    [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link, ...sessions]
-      .filter(Boolean)
-      .join(" ") +
-    plan;
-  await appendAutoLog(vault, journalKey(when, tz), entry, "journal");
+  const entry = [`${time} Completed "${card.title}"`, sum ? `— ${sum}` : "", link, ...sessions]
+    .filter(Boolean)
+    .join(" ");
+  const docChildren = (await cardDocSummaries(vault, card)).map(
+    (d) => `[[Doc: ${d.path}]]${d.description ? ` — ${d.description}` : ""}`,
+  );
+  await appendAutoLog(vault, journalKey(when, tz), entry, { ns: "journal", children: docChildren });
 }
 
 // Ranking for picking the card-level publish stamp when a card has several

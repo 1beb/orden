@@ -43,6 +43,7 @@ import {
   promptForItem,
   removeItem,
   type Item,
+  type DocLinkRec,
 } from "./cards";
 import {
   hydrateLearnings,
@@ -1548,6 +1549,15 @@ const journal = mountJournal(
       }
       return true;
     }
+    // [[Doc: <path>]] links (emitted as journal sub-points on card completion)
+    // open the document in the main panel. A relative path resolves under the
+    // session that surfaced it (its doclink), else the repo root; an absolute
+    // path opens directly through the host root.
+    const docM = /^Doc:\s*(.+)$/i.exec(target);
+    if (docM) {
+      void openDocLink(docM[1].trim());
+      return true;
+    }
     return false;
   },
   // Render [[Session: <id>]] links as session-open buttons (agent brand mark
@@ -2028,6 +2038,21 @@ function updateHtmlToggle(path: string | null): void {
 // records a recent. Markdown → prose/annotation editor; images → image viewer;
 // HTML → rendered (sandboxed iframe) or source per the effective flag; all else
 // → read-only code viewer.
+//
+// Open a document referenced by a [[Doc: <path>]] journal sub-point. An absolute
+// path opens through the host root; a relative path opens under the session that
+// surfaced it (its doclink), falling back to the repo root when no session owns
+// it (e.g. a plan doc that was never opened from a worktree).
+async function openDocLink(path: string): Promise<void> {
+  if (path.startsWith("/")) {
+    void openRepoFile("host", path);
+    return;
+  }
+  const link = await host.vault.get<DocLinkRec>("doclinks", path);
+  const projectId = link?.sessionId ? `session:${link.sessionId}` : "repo";
+  void openRepoFile(projectId, path);
+}
+
 async function openRepoFile(projectId: string, path: string): Promise<void> {
   // An absolute path is a specific file on disk the user asked to see, not a
   // project file — resolve it through the host root (see makeProjectRootResolver
@@ -2072,11 +2097,19 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   // feedback back to it. A doc opened under a session's worktree root
   // (projectId "session:<id>") is owned by that session; keyed by the same path
   // string reviewPlanDoc() sends. (Worktree/absolute opens are also resolvable
-  // host-side from the path, so this is the belt to that suspenders.)
+  // host-side from the path, so this is the belt to that suspenders.) Preserve
+  // any agent-supplied description so a user-initiated open (or the panel-intent
+  // open that follows an agent's panel_open) doesn't clobber the description the
+  // agent recorded moments earlier — it's needed for the journal sub-point.
   if (projectId.startsWith("session:")) {
-    void host.vault.set("doclinks", path, {
-      sessionId: projectId.slice("session:".length),
-    });
+    const sid = projectId.slice("session:".length);
+    void (async () => {
+      const prev = await host.vault.get<DocLinkRec>("doclinks", path);
+      await host.vault.set("doclinks", path, {
+        sessionId: sid,
+        ...(prev?.description ? { description: prev.description } : {}),
+      });
+    })();
   }
 
   if (kind === "prose") {

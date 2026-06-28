@@ -21,7 +21,7 @@ __LEARNINGS__
 - Your session may run in an ISOLATED git worktree on its own orden/<slug> branch. Commit your work there as you go — card_complete verifies a clean tree, pushes the branch, and opens a PR. It REFUSES on uncommitted changes; pass force:true only when the user explicitly says to complete without publishing. NEVER merge to the default branch yourself — integration is the user's process.
 - Use card_set_plan to associate a docs/plans/*.md planning doc with a card.
 - Capture stray ideas with session_create — they appear in the planning column for later; they do not interrupt this thread.
-- Proactively panel_open any doc you write or render for review (md/html/qmd/ipynb) the moment it is ready — don't wait to be asked. Use panel_open for the board, a page, or a card too when it helps.
+- Proactively panel_open any doc you write or render for review (md/html/qmd/ipynb) the moment it is ready — don't wait to be asked. Use panel_open for the board, a page, or a card too when it helps. For a doc, pass a one-line "description" of what it includes; it's linked from the card and shown as a sub-point under the card's journal completion entry.
 - If the orden MCP server drops mid-session (tools vanish), the host mirrors panel_open + card_move + card_create over plain HTTP at POST http://127.0.0.1:$ORDEN_PORT/agent/{panel-open,card-move,card-create}?orden_session_id=$ORDEN_SESSION_ID — curl them from a shell so the panel and board keep working.
 - card_get/card_move with no target act on THIS session's card.`;
 
@@ -325,9 +325,19 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
           .string()
           .optional()
           .describe("doc path (project-relative or absolute), page name, or card id/title; omit for kanban"),
+        description: z
+          .string()
+          .optional()
+          .describe(
+            "docs only: one-line summary of what the document includes; surfaced as a sub-point under the card's journal completion entry",
+          ),
       },
     },
-    async ({ kind, target }) => {
+    async ({ kind, target, description }) => {
+      // `description` is optional and only meaningful for docs (a one-line
+      // "what this includes" surfaced as a journal sub-point on completion), but
+      // zod's extra-keys handling means declaring it once on the schema is the
+      // cleanest place to receive it regardless of kind.
       const t = target ?? "";
       const root =
         kind === "doc" ? (t.startsWith("/") ? "host" : await currentRootId()) : undefined;
@@ -336,7 +346,7 @@ export async function createMcpServer(host: Host, ctx?: { conversationId?: strin
       // rule). Absolute ("host" root) paths aren't project files, so skip them.
       if (kind === "doc" && root !== "host" && t.length > 0) {
         const sid = await currentSessionId();
-        if (sid) void recordDocLink(host.vault, t, sid);
+        if (sid) void recordDocLink(host.vault, t, sid, { description });
       }
       return tools.panelOpen(host.vault, kind, t, root);
     },
