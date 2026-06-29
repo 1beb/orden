@@ -13,6 +13,7 @@ import type {
   SlashCommand,
 } from "@orden/chat-core";
 import { createSdkTranslator } from "../sdkMessageToEvents";
+import { resolveClaudeBinary } from "../claudeBinary";
 
 // The SDK `query` entrypoint, injected so the adapter is testable without a
 // live Claude process. Mirrors the real signature exactly.
@@ -138,6 +139,11 @@ export function makeClaudeAdapter(deps?: { query?: QueryFn }): HarnessAdapter {
         includePartialMessages: true,
       };
       if (cwd) options.cwd = cwd;
+      // Pick the libc-correct bundled binary. The SDK's own resolver prefers
+      // the musl variant, which fails to exec on a glibc host when pnpm has
+      // installed both platform packages. null → let the SDK resolve itself.
+      const claudeBinary = resolveClaudeBinary();
+      if (claudeBinary) options.pathToClaudeCodeExecutable = claudeBinary;
 
       // Start the query eagerly in streaming-input mode; `send` feeds `input`.
       const q = query({ prompt: input, options });
