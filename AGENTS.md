@@ -185,6 +185,19 @@ it — there is no direct localStorage; `apps/web/src/main.ts` wires the hydrati
 projects/pages/cards/sessions/annotations, and the change feed keeps views live through
 the per-namespace handlers registered on `vaultChangeRouter.ts`.
 
+**Search, backlinks & page bodies are host-side.** Page/journal full-text search and
+[[wiki-link]] backlinks go through `host.search` (`SearchService`: `query` / `backlinks`
+/ `backlinkCounts`), a derived index the host maintains — NodeHost keeps a SQLite FTS5
+db at `<vault>/index.db`, live off the change feed and rebuilt at boot; BrowserHost does
+an in-memory scan. Because of this the web **does not hydrate page/journal bodies**:
+`apps/web/src/pages.ts` keeps only the NAME lists + `pagemeta` resident and fetches a
+body on demand via the async `getPageBody` (backed by a small LRU); omnisearch
+(`commandPalette.ts` sources are async) and the backlink panels call the host. Renaming
+a page — re-key + rewrite every `[[OldName]]` across pages AND journal — is the host op
+`host.renamePage` (the shared `renamePageInVault` helper in `host-api`, run over the
+vault by both hosts), NOT a resident-body scan. Design:
+`docs/plans/2026-06-17-host-side-search-index.md`.
+
 ### Agent sessions
 
 `apps/host/src/nodeSessions.ts` spawns and resumes real Claude Code / opencode
@@ -255,18 +268,10 @@ for every agent by `sessionLaunchEnv` (`terminal.ts`).
 
 **Kanban card-state semantics** (enforced across MCP tools and hooks):
 `planning`=idle, `in-progress`=working, `blocked`=done-with-turn/waiting-on-user,
-`complete`=user/LLM-only, `on-hold`=user-only manual park (furled by default).
-`card_move` cannot reach `complete` (use `card_complete`) NOR `on-hold` (the agent
-must never park a card); on-hold is reachable only by the user (board drag / card
-modal). The hook-driven auto-cycle (planning/in-progress/blocked) never moves a card
-out of a **non-automatic** lane — `LifecycleConfig.nonAutomatic` (default `complete`
-+ `on-hold`) — so a held card stays held until the user releases it. The lane set,
-order, labels, and this policy live in `@orden/workflows` (`DEFAULT_LIFECYCLE`),
-re-exported via `@orden/host-api` (`Host.lifecycle()`); the `@orden/outliner` board
-primitives are generic and receive lanes as a parameter (no orden policy baked in).
-The auto-cycle between states is driven by agent **hooks** (`apps/host/src/hooks.ts`),
-not MCP, because MCP can't observe the session lifecycle. See
-`docs/plans/2026-06-19-on-hold-and-lifecycle-config.md`.
+`complete`=user-only. `card_move` cannot reach `complete`; only `card_complete` can,
+and only on the user's explicit say-so. The auto-cycle between states is driven by
+agent **hooks** (`apps/host/src/hooks.ts`), not MCP, because MCP can't observe the
+session lifecycle.
 
 **Learnings on completion.** Right before `card_complete`, the completing agent distills
 what the session changed into **learnings** via `learning_propose` — one per proposed
