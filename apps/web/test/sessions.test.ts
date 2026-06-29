@@ -288,6 +288,24 @@ describe("sessions store (host-backed)", () => {
     expect(rec?.pendingLaunch).toBe(true);
   });
 
+  it("stamps a TAIL claude session's mode and KEEPS pendingLaunch (it runs tmux)", async () => {
+    const h = new BrowserHost();
+    await h.vault.set("settings", "app", {
+      defaultMode: { claude: "tail", opencode: "tui" },
+    } as Partial<Settings>);
+    await hydrateProjects(h);
+    await hydrateCards(h);
+    await hydrateSessions(h);
+    await hydrateSettings(h);
+
+    const s = createSession({ title: "Tail claude", agent: "claude" });
+    expect(s.mode).toBe("tail");
+    await settle();
+    const rec = await h.vault.get<Session & { pendingLaunch?: boolean }>("sessions", s.id);
+    expect(rec?.mode).toBe("tail");
+    expect(rec?.pendingLaunch).toBe(true);
+  });
+
   it("opencode respects its own defaultMode independently of claude", async () => {
     const h = new BrowserHost();
     await h.vault.set("settings", "app", {

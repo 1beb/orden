@@ -346,6 +346,26 @@ describe("sessionsPanel mode-gated surfaces", () => {
     expect(d.container.querySelector(".term-tab")).toBeNull();
   });
 
+  it("tail: shows only Chat (mirrored tmux) — chat mounts, terminal does not, no Terminal tab", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("tail");
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(chatMounts.map((s) => s.id)).toEqual(["s1"]);
+    expect(termMounts).toEqual([]);
+    expect(d.container.querySelector(".term-tab")).toBeNull();
+  });
+
+  it("tail without a chat backend: falls back to Terminal (the live tmux session)", () => {
+    const { deps: d, termMounts, chatMounts } = modeDeps("tail", { mountChat: undefined });
+    document.body.append(d.container);
+    mountSessionsPanel(d);
+
+    expect(termMounts).toEqual(["s1"]);
+    expect(chatMounts).toEqual([]);
+    expect(d.container.querySelector(".sess-mode-notice")).not.toBeNull();
+  });
+
   it("tui: shows only Terminal — terminal mounts, chat does not, no Chat tab", () => {
     const { deps: d, termMounts, chatMounts } = modeDeps("tui");
     document.body.append(d.container);

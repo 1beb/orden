@@ -8,7 +8,7 @@ import { FONT_OPTIONS, DEFAULT_FONT_ID } from "./fonts";
 
 export type StartupView = "journal" | "kanban" | "last";
 export type KanbanView = "board" | "list";
-export type SessionMode = "tui" | "gui";
+export type SessionMode = "tui" | "gui" | "tail";
 export type PrForge = "auto" | "gh" | "glab" | "none";
 
 export interface Settings {
@@ -114,7 +114,7 @@ function isKanbanView(value: unknown): value is KanbanView {
 }
 
 function isMode(v: unknown): v is SessionMode {
-  return v === "tui" || v === "gui";
+  return v === "tui" || v === "gui" || v === "tail";
 }
 
 // Coerce a stored per-tool mode map, defaulting each tool to "tui".

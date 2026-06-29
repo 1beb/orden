@@ -349,24 +349,26 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
     const chatAvailable = !!deps.mountChat;
 
     // The set of surfaces this detail offers is fixed by the session's `mode`:
-    //   gui → Chat only (or Terminal+notice if the host has no chat backend);
-    //   tui → Terminal only;
+    //   gui  → Chat only (or Terminal+notice if the host has no chat backend);
+    //   tail → Chat only too — it mirrors the live tmux session's transcript, so
+    //          the terminal fallback (when no chat backend) shows the real agent;
+    //   tui  → Terminal only;
     //   absent (legacy) → Terminal always, Chat when a chat backend exists, with
     //   the user's last-chosen tab persisted across re-renders.
     // For a single-surface mode the active surface is the mode's surface; only
-    // legacy honours the module-level `activeTab`. `guiFallback` marks the case
-    // where a GUI session has no chat backend and degrades to the terminal.
-    const guiFallback = s.mode === "gui" && !chatAvailable;
-    const surfaces: ("terminal" | "chat")[] =
-      s.mode === "gui"
-        ? chatAvailable
-          ? ["chat"]
-          : ["terminal"]
-        : s.mode === "tui"
-          ? ["terminal"]
-          : chatAvailable
-            ? ["terminal", "chat"]
-            : ["terminal"];
+    // legacy honours the module-level `activeTab`. `guiFallback` marks a Chat-only
+    // mode running on a host with no chat backend, degrading to the terminal.
+    const chatMode = s.mode === "gui" || s.mode === "tail";
+    const guiFallback = chatMode && !chatAvailable;
+    const surfaces: ("terminal" | "chat")[] = chatMode
+      ? chatAvailable
+        ? ["chat"]
+        : ["terminal"]
+      : s.mode === "tui"
+        ? ["terminal"]
+        : chatAvailable
+          ? ["terminal", "chat"]
+          : ["terminal"];
     const legacy = s.mode == null;
 
     // Legacy may carry a persisted "chat" tab that's no longer available; clamp
@@ -457,7 +459,7 @@ export function mountSessionsPanel(deps: SessionsPanelDeps): SessionsPanel {
   // the terminal); legacy follows the persisted `activeTab`, clamped to what the
   // host can provide.
   function expectedSurface(s: Session): "terminal" | "chat" {
-    if (s.mode === "gui") return deps.mountChat ? "chat" : "terminal";
+    if (s.mode === "gui" || s.mode === "tail") return deps.mountChat ? "chat" : "terminal";
     if (s.mode === "tui") return "terminal";
     return activeTab === "chat" && deps.mountChat ? "chat" : "terminal";
   }

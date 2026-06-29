@@ -215,8 +215,12 @@ export interface Session {
   conversationId?: string;
   cwd: string;
   agent: "claude" | "opencode";
-  /** Surface this session opens in. Absent = legacy (both tabs, terminal default). */
-  mode?: "tui" | "gui";
+  /**
+   * Surface this session opens in. Absent = legacy (both tabs, terminal default).
+   * "tui" = terminal; "gui" = native Chat over the Agent SDK (no tmux); "tail" =
+   * the real tmux TUI mirrored into the Chat surface (subscription billing, chat view).
+   */
+  mode?: "tui" | "gui" | "tail";
 }
 
 export interface SessionManager {
