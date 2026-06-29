@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { BrowserHost } from "../src/host/browserHost";
 import {
   addProject,
+  findProjectByName,
   getProject,
   hydrateProjects,
   listProjects,
@@ -104,5 +105,30 @@ describe("projects registry (host-backed)", () => {
     await settle();
     await hydrateProjects(new BrowserHost());
     expect(getProject(p.id)?.name).toBe("Durable");
+  });
+
+  describe("findProjectByName (portable handle for deep links)", () => {
+    it("resolves a project by exact name", () => {
+      const p = addProject("orden");
+      expect(findProjectByName("orden")?.id).toBe(p.id);
+    });
+
+    it("resolves case-insensitively", () => {
+      const p = addProject("Orden");
+      expect(findProjectByName("ORDEN")?.id).toBe(p.id);
+      expect(findProjectByName("orden")?.id).toBe(p.id);
+    });
+
+    it("returns undefined for an unknown name (graceful — link falls back)", () => {
+      addProject("orden");
+      expect(findProjectByName("nope")).toBeUndefined();
+    });
+
+    it("first match wins on a name collision", () => {
+      const a = addProject("dup");
+      const b = addProject("dup");
+      expect(findProjectByName("dup")?.id).toBe(a.id);
+      expect(b.name).toBe("dup");
+    });
   });
 });

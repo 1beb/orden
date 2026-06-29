@@ -15,8 +15,15 @@ import { reanchorQuote } from "./pm-reanchor";
 import { saveState, loadState, hydrateDocs } from "./persist";
 import { hydrateOutbox } from "./sink-local";
 import {
+  createUrlRouter,
+  parseNav,
+  type NavState,
+  type UrlRouter,
+} from "./urlRouter";
+import {
   listProjects,
   getProject,
+  findProjectByName,
   hydrateProjects,
   updateProject,
 } from "./projects";
@@ -273,6 +280,16 @@ let currentDocTitle = DOC_TITLE;
 // separately from currentDoc* because we only re-arm the host watch when the
 // actual on-disk file changes, not on every view switch.
 let watchedDoc: { projectId: string; path: string } | null = null;
+
+// --- URL deep-linking -------------------------------------------------------
+// The hash mirrors the view's navigational identity (view/project/doc/page) so
+// a link reproduces the exact surface. The router is created late, once its
+// openers exist; until then navNotify is a safe no-op. Projects are referenced
+// by NAME (portable), not id — see findProjectByName.
+let urlRouter: UrlRouter | null = null;
+function navNotify(): void {
+  urlRouter?.notify();
+}
 
 // Signature of the doc+annotations the editor currently reflects, so persist
 // and reload can both skip when nothing changed. Keyed on docKey + markdown +
@@ -1539,8 +1556,10 @@ const journal = mountJournal(
   (target) => {
     const projM = /^Project:\s*(.+)$/i.exec(target);
     if (projM) {
-      const name = projM[1].trim().toLowerCase();
-      const proj = listProjects({ includeArchived: true }).find((p) => p.name.toLowerCase() === name);
+      // Same name-based resolution as deep links — one path, in findProjectByName.
+      // Searches the full cache (archived included), so a link to an archived
+      // project still resolves.
+      const proj = findProjectByName(projM[1].trim());
       if (proj) openProject(proj.id);
       return true;
     }
@@ -1594,6 +1613,8 @@ const journal = mountJournal(
     }
     return result;
   },
+  // Mirror page changes (wiki-link click, day nav, rename) into the URL hash.
+  navNotify,
 );
 
 function refreshBoard(): void {
@@ -1745,6 +1766,7 @@ function openProject(projectId: string): void {
   renderProject(projectId);
   viewStore.set("project");
   void host.vault.set("ui", "last-project", projectId);
+  navNotify();
 }
 void currentProjectId;
 
@@ -2130,6 +2152,7 @@ async function openRepoFile(projectId: string, path: string): Promise<void> {
   recordRecentFile(projectId, path);
   void host.vault.set("ui", "last-doc", { projectId, path });
   renderRecentFiles();
+  navNotify();
 }
 
 // Topbar toggle: flip this file's render/source choice for the session, then
@@ -2293,48 +2316,57 @@ const routeView = createViewRouter(viewRegistry, {
   teardownText: teardownActiveText,
   teardownImage: teardownActiveImage,
   refreshSourceSend,
-  persist: (v) => void host.vault.set("ui", "last-view", v),
+  persist: (v) => {
+    void host.vault.set("ui", "last-view", v);
+    navNotify();
+  },
   afterNavigate: () => {
     if (mobile.matches) app.classList.add("left-closed"); // close drawer after navigating
   },
 });
 viewStore.subscribe(routeView);
 
-// Route the initial view from the startup preference.
-if (settings.startup === "last") {
-  if (lastView === "project") {
-    const lastProjId = await host.vault.get<string>("ui", "last-project");
-    if (lastProjId) {
-      openProject(lastProjId);
+// Route the initial view. A deep link in the URL hash wins over the startup
+// preference; its actual apply is deferred until the openers (sessionsPanel)
+// exist — see the urlRouter creation below. With no hash, fall back to the
+// vault-based startup preference as before.
+const hasUrlDeepLink = !!parseNav(location.hash);
+if (!hasUrlDeepLink) {
+  if (settings.startup === "last") {
+    if (lastView === "project") {
+      const lastProjId = await host.vault.get<string>("ui", "last-project");
+      if (lastProjId) {
+        openProject(lastProjId);
+      } else {
+        const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
+          "ui",
+          "last-doc",
+        );
+        if (lastDoc?.projectId) {
+          openProject(lastDoc.projectId);
+        } else {
+          viewStore.set("journal");
+        }
+      }
+    } else if (lastView && !ANNOTATABLE_VIEWS.has(lastView)) {
+      // The Workflows extension can be off; don't restore into its hidden view.
+      viewStore.set(lastView === "workflows" && !settings.workflowsEnabled ? "journal" : lastView);
     } else {
       const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
         "ui",
         "last-doc",
       );
-      if (lastDoc?.projectId) {
-        openProject(lastDoc.projectId);
+      if (lastDoc?.projectId && lastDoc?.path) {
+        await openRepoFile(lastDoc.projectId, lastDoc.path);
       } else {
-        viewStore.set("journal");
+        viewStore.set(lastView ?? "journal");
       }
     }
-  } else if (lastView && !ANNOTATABLE_VIEWS.has(lastView)) {
-    // The Workflows extension can be off; don't restore into its hidden view.
-    viewStore.set(lastView === "workflows" && !settings.workflowsEnabled ? "journal" : lastView);
-  } else {
-    const lastDoc = await host.vault.get<{ projectId: string; path: string }>(
-      "ui",
-      "last-doc",
-    );
-    if (lastDoc?.projectId && lastDoc?.path) {
-      await openRepoFile(lastDoc.projectId, lastDoc.path);
-    } else {
-      viewStore.set(lastView ?? "journal");
-    }
+  } else if (settings.startup === "journal") {
+    viewStore.set("journal");
+  } else if (settings.startup === "kanban") {
+    viewStore.set("kanban");
   }
-} else if (settings.startup === "journal") {
-  viewStore.set("journal");
-} else if (settings.startup === "kanban") {
-  viewStore.set("kanban");
 }
 
 // --- Projects registry (local/remote file access arrives with the host backend) ---
@@ -2456,6 +2488,68 @@ onSessionsChange(() => {
   sessionsPanel.refresh();
   refreshProject(); // the project page's active-sessions widget
 });
+
+// --- URL deep-link router ---------------------------------------------------
+// navSnapshot reads the live navigational identity; applyNav drives the openers
+// to reproduce a parsed state (a boot deep-link, or back/forward). Projects are
+// encoded/decoded by NAME (portable across instances); findProjectByName is the
+// single resolution point. Both close over the app singletons, so the router is
+// created last, after they all exist.
+function navSnapshot(): NavState {
+  const view = viewStore.get();
+  const state: NavState = { view };
+  const proj = currentProjectId ? getProject(currentProjectId) : null;
+  if (proj) state.project = proj.name;
+  const isDocView =
+    view === "code" || view === "image" || view === "html" || view === "review";
+  // Only repo files are shareable — the built-in review:default doc isn't
+  // watched, so it (correctly) never round-trips into the hash.
+  if (isDocView && watchedDoc) {
+    state.docPath = watchedDoc.path;
+    // Encode the doc's project name only when it differs from the active one.
+    // "host" (absolute-path) and "session:<id>" (worktree) roots aren't real
+    // projects, so they encode with no project ref and resolve to the host root.
+    const docProj =
+      watchedDoc.projectId === "host" || watchedDoc.projectId.startsWith("session:")
+        ? null
+        : getProject(watchedDoc.projectId);
+    if (docProj && (!proj || docProj.name !== proj.name)) state.docProject = docProj.name;
+  }
+  if (view === "journal") {
+    const page = journal.currentPage();
+    if (page) state.page = page;
+  }
+  return state;
+}
+
+async function applyNav(state: NavState): Promise<void> {
+  const isDocView =
+    state.view === "code" ||
+    state.view === "image" ||
+    state.view === "html" ||
+    state.view === "review";
+  if (isDocView && state.docPath) {
+    // Resolve the doc's project NAME → id. Falls back to the host root when the
+    // name is absent or no longer resolves (openRepoFile then fails soft).
+    const handle = state.docProject ?? state.project;
+    const proj = handle ? findProjectByName(handle) : undefined;
+    await openRepoFile(proj ? proj.id : "host", state.docPath);
+  } else if (state.view === "project" && state.project) {
+    const proj = findProjectByName(state.project);
+    if (proj) openProject(proj.id);
+    else viewStore.set("projects"); // name didn't resolve → land on the index
+  } else if (state.view === "journal" && state.page) {
+    journal.showPage(state.page);
+    viewStore.set("journal");
+  } else {
+    // Clamp a disabled/overlay view the way the boot restore does.
+    const v = state.view === "workflows" && !settings.workflowsEnabled ? "journal" : state.view;
+    viewStore.set(v);
+  }
+}
+
+urlRouter = createUrlRouter({ snapshot: navSnapshot, apply: applyNav });
+if (hasUrlDeepLink) await urlRouter.applyInitial();
 
 // Wire [[Session: <id>]] wiki links from the journal to open sessions here.
 openSessionFromJournal = (id) => sessionsPanel.open(id);

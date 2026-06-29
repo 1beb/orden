@@ -85,6 +85,17 @@ export function getProject(id: string): Project | undefined {
   return cache.find((p) => p.id === id);
 }
 
+// Resolve a project by its NAME (case-insensitive). This is the portable,
+// shareable handle for projects — deep links and [[Project: X]] wiki links use
+// names rather than instance-local ids, so a link survives across instances.
+// On a name collision the first match wins (single-user vaults rarely collide;
+// an immutable slug would remove the ambiguity — the resolver is the single
+// place to swap in once that exists). Returns undefined when no project matches.
+export function findProjectByName(name: string): Project | undefined {
+  const lower = name.toLowerCase();
+  return cache.find((p) => p.name.toLowerCase() === lower);
+}
+
 // The catch-all project for work not tied to a folder (e.g. a session you start
 // without picking a project). Stable id so everything lands consistently.
 export const DEFAULT_PROJECT_ID = "homeroom";

@@ -45,6 +45,9 @@ export function mountJournal(
   // vault-side rename + backlink rewrite and reports success; on failure the
   // heading reverts to the old name. Absent => titles aren't editable.
   onRename?: (oldName: string, newName: string) => RenameResult | Promise<RenameResult>,
+  // Fired whenever the shown page changes (wiki-link click, day nav, rename) —
+  // lets the owner mirror it into the URL deep-link. NOT fired for feed mode.
+  onPageChange?: (name: string) => void,
 ): JournalController {
   let mode: "feed" | "page" = "feed";
   let currentName: string | null = null;
@@ -169,6 +172,7 @@ export function mountJournal(
   function showPage(name: string): void {
     mode = "page";
     currentName = name;
+    onPageChange?.(name);
     clearEditors();
     container.replaceChildren();
 

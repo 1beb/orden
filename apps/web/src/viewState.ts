@@ -14,6 +14,26 @@ export type View =
   | "learnings"
   | "help";
 
+// Authoritative list of every center view. Kept beside the `View` union so the
+// two can't drift; the URL router validates incoming deep-link targets against
+// it (an unknown view string is ignored, never restored as a bogus view).
+export const VIEWS: readonly View[] = [
+  "review",
+  "code",
+  "image",
+  "html",
+  "journal",
+  "kanban",
+  "pages",
+  "workflows",
+  "projects",
+  "project",
+  "project-settings",
+  "settings",
+  "learnings",
+  "help",
+];
+
 export interface ViewStore {
   get(): View;
   set(v: View): void;
