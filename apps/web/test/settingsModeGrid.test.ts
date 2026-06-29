@@ -24,14 +24,24 @@ describe("buildModeGrid", () => {
     expect(radio(grid, "opencode", "gui").checked).toBe(false);
   });
 
-  it("renders two labelled rows and two mode columns", () => {
+  it("renders two labelled rows and three mode columns", () => {
     const grid = buildModeGrid(current, () => {});
     expect(grid.textContent).toContain("Claude Code");
     expect(grid.textContent).toContain("OpenCode");
     expect(grid.textContent).toContain("TUI");
     expect(grid.textContent).toContain("GUI");
-    // One radio group per tool, two radios each = four radios total.
-    expect(grid.querySelectorAll('input[type="radio"]').length).toBe(4);
+    expect(grid.textContent).toContain("Tail");
+    // One radio group per tool, three radios each = six radios total.
+    expect(grid.querySelectorAll('input[type="radio"]').length).toBe(6);
+  });
+
+  it("changing the Claude row to Tail emits the merged map", () => {
+    const onChange = vi.fn();
+    const grid = buildModeGrid(current, onChange);
+    const tail = radio(grid, "claude", "tail");
+    tail.checked = true;
+    tail.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onChange).toHaveBeenCalledWith({ claude: "tail", opencode: "tui" });
   });
 
   it("changing the Claude row to TUI emits the merged map", () => {

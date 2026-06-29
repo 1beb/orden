@@ -1,6 +1,6 @@
 // The settings "default session mode" control: one row per agent tool
-// (Claude Code, opencode) with a TUI/GUI segmented control, letting the user
-// pick which surface new sessions of that tool open in. Each row is its own
+// (Claude Code, opencode) with a TUI/GUI/Tail segmented control, letting the
+// user pick which surface new sessions of that tool open in. Each row is its own
 // radio group, so exactly one mode is selected per tool. Kept as a pure
 // builder — no settings/vault access — so it unit-tests without mounting the
 // whole settings view. The settings wiring hydrates it from
@@ -17,9 +17,15 @@ const TOOLS: readonly (readonly [keyof ModeMap, string])[] = [
 ];
 
 // [mode value, segment label] pairs, one per segment.
+// "Tail" runs the real `claude` TUI in tmux (like TUI, on the subscription) but
+// opens straight into the mirrored Chat surface — the jsonl tail rendered as a
+// GUI — instead of the terminal. So it pairs subscription billing with the chat
+// view, where "GUI" drives the Agent SDK (API-metered) and "TUI" shows the
+// terminal. See sessionsPanel.ts surface routing + chatMount.ts mirror path.
 const MODES: readonly (readonly [SessionMode, string])[] = [
   ["tui", "TUI"],
   ["gui", "GUI"],
+  ["tail", "Tail"],
 ];
 
 /**

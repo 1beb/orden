@@ -24,7 +24,7 @@ export interface Session {
   title: string;
   agent: Agent;
   projectId: string;
-  mode?: "tui" | "gui"; // surface the session opens in; absent = legacy (both tabs)
+  mode?: "tui" | "gui" | "tail"; // surface the session opens in; absent = legacy (both tabs)
   conversationId?: string; // agent's resumable id (H3)
   archived?: boolean; // hidden from the active list (moved to Done)
   touched?: boolean; // user interacted (a TUI keystroke)
@@ -313,8 +313,10 @@ export function createSession(opts: {
   // clears the flag and launches the tmux/pty detached). Don't wait for the
   // Terminal tab's /term socket to attach. A GUI session has no tmux — it
   // launches lazily when its Chat surface mounts — so it must NOT carry
-  // pendingLaunch. The flag is written to the vault only, not the cache, so
-  // later persists don't re-trigger a launch.
+  // pendingLaunch. A TAIL session DOES run tmux (it mirrors that session's
+  // jsonl into the Chat surface), so it launches eagerly like TUI. The flag is
+  // written to the vault only, not the cache, so later persists don't
+  // re-trigger a launch.
   if (host) {
     if (mode === "gui") {
       void host.vault.set("sessions", session.id, session);
